@@ -24,8 +24,10 @@ import DataQualityPage from './pages/DataQualityPage'
 import SettingsPage from './pages/SettingsPage'
 import NotificationBell from './components/NotificationBell'
 import { applyStoredTheme } from './lib/theme'
+import { applyLanguage } from './lib/i18n'
 
 applyStoredTheme()
+applyLanguage()
 
 function useFactoryName(): string {
   const [name, setName] = useState('ရေသန့်စက်ရုံ')

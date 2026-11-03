@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { applyStoredTheme, applyTheme, getStoredTheme, type ThemeChoice } from '../lib/theme'
+import { setLang as setAppLang } from '../lib/i18n'
 
 // Settings page: factory info (owner), per-user notification prefs,
 // phone-push status, per-device theme and language. Factory values live
@@ -158,11 +159,9 @@ export default function SettingsPage() {
 
   function chooseLang(next: string) {
     setLang(next)
-    try {
-      localStorage.setItem('wfms-lang', next)
-    } catch {
-      /* storage unavailable */
-    }
+    // The i18n engine stores the preference and applies/removes the
+    // English DOM translation immediately.
+    setAppLang(next === 'en' ? 'en' : 'my')
   }
 
   if (loading) return <p>ခဏစောင့်ပါ…</p>
@@ -346,8 +345,8 @@ export default function SettingsPage() {
         </div>
         {lang === 'en' && (
           <p className="text-sm opacity-80">
-            English ကို ရွေးရင် နောက်အဆင့်မှာ ဘာသာပြန် စနစ် ဖွင့်ပေးပါမယ်
-            (ဆက်တင် သိမ်းထားပါပြီ)။
+            English mode is on — interface labels are shown in English. Names
+            and notes you entered stay as written.
           </p>
         )}
       </section>
