@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase'
+import { supabase, usernameToEmail } from '../lib/supabase'
 import { exportBackup, getLastBackupAt, isBackupOverdue } from '../lib/backup'
 import { formatMMK, todayYangon } from '../lib/types'
 
@@ -127,6 +127,99 @@ function MonthLockCard() {
   )
 }
 
+function PinChangeCard() {
+  const { profile } = useAuth()
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  async function onChange() {
+    setMsg(null)
+    if (!profile) return
+    if (!/^\d{6,12}$/.test(next)) {
+      setMsg('PIN အသစ်သည် ဂဏန်း ၆ လုံးမှ ၁၂ လုံးအတွင်း ဖြစ်ရပါမယ်')
+      return
+    }
+    if (next !== confirm) {
+      setMsg('PIN အသစ် နှစ်ခါ ရိုက်တာ မတူပါ')
+      return
+    }
+    if (next === current) {
+      setMsg('PIN အသစ်သည် လက်ရှိ PIN နှင့် မတူရပါ')
+      return
+    }
+    setBusy(true)
+    try {
+      // Verify the current PIN by re-authenticating before changing it.
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: usernameToEmail(profile.username),
+        password: current,
+      })
+      if (signInError) {
+        setMsg('လက်ရှိ PIN မှားနေပါတယ်')
+        return
+      }
+      const { error } = await supabase.auth.updateUser({ password: next })
+      if (error) throw error
+      setCurrent('')
+      setNext('')
+      setConfirm('')
+      setMsg('PIN ပြောင်းပြီးပါပြီ — နောက်တစ်ခါ login ဝင်ရင် PIN အသစ် သုံးပါ')
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'PIN ပြောင်း၍ မရပါ')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const inputCls =
+    'w-full rounded-xl border bg-transparent px-3 py-2 text-sm outline-none focus:ring'
+  return (
+    <section className="rounded-2xl border p-4">
+      <h2 className="font-semibold">ကိုယ့် PIN ပြောင်းရန်</h2>
+      <div className="mt-3 space-y-2">
+        <input
+          className={inputCls}
+          type="password"
+          inputMode="numeric"
+          autoComplete="current-password"
+          placeholder="လက်ရှိ PIN"
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+        />
+        <input
+          className={inputCls}
+          type="password"
+          inputMode="numeric"
+          autoComplete="new-password"
+          placeholder="PIN အသစ် (ဂဏန်း ၆–၁၂ လုံး)"
+          value={next}
+          onChange={(e) => setNext(e.target.value)}
+        />
+        <input
+          className={inputCls}
+          type="password"
+          inputMode="numeric"
+          autoComplete="new-password"
+          placeholder="PIN အသစ် ထပ်ရိုက်ပါ"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+        />
+        <button
+          className="w-full rounded-xl bg-neutral-900 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+          onClick={onChange}
+          disabled={busy || !current || !next || !confirm}
+        >
+          {busy ? 'ပြောင်းနေသည်…' : 'PIN ပြောင်းမည်'}
+        </button>
+        {msg && <p className="text-sm opacity-80">{msg}</p>}
+      </div>
+    </section>
+  )
+}
+
 export default function HomePage() {
   const { profile } = useAuth()
   const [todayCount, setTodayCount] = useState<number | null>(null)
@@ -151,6 +244,7 @@ export default function HomePage() {
     <div className="space-y-4">
       {role === 'owner' && <BackupCard />}
       {(role === 'owner' || role === 'manager') && <MonthLockCard />}
+      {profile && <PinChangeCard />}
 
       <section className="rounded-2xl border p-4">
         <h2 className="font-semibold">ယနေ့ အခြေအနေ</h2>
