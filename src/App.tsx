@@ -24,7 +24,7 @@ import DataQualityPage from './pages/DataQualityPage'
 import SettingsPage from './pages/SettingsPage'
 import NotificationBell from './components/NotificationBell'
 import { DropIcon, MoreIcon, NavIcon } from './components/icons'
-import { LoadingState, SecondaryButton } from './components/ui'
+import { Card, LoadingState, PrimaryButton, SecondaryButton } from './components/ui'
 import { applyStoredTheme } from './lib/theme'
 import { applyLanguage } from './lib/i18n'
 
@@ -53,7 +53,7 @@ const NAV: { to: string; label: string; roles: string[] }[] = [
   { to: '/payments', label: 'ငွေကောက်ခံမှုများ', roles: ['owner', 'manager', 'staff', 'agent'] },
   { to: '/agents', label: 'ကိုယ်စားလှယ်များ', roles: ['owner', 'manager', 'staff'] },
   { to: '/collections', label: 'ကောက်ခံမှုနှင့် ကြွေးစာရင်း', roles: ['owner', 'manager'] },
-  { to: '/inventory', label: 'ပုလင်း စာရင်း', roles: ['owner', 'manager'] },
+  { to: '/inventory', label: 'ဗူးလက်ကျန်', roles: ['owner', 'manager'] },
   { to: '/expenses', label: 'အသုံးစရိတ်များ', roles: ['owner', 'manager'] },
   { to: '/payroll', label: 'လစာ', roles: ['owner', 'manager'] },
   { to: '/reports', label: 'အစီရင်ခံစာ', roles: ['owner', 'manager'] },
@@ -125,8 +125,27 @@ export default function App() {
     )
   }
 
-  if (!session || !profile) {
+  if (!session) {
     return <LoginPage factoryName={factoryName} />
+  }
+
+  if (!profile) {
+    // Signed in, but the account has no profile row — falling back to the
+    // login form would dead-end (submitting it changes nothing), so show a
+    // plain notice with a working sign-out instead.
+    return (
+      <div className="grid min-h-dvh place-items-center p-6">
+        <Card className="w-full max-w-md text-center">
+          <h1 className="text-lg font-bold">အကောင့် မှတ်တမ်း မတွေ့ပါ</h1>
+          <p className="mt-2 text-sm text-stone-600 dark:text-neutral-300">
+            ဒီအကောင့်အတွက် အသုံးပြုသူ မှတ်တမ်း မရှိသေးပါ — ပိုင်ရှင်ကို ဆက်သွယ်ပါ
+          </p>
+          <PrimaryButton onClick={signOut} className="mt-4 w-full">
+            ထွက်ရန်
+          </PrimaryButton>
+        </Card>
+      </div>
+    )
   }
 
   const nav = NAV.filter((n) => n.roles.some((r) => roles.includes(r)))
@@ -151,7 +170,7 @@ export default function App() {
   return (
     <div className="min-h-dvh">
       {/* Tablet icon rail (768-1023px) / desktop sidebar (>=1024px). */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[76px] flex-col border-r border-stone-200/90 bg-white dark:border-neutral-800 dark:bg-neutral-900 md:flex lg:w-64">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[76px] flex-col border-r border-stone-200/90 bg-white dark:border-neutral-800 dark:bg-neutral-900 md:flex lg:w-64 print:hidden">
         <div className="flex items-center justify-center gap-2.5 px-3 pb-2 pt-4 lg:justify-start lg:px-5">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white shadow-sm">
             <DropIcon className="h-6 w-6" />
@@ -187,7 +206,7 @@ export default function App() {
 
       <div className="flex min-h-dvh flex-col md:pl-[76px] lg:pl-64">
         {/* Top bar: identity + bell + sign-out on every size. */}
-        <header className="sticky top-0 z-20 border-b border-stone-200/90 bg-white/85 backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/85">
+        <header className="sticky top-0 z-20 border-b border-stone-200/90 bg-white/85 backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/85 print:hidden">
           <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-2 px-4 py-2.5 md:max-w-3xl lg:max-w-6xl lg:px-6">
             <div className="min-w-0">
               <div className="truncate font-bold leading-tight lg:hidden">{factoryName}</div>
@@ -343,7 +362,7 @@ export default function App() {
 
       {/* Phone bottom tab bar: primary destinations + More. */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/95 md:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/95 md:hidden print:hidden"
         aria-label="Menu"
       >
         <div
@@ -390,7 +409,7 @@ export default function App() {
 
       {/* Phone "More" sheet: the full nav list for the role. */}
       {moreOpen && (
-        <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label="နောက်ထပ်">
+        <div className="fixed inset-0 z-40 md:hidden print:hidden" role="dialog" aria-modal="true" aria-label="နောက်ထပ်">
           <button
             type="button"
             aria-label="ပိတ်ရန်"

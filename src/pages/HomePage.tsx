@@ -425,6 +425,7 @@ function Dashboard() {
     payments: payments.reduce((s, p) => s + Number(p.amount), 0),
   }
   const netCash = figs.entryCash + figs.payments
+  const netCashAfterExpenses = netCash - expenseTotal
 
   const empRows: EmpSummary[] = (() => {
     const m = new Map<string, EmpSummary>()
@@ -522,6 +523,11 @@ function Dashboard() {
                 value={<AnimMoney value={netCash} />}
               />
               <StatCard label="အသုံးစရိတ်" value={<AnimMoney value={expenseTotal} />} />
+              <StatCard
+                label="အသားတင် ငွေ"
+                tone={netCashAfterExpenses < 0 ? 'danger' : 'brand'}
+                value={<AnimMoney value={netCashAfterExpenses} />}
+              />
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2.5">
               <Link to="/entries" className={btnPrimaryCls}>

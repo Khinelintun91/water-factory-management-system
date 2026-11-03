@@ -121,7 +121,7 @@ export default function InventoryPage() {
     if (busy) return
     const n = Number(bottles) || 0
     if (n <= 0) {
-      setMsg('ပုလင်း အရေအတွက် ထည့်ပါ')
+      setMsg('ဗူး အရေအတွက် ထည့်ပါ')
       return
     }
     setBusy(true)
@@ -189,7 +189,7 @@ export default function InventoryPage() {
     { label: 'စက်ရုံထဲ အပြည့်', value: stock.full, danger: stock.full < 0 },
     { label: 'အခွံ', value: stock.empty, danger: stock.empty < 0 },
     { label: 'ကိုယ်စားလှယ်များထံ', value: stock.withAgents },
-    { label: 'စုစုပေါင်း ပုလင်း', value: stock.total },
+    { label: 'စုစုပေါင်း ဗူး', value: stock.total },
   ]
 
   const thCls = 'px-3 py-3 font-medium'
@@ -198,8 +198,8 @@ export default function InventoryPage() {
   return (
     <div className="space-y-4 lg:space-y-6">
       <PageHeader
-        title="ပုလင်း စာရင်း"
-        subtitle="အပြည့်၊ အခွံနှင့် ကိုယ်စားလှယ်များထံ ပုလင်း အရေအတွက် ကြည့်ရန်"
+        title="ဗူးလက်ကျန်စာရင်း"
+        subtitle="အပြည့်၊ အခွံနှင့် ကိုယ်စားလှယ်များထံ ဗူး အရေအတွက် ကြည့်ရန်"
       />
 
       {msg && (
@@ -214,7 +214,7 @@ export default function InventoryPage() {
         <>
           {(stock.full < 0 || stock.empty < 0) && (
             <Banner tone="red">
-              သတိပေးချက်: ပုလင်း စာရင်း အနှုတ် ဖြစ်နေပါတယ် — မှတ်တမ်းများ ပြန်စစ်ဆေးရန်
+              သတိပေးချက်: ဗူးလက်ကျန် အနှုတ် ဖြစ်နေပါတယ် — မှတ်တမ်းများ ပြန်စစ်ဆေးရန်
               လိုပါတယ်
             </Banner>
           )}
@@ -224,7 +224,7 @@ export default function InventoryPage() {
                 key={c.label}
                 label={c.label}
                 value={fmtQty(c.value)}
-                tone={c.danger ? 'danger' : c.label === 'စုစုပေါင်း ပုလင်း' ? 'brand' : 'default'}
+                tone={c.danger ? 'danger' : c.label === 'စုစုပေါင်း ဗူး' ? 'brand' : 'default'}
               />
             ))}
           </div>
@@ -255,7 +255,7 @@ export default function InventoryPage() {
       )}
 
       <form onSubmit={onAdd} className={`${cardCls} space-y-3 p-4 lg:p-5`}>
-        <div className="text-base font-semibold">ပုလင်း ရွှေ့ပြောင်းမှု အသစ် (ယနေ့)</div>
+        <div className="text-base font-semibold">ဗူး ရွှေ့ပြောင်းမှု အသစ် (ယနေ့)</div>
         <p className="text-sm text-stone-500 dark:text-neutral-400">
           ဝယ်ယူ = ဗူးအလွတ် ဝယ်ထည့်ခြင်း · ထုတ်လုပ် = ဗူးအလွတ်ကို ရေဖြည့်ပြီး အပြည့် ပြောင်းခြင်း ·
           ပျက်စီး = သုံးမရတော့သော ဗူးများ
@@ -272,7 +272,7 @@ export default function InventoryPage() {
               <option value="damage">ပျက်စီး</option>
             </select>
           </Field>
-          <Field label="ပုလင်း အရေအတွက်">
+          <Field label="ဗူး အရေအတွက်">
             <input
               value={bottles}
               onChange={(e) => setBottles(e.target.value.replace(/\D/g, ''))}
@@ -324,7 +324,7 @@ export default function InventoryPage() {
                 <tr className="border-b border-stone-200 bg-stone-50/80 text-left text-stone-500 dark:border-neutral-800 dark:bg-neutral-800/50 dark:text-neutral-400">
                   <th className={`${thCls} pl-4`}>အမျိုးအစား</th>
                   <th className={thCls}>ရက်စွဲ</th>
-                  <th className={`${thCls} text-right`}>ပုလင်း အရေအတွက်</th>
+                  <th className={`${thCls} text-right`}>ဗူး အရေအတွက်</th>
                   <th className={`${thCls} pr-4`}>
                     <span className="sr-only">လုပ်ဆောင်ချက်</span>
                   </th>

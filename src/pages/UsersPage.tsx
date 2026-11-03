@@ -29,9 +29,19 @@ function rpcCodeMessage(message: string): string | null {
   return null
 }
 
+/** One row of the owner-only login history (login_logs, read-only). */
+type LoginLogRow = {
+  id: string
+  username: string
+  success: boolean
+  user_agent: string | null
+  created_at: string
+}
+
 export default function UsersPage() {
   const { profile: me } = useAuth()
   const [rows, setRows] = useState<Profile[]>([])
+  const [loginLogs, setLoginLogs] = useState<LoginLogRow[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [extras, setExtras] = useState<Record<string, Role[]>>({})
   const [loading, setLoading] = useState(true)
@@ -47,12 +57,18 @@ export default function UsersPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: p }, { data: a }, { data: ur }] = await Promise.all([
+    const [{ data: p }, { data: a }, { data: ur }, { data: ll }] = await Promise.all([
       supabase.from('profiles').select('id, username, display_name, role, agent_id, active').order('created_at', { ascending: true }),
       supabase.from('agents').select('*').order('created_at', { ascending: true }),
       supabase.from('user_roles').select('profile_id, role'),
+      supabase
+        .from('login_logs')
+        .select('id, username, success, user_agent, created_at')
+        .order('created_at', { ascending: false })
+        .limit(100),
     ])
     setRows((p ?? []) as Profile[])
+    setLoginLogs((ll ?? []) as LoginLogRow[])
     setAgents((a ?? []) as Agent[])
     const map: Record<string, Role[]> = {}
     for (const r of (ur ?? []) as { profile_id: string; role: Role }[]) {
@@ -276,6 +292,45 @@ export default function UsersPage() {
             <li className="p-3.5 text-sm text-stone-500 dark:text-neutral-400">မရှိသေးပါ</li>
           )}
         </ul>
+      )}
+
+      {/* Login history — owner only (this page is already behind the
+          owner route guard; the role check keeps the card owner-only
+          even if the page is ever reused elsewhere). Read-only. */}
+      {!loading && me?.role === 'owner' && (
+        <Card className="space-y-1">
+          <CardTitle>Login မှတ်တမ်း</CardTitle>
+          {loginLogs.length === 0 ? (
+            <p className="text-sm text-stone-500 dark:text-neutral-400">မရှိသေးပါ</p>
+          ) : (
+            <ul className="divide-y divide-stone-100 dark:divide-neutral-800/70">
+              {loginLogs.map((r) => (
+                <li key={r.id} className="flex items-center gap-2 py-2 text-sm">
+                  <span className="shrink-0 text-xs text-stone-500 dark:text-neutral-400">
+                    {new Date(r.created_at).toLocaleString('my-MM')}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{r.username}</span>
+                    {r.user_agent && (
+                      <span className="block truncate text-xs text-stone-500 dark:text-neutral-400">
+                        {r.user_agent.length > 40 ? `${r.user_agent.slice(0, 40)}…` : r.user_agent}
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                      r.success
+                        ? 'bg-brand-100 text-brand-800 dark:bg-brand-950 dark:text-brand-200'
+                        : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+                    }`}
+                  >
+                    {r.success ? 'အောင်မြင်' : 'မအောင်မြင်'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
       )}
     </div>
   )

@@ -95,7 +95,20 @@ export default function DisputesPage() {
   }
 
   async function onClose(d: Dispute) {
-    const { error } = await supabase.from('disputes').update({ status: 'closed' }).eq('id', d.id)
+    // Resolving requires a reply (old-app rule): a reply saved earlier or
+    // one typed in the box counts — a typed reply is saved with the close.
+    const typed = (replyById[d.id] ?? '').trim()
+    if (!d.reply && !typed) {
+      setMsg('ပိတ်ရန် အကြောင်းပြန်ချက် စာသား အရင် ရေးပါ')
+      return
+    }
+    setMsg(null)
+    const payload: Record<string, unknown> = { status: 'closed' }
+    if (!d.reply) {
+      payload.reply = typed
+      payload.replied_by = profile?.id ?? null
+    }
+    const { error } = await supabase.from('disputes').update(payload).eq('id', d.id)
     if (error) setMsg(error.message)
     await load()
   }

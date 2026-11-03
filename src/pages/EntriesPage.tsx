@@ -221,7 +221,7 @@ export default function EntriesPage() {
       return
     }
     if (qty <= 0) {
-      setMsg('ပို့သည့် ပုလင်း အရေအတွက် ထည့်ပါ')
+      setMsg('ပို့သည့် ဗူး အရေအတွက် ထည့်ပါ')
       return
     }
     // Step 1: show the in-app confirmation panel; insert happens on confirm.
@@ -312,7 +312,7 @@ export default function EntriesPage() {
       return
     }
     if ((Number(eDelivered) || 0) <= 0) {
-      setMsg('ပို့သည့် ပုလင်း အရေအတွက် ထည့်ပါ')
+      setMsg('ပို့သည့် ဗူး အရေအတွက် ထည့်ပါ')
       return
     }
     setBusy(true)
@@ -424,7 +424,7 @@ export default function EntriesPage() {
         <div className="space-y-2.5 rounded-xl border border-stone-200 bg-stone-50/70 p-3.5 dark:border-neutral-800 dark:bg-neutral-800/40">
           <div className="font-semibold">မှတ်တမ် ပြင်ရန်</div>
           <div className="grid grid-cols-2 gap-2">
-            <Field label="ပို့သည့် ပုလင်း">
+            <Field label="ပို့သည့် ဗူး">
               <input
                 value={eDelivered}
                 onChange={(e) => setEDelivered(e.target.value.replace(/\D/g, ''))}
@@ -432,7 +432,7 @@ export default function EntriesPage() {
                 className={inputCls}
               />
             </Field>
-            <Field label="ပြန်အပ်သည့် ပုလင်း">
+            <Field label="ပြန်အပ်သည့် ဗူး">
               <input
                 value={eReturned}
                 onChange={(e) => setEReturned(e.target.value.replace(/\D/g, ''))}
@@ -534,7 +534,7 @@ export default function EntriesPage() {
             </select>
           </Field>
           <div className="grid grid-cols-2 gap-2.5">
-            <Field label="ပို့သည့် ပုလင်း">
+            <Field label="ပို့သည့် ဗူး">
               <input
                 value={delivered}
                 onChange={(e) => {
@@ -546,7 +546,7 @@ export default function EntriesPage() {
                 className={inputCls}
               />
             </Field>
-            <Field label="ပြန်အပ်သည့် ပုလင်း">
+            <Field label="ပြန်အပ်သည့် ဗူး">
               <input
                 value={returned}
                 onChange={(e) => {
@@ -611,11 +611,11 @@ export default function EntriesPage() {
                   <dd className="font-semibold">{selectedAgent.name}</dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
-                  <dt className="opacity-70">ပို့သည့် ပုလင်း</dt>
+                  <dt className="opacity-70">ပို့သည့် ဗူး</dt>
                   <dd className="font-medium tabular-nums">{qty} လုံး</dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
-                  <dt className="opacity-70">ပြန်အပ်သည့် ပုလင်း</dt>
+                  <dt className="opacity-70">ပြန်အပ်သည့် ဗူး</dt>
                   <dd className="font-medium tabular-nums">{Number(returned) || 0} လုံး</dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
@@ -727,8 +727,8 @@ export default function EntriesPage() {
                 <tr className="border-b border-stone-200 bg-stone-50/80 text-left text-stone-500 dark:border-neutral-800 dark:bg-neutral-800/50 dark:text-neutral-400">
                   <th className={`${thCls} pl-4`}>ကိုယ်စားလှယ်</th>
                   <th className={thCls}>ရက်စွဲ</th>
-                  <th className={`${thCls} text-right`}>ပို့သည့် ပုလင်း</th>
-                  <th className={`${thCls} text-right`}>ပြန်အပ်သည့် ပုလင်း</th>
+                  <th className={`${thCls} text-right`}>ပို့သည့် ဗူး</th>
+                  <th className={`${thCls} text-right`}>ပြန်အပ်သည့် ဗူး</th>
                   <th className={`${thCls} text-right`}>ဈေးနှုန်း (၁ လုံး)</th>
                   <th className={`${thCls} text-right`}>ပေးရန် စုစုပေါင်း</th>
                   <th className={`${thCls} text-right`}>လက်ခံရရှိငွေ (ကျပ်)</th>

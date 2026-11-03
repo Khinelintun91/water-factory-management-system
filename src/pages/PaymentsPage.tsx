@@ -38,6 +38,14 @@ export default function PaymentsPage() {
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [deleteReason, setDeleteReason] = useState('')
+
+  // Same-day edit form (one row at a time), mirroring EntriesPage.
+  const [editId, setEditId] = useState<string | null>(null)
+  const [eAmount, setEAmount] = useState('')
+  const [eMethod, setEMethod] = useState('cash')
+  const [eNotes, setENotes] = useState('')
+  const [eReason, setEReason] = useState('')
 
   const [agentId, setAgentId] = useState('')
   const [amount, setAmount] = useState('')
@@ -97,10 +105,70 @@ export default function PaymentsPage() {
     setBusy(false)
   }
 
+  function startEdit(row: AgentPayment) {
+    setConfirmId(null)
+    setDeleteReason('')
+    setMsg(null)
+    setEditId(row.id)
+    setEAmount(String(row.amount))
+    setEMethod(row.method)
+    setENotes(row.notes ?? '')
+    setEReason('')
+  }
+
+  async function saveEdit(row: AgentPayment) {
+    if (busy) return
+    const reason = eReason.trim()
+    if (reason.length < 2) {
+      setMsg('ပြင်ရသည့် အကြောင်းအရင်း (အနည်းဆုံး ၂ လုံး) ရေးပါ')
+      return
+    }
+    if ((Number(eAmount) || 0) <= 0) {
+      setMsg('ပမာဏ ထည့်ပါ')
+      return
+    }
+    setBusy(true)
+    setMsg(null)
+    const { error } = await supabase
+      .from('agent_payments')
+      .update({
+        amount: Number(eAmount) || 0,
+        method: eMethod,
+        notes: eNotes.trim() || null,
+        change_reason: reason,
+      })
+      .eq('id', row.id)
+    if (error) {
+      setMsg(error.message)
+      setBusy(false)
+      return
+    }
+    setEditId(null)
+    await load()
+    setBusy(false)
+  }
+
   async function onDelete(row: AgentPayment) {
+    const reason = deleteReason.trim()
+    if (reason.length < 2) {
+      setMsg('ဖျက်ရသည့် အကြောင်းအရင်း (အနည်းဆုံး ၂ လုံး) ရေးပါ')
+      return
+    }
+    setMsg(null)
+    // Stamp the reason first so the audit before-image of the delete
+    // carries why the row was removed.
+    const { error: stampError } = await supabase
+      .from('agent_payments')
+      .update({ change_reason: reason })
+      .eq('id', row.id)
+    if (stampError) {
+      setMsg(stampError.message)
+      return
+    }
     const { error } = await supabase.from('agent_payments').delete().eq('id', row.id)
     if (error) setMsg(error.message)
     setConfirmId(null)
+    setDeleteReason('')
     await load()
   }
 
@@ -108,35 +176,110 @@ export default function PaymentsPage() {
   // (desktop), following EntriesPage's pattern. ------------------------------
 
   function rowButtons(r: AgentPayment) {
-    if (!canWrite || !isTodayYangon(r.created_at) || confirmId === r.id) {
+    if (!canWrite || !isTodayYangon(r.created_at) || editId === r.id || confirmId === r.id) {
       return null
     }
     return (
-      <button
-        onClick={() => setConfirmId(r.id)}
-        className="inline-flex min-h-[40px] items-center rounded-lg bg-red-50 px-3.5 font-medium text-red-600 transition active:scale-[0.98] dark:bg-red-950/40 dark:text-red-400"
-      >
-        ဖျက်ရန်
-      </button>
+      <div className="flex gap-2">
+        <button
+          onClick={() => startEdit(r)}
+          className="inline-flex min-h-[40px] items-center rounded-lg bg-brand-50 px-3.5 font-medium text-brand-700 transition active:scale-[0.98] dark:bg-brand-950/50 dark:text-brand-300"
+        >
+          ပြင်ရန်
+        </button>
+        <button
+          onClick={() => {
+            setConfirmId(r.id)
+            setDeleteReason('')
+          }}
+          className="inline-flex min-h-[40px] items-center rounded-lg bg-red-50 px-3.5 font-medium text-red-600 transition active:scale-[0.98] dark:bg-red-950/40 dark:text-red-400"
+        >
+          ဖျက်ရန်
+        </button>
+      </div>
     )
   }
 
   function rowPanel(r: AgentPayment) {
-    if (!canWrite || !isTodayYangon(r.created_at) || confirmId !== r.id) {
-      return null
-    }
-    return (
-      <div className="rounded-xl border border-red-200 bg-red-50/60 p-3 dark:border-red-900 dark:bg-red-950/20">
-        <div className="flex flex-wrap gap-2">
-          <DangerButton size="sm" onClick={() => onDelete(r)}>
-            သေချာပါတယ်, ဖျက်မည်
-          </DangerButton>
-          <SecondaryButton size="sm" onClick={() => setConfirmId(null)}>
-            မဖျက်တော့ပါ
-          </SecondaryButton>
+    if (!canWrite || !isTodayYangon(r.created_at)) return null
+    if (confirmId === r.id) {
+      return (
+        <div className="space-y-2 rounded-xl border border-red-200 bg-red-50/60 p-3 dark:border-red-900 dark:bg-red-950/20">
+          <input
+            value={deleteReason}
+            onChange={(e) => setDeleteReason(e.target.value)}
+            placeholder="ဖျက်ရသည့် အကြောင်းအရင်း (လိုအပ်)"
+            className={inputCls}
+          />
+          <div className="flex flex-wrap gap-2">
+            <DangerButton size="sm" onClick={() => onDelete(r)}>
+              သေချာပါတယ်, ဖျက်မည်
+            </DangerButton>
+            <SecondaryButton
+              size="sm"
+              onClick={() => {
+                setConfirmId(null)
+                setDeleteReason('')
+              }}
+            >
+              မဖျက်တော့ပါ
+            </SecondaryButton>
+          </div>
         </div>
-      </div>
-    )
+      )
+    }
+    if (editId === r.id) {
+      return (
+        <div className="space-y-2.5 rounded-xl border border-stone-200 bg-stone-50/70 p-3.5 dark:border-neutral-800 dark:bg-neutral-800/40">
+          <div className="font-semibold">မှတ်တမ် ပြင်ရန်</div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="ပမာဏ (ကျပ်)">
+              <input
+                value={eAmount}
+                onChange={(e) => setEAmount(e.target.value.replace(/\D/g, ''))}
+                inputMode="numeric"
+                className={inputCls}
+              />
+            </Field>
+            <Field label="နည်းလမ်း">
+              <select
+                value={eMethod}
+                onChange={(e) => setEMethod(e.target.value)}
+                className={inputCls}
+              >
+                <option value="cash">ငွေသား</option>
+                <option value="kbzpay">KBZPay</option>
+                <option value="wavepay">WavePay</option>
+                <option value="bank">ဘဏ်</option>
+              </select>
+            </Field>
+          </div>
+          <input
+            value={eNotes}
+            onChange={(e) => setENotes(e.target.value)}
+            placeholder="မှတ်ချက် (ရှိလျှင်)"
+            className={inputCls}
+          />
+          <Field label="ပြင်ရသည့် အကြောင်းရင်း">
+            <input
+              value={eReason}
+              onChange={(e) => setEReason(e.target.value)}
+              placeholder="ပြင်ရသည့် အကြောင်းအရင်း (လိုအပ်)"
+              className={inputCls}
+            />
+          </Field>
+          <div className="flex flex-wrap gap-2">
+            <PrimaryButton size="sm" onClick={() => saveEdit(r)} disabled={busy}>
+              သိမ်းမည်
+            </PrimaryButton>
+            <SecondaryButton size="sm" onClick={() => setEditId(null)}>
+              မလုပ်တော့ပါ
+            </SecondaryButton>
+          </div>
+        </div>
+      )
+    }
+    return null
   }
 
   const thCls = 'px-3 py-3 font-medium'

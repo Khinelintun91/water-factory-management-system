@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { formatMMK, type Agent, type Profile } from '../lib/types'
+import { formatMMK, personName, type Agent, type Profile } from '../lib/types'
 import {
   Banner,
   Card,
@@ -97,7 +97,7 @@ export default function CollectionsPage() {
   const [entries, setEntries] = useState<EntryLite[]>([])
   const [payments, setPayments] = useState<PaymentRow[]>([])
   const [writeOffs, setWriteOffs] = useState<WriteOffLite[]>([])
-  const [profiles, setProfiles] = useState<Pick<Profile, 'id' | 'username'>[]>([])
+  const [profiles, setProfiles] = useState<Pick<Profile, 'id' | 'username' | 'display_name'>[]>([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -124,7 +124,7 @@ export default function CollectionsPage() {
             'id, agent_id, agent_name, payment_date, amount, method, notes, created_by, created_at',
           ),
           fetchAll<WriteOffLite>('write_offs', 'id, agent_id, writeoff_date, amount, created_at'),
-          supabase.from('profiles').select('id, username').order('username'),
+          supabase.from('profiles').select('id, username, display_name').order('username'),
         ])
       if (agErr) throw new Error(agErr.message)
       if (pfErr) throw new Error(pfErr.message)
@@ -132,7 +132,7 @@ export default function CollectionsPage() {
       setEntries(en)
       setPayments(pm)
       setWriteOffs(wo)
-      setProfiles((pf ?? []) as Pick<Profile, 'id' | 'username'>[])
+      setProfiles((pf ?? []) as Pick<Profile, 'id' | 'username' | 'display_name'>[])
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err))
     }
@@ -149,7 +149,7 @@ export default function CollectionsPage() {
   }, [agents])
 
   const usernameOf = useMemo(() => {
-    const m = new Map(profiles.map((p) => [p.id, p.username]))
+    const m = new Map(profiles.map((p) => [p.id, personName(p)]))
     return (id: string | null) => (id ? m.get(id) ?? '—' : '—')
   }, [profiles])
 
@@ -425,7 +425,7 @@ export default function CollectionsPage() {
                   <option value="">အားလုံး</option>
                   {profiles.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.username}
+                      {personName(p)}
                     </option>
                   ))}
                 </select>

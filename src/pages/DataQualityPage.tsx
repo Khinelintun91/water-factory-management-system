@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { getLastBackupAt } from '../lib/backup'
 import { dataQualityCsv } from '../lib/exports'
-import { todayYangon } from '../lib/types'
+import { personName, todayYangon } from '../lib/types'
 import {
   Card,
   LoadingState,
@@ -434,12 +435,59 @@ const SEVERITY_BADGE: Record<Severity, { label: string; cls: string }> = {
   low: { label: 'အသေးစား', cls: 'bg-stone-200 text-stone-700 dark:bg-neutral-800 dark:text-neutral-300' },
 }
 
+const REVIEWED_KEY = 'wfms-dq-reviewed'
+
+/** Stable per-issue identity used for the per-device reviewed set. */
+function issueKey(i: DqIssue): string {
+  return `${i.kind}|${i.table}|${i.recordId}|${i.date}|${i.problem}`
+}
+
+function loadReviewed(): Set<string> {
+  try {
+    const raw = localStorage.getItem(REVIEWED_KEY)
+    const arr = raw ? (JSON.parse(raw) as unknown) : []
+    return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+/** Where to go to fix an issue, best effort by table/kind. */
+function fixPath(i: DqIssue): string {
+  if (i.table === 'disputes' || i.kind === 'dispute') return '/disputes'
+  if (i.table === 'app_settings') return '/'
+  if (i.table === 'payroll_runs') return '/payroll'
+  if (i.table === 'daily_entries') return '/entries'
+  if (i.table === 'expenses') return '/expenses'
+  if (i.table === 'agents' || i.table === 'agent_deposits') return '/agents'
+  if (i.kind === 'debt') return '/collections'
+  return '/entries'
+}
+
 export default function DataQualityPage() {
   const [issues, setIssues] = useState<DqIssue[]>([])
   const [counts, setCounts] = useState<{ entries: number; deposits: number; payroll: number; expenses: number } | null>(null)
   const [checkedAt, setCheckedAt] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
+  const [severityFilter, setSeverityFilter] = useState<'all' | Severity>('all')
+  const [kindFilter, setKindFilter] = useState<IssueKind | null>(null)
+  const [reviewed, setReviewed] = useState<Set<string>>(loadReviewed)
+  const [hideReviewed, setHideReviewed] = useState(false)
+
+  const toggleReviewed = useCallback((key: string) => {
+    setReviewed((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      try {
+        localStorage.setItem(REVIEWED_KEY, JSON.stringify([...next]))
+      } catch {
+        /* storage full/blocked — marking still works for this session */
+      }
+      return next
+    })
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -458,11 +506,15 @@ export default function DataQualityPage() {
           fetchAll<MoneyLite & { payment_date: string }>('agent_payments', 'agent_id, amount, payment_date'),
           fetchAll<MoneyLite & { writeoff_date: string }>('write_offs', 'agent_id, amount, writeoff_date'),
           fetchAll<DisputeLite>('disputes', 'id, agent_id, message, status, created_at'),
-          fetchAll<{ id: string; username: string }>('profiles', 'id, username', 'username'),
+          fetchAll<{ id: string; username: string; display_name?: string | null }>(
+            'profiles',
+            'id, username, display_name',
+            'username',
+          ),
           fetchAll<{ month: string }>('month_locks', 'month', 'month'),
           getLastBackupAt(),
         ])
-      const usernames = new Map(profiles.map((p) => [p.id, p.username]))
+      const usernames = new Map(profiles.map((p) => [p.id, personName(p)]))
       const agentNames = new Map(agents.map((a) => [a.id, a.name]))
       const found = runChecks({
         entries,
@@ -499,12 +551,40 @@ export default function DataQualityPage() {
     return c
   }, [issues])
 
+  const severitiesPresent = useMemo(
+    () => (['high', 'medium', 'low'] as Severity[]).filter((s) => countsBySeverity[s] > 0),
+    [countsBySeverity],
+  )
+
+  const kindCounts = useMemo(() => {
+    const m = new Map<IssueKind, number>()
+    for (const i of issues) m.set(i.kind, (m.get(i.kind) ?? 0) + 1)
+    return m
+  }, [issues])
+
+  const reviewedCount = useMemo(
+    () => issues.filter((i) => reviewed.has(issueKey(i))).length,
+    [issues, reviewed],
+  )
+
+  const visibleIssues = useMemo(
+    () =>
+      issues.filter(
+        (i) =>
+          (severityFilter === 'all' || i.severity === severityFilter) &&
+          (!kindFilter || i.kind === kindFilter) &&
+          (!hideReviewed || !reviewed.has(issueKey(i))),
+      ),
+    [issues, severityFilter, kindFilter, hideReviewed, reviewed],
+  )
+
   const grouped = useMemo(
     () =>
-      GROUP_TITLES.map((g) => ({ ...g, items: issues.filter((i) => i.kind === g.kind) })).filter(
-        (g) => g.items.length > 0,
-      ),
-    [issues],
+      GROUP_TITLES.map((g) => ({
+        ...g,
+        items: visibleIssues.filter((i) => i.kind === g.kind),
+      })).filter((g) => g.items.length > 0),
+    [visibleIssues],
   )
 
   function onExportCsv() {
@@ -569,13 +649,87 @@ export default function DataQualityPage() {
               <span className={`rounded-full px-3 py-1.5 font-semibold ${SEVERITY_BADGE.low.cls}`}>
                 အသေးစား {countsBySeverity.low}
               </span>
+              {reviewedCount > 0 && (
+                <span className="rounded-full bg-brand-50 px-3 py-1.5 font-semibold text-brand-700 dark:bg-brand-950/40 dark:text-brand-300">
+                  စစ်ပြီး {reviewedCount} ခု
+                </span>
+              )}
             </div>
+
+            {issues.length > 0 && (
+              <>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setSeverityFilter('all')}
+                    className={`inline-flex min-h-[44px] items-center rounded-full px-3.5 text-sm font-semibold ${
+                      severityFilter === 'all'
+                        ? 'bg-brand-700 text-white'
+                        : 'bg-stone-200 text-stone-700 dark:bg-neutral-800 dark:text-neutral-300'
+                    }`}
+                  >
+                    အားလုံး
+                  </button>
+                  {severitiesPresent.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setSeverityFilter(severityFilter === s ? 'all' : s)}
+                      className={`inline-flex min-h-[44px] items-center rounded-full px-3.5 text-sm font-semibold ${
+                        severityFilter === s
+                          ? 'bg-brand-700 text-white'
+                          : SEVERITY_BADGE[s].cls
+                      }`}
+                    >
+                      {SEVERITY_BADGE[s].label} {countsBySeverity[s]}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setHideReviewed((v) => !v)}
+                    className={`inline-flex min-h-[44px] items-center rounded-full px-3.5 text-sm font-semibold ${
+                      hideReviewed
+                        ? 'bg-brand-700 text-white'
+                        : 'bg-stone-200 text-stone-700 dark:bg-neutral-800 dark:text-neutral-300'
+                    }`}
+                  >
+                    {hideReviewed ? 'စစ်ပြီး ပြရန်' : 'စစ်ပြီး ဝှက်ရန်'}
+                  </button>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+                  {GROUP_TITLES.filter((g) => (kindCounts.get(g.kind) ?? 0) > 0).map((g) => {
+                    const active = kindFilter === g.kind
+                    return (
+                      <button
+                        key={g.kind}
+                        onClick={() => setKindFilter(active ? null : g.kind)}
+                        className={`rounded-xl border p-3 text-left transition ${
+                          active
+                            ? 'border-brand-500 bg-brand-50 dark:border-brand-700 dark:bg-brand-950/40'
+                            : 'border-stone-200 bg-white dark:border-neutral-800 dark:bg-neutral-900'
+                        }`}
+                      >
+                        <div className="text-sm font-semibold">{g.title}</div>
+                        <div className="mt-0.5 text-xs text-stone-500 dark:text-neutral-400">
+                          {kindCounts.get(g.kind)} ခု
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </>
+            )}
           </Card>
 
           {issues.length === 0 ? (
             <section className="rounded-2xl border border-brand-300 bg-brand-50 p-4 shadow-card dark:border-brand-800 dark:bg-brand-950/40 lg:p-5">
               <p className="font-semibold text-brand-800 dark:text-brand-200">
                 ✓ စစ်ဆေးမှု အားလုံး အောင်မြင်ပါတယ် — ပြဿနာ မတွေ့ပါ
+              </p>
+            </section>
+          ) : visibleIssues.length === 0 ? (
+            <section className="rounded-2xl border border-stone-300 bg-stone-50 p-4 shadow-card dark:border-neutral-700 dark:bg-neutral-800/40 lg:p-5">
+              <p className="font-semibold">ရွေးထားသော စစ်ထုတ်မှုဖြင့် ပြစရာ မရှိပါ</p>
+              <p className="mt-1 text-sm text-stone-500 dark:text-neutral-400">
+                စစ်ပြီး ဝှက်ထားခြင်း သို့မဟုတ် အဆင့်/အမျိုးအစား စစ်ထုတ်မှုကြောင့် ဖြစ်နိုင်ပါတယ်။
               </p>
             </section>
           ) : (
@@ -586,23 +740,49 @@ export default function DataQualityPage() {
                   <span className="text-stone-400 dark:text-neutral-500">({g.items.length})</span>
                 </h2>
                 <ul className={`${cardCls} divide-y divide-stone-100 overflow-hidden dark:divide-neutral-800/70`}>
-                  {g.items.map((i, idx) => (
-                    <li key={`${i.recordId}-${idx}`} className="p-3.5">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="font-medium">{i.problem}</div>
-                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${SEVERITY_BADGE[i.severity].cls}`}>
-                          {SEVERITY_BADGE[i.severity].label}
-                        </span>
-                      </div>
-                      <div className="mt-1 text-sm text-stone-500 dark:text-neutral-400">
-                        {i.name} · {i.date}
-                        {i.locked && <span className="ml-2">🔒 လ ပိတ်ထားသည်</span>}
-                      </div>
-                      <div className="mt-1 text-sm text-stone-600 dark:text-neutral-300">
-                        အကြံပြုချက်: {i.suggestion}
-                      </div>
-                    </li>
-                  ))}
+                  {g.items.map((i, idx) => {
+                    const key = issueKey(i)
+                    const isReviewed = reviewed.has(key)
+                    return (
+                      <li
+                        key={`${i.recordId}-${idx}`}
+                        className={`p-3.5 ${isReviewed ? 'opacity-50' : ''}`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="font-medium">{i.problem}</div>
+                          <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${SEVERITY_BADGE[i.severity].cls}`}>
+                            {SEVERITY_BADGE[i.severity].label}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-sm text-stone-500 dark:text-neutral-400">
+                          {i.name} · {i.date}
+                          {i.locked && <span className="ml-2">🔒 လ ပိတ်ထားသည်</span>}
+                        </div>
+                        <div className="mt-1 text-sm text-stone-600 dark:text-neutral-300">
+                          အကြံပြုချက်: {i.suggestion}
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={() => toggleReviewed(key)}
+                            aria-pressed={isReviewed}
+                            className={`inline-flex min-h-[44px] items-center rounded-full px-3.5 text-sm font-semibold ${
+                              isReviewed
+                                ? 'bg-brand-700 text-white'
+                                : 'bg-stone-200 text-stone-700 dark:bg-neutral-800 dark:text-neutral-300'
+                            }`}
+                          >
+                            {isReviewed ? '✓ စစ်ပြီးပါပြီ' : 'စစ်ပြီးပါပြီ'}
+                          </button>
+                          <Link
+                            to={fixPath(i)}
+                            className="inline-flex min-h-[44px] items-center rounded-full bg-brand-50 px-3.5 text-sm font-semibold text-brand-700 dark:bg-brand-950/50 dark:text-brand-300"
+                          >
+                            ပြင်ရန်
+                          </Link>
+                        </div>
+                      </li>
+                    )
+                  })}
                 </ul>
               </section>
             ))

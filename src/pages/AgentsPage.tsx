@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
-import { formatMMK, todayYangon, type Agent } from '../lib/types'
+import { formatMMK, personName, todayYangon, type Agent } from '../lib/types'
 import {
   EmptyState,
   Field,
@@ -18,6 +18,13 @@ interface AgentRow extends Agent {
   phone: string | null
   held: number
   outstanding: number
+}
+
+/** An existing agent login account not yet linked to any agent record. */
+interface LinkableProfile {
+  id: string
+  username: string
+  display_name: string | null
 }
 
 type EditableField = 'default_unit_price' | 'deposit_per_bottle' | 'bottle_limit' | 'credit_limit'
@@ -64,6 +71,41 @@ export default function AgentsPage() {
   const [creditLimit, setCreditLimit] = useState('0')
   const [initDepBottles, setInitDepBottles] = useState('')
   const [initDepPrice, setInitDepPrice] = useState('')
+  const [linkUserId, setLinkUserId] = useState('')
+  const [linkable, setLinkable] = useState<LinkableProfile[]>([])
+
+  // Factory defaults from app_settings prefill the price / deposit fields
+  // (SettingsPage maintains them). Loaded once on mount; a field is only
+  // prefilled while it still holds its initial '0', so anything the user
+  // has already typed wins. Unset (or zero) settings keep the old '0'.
+  const [defaultPrice, setDefaultPrice] = useState('')
+  const [defaultDeposit, setDefaultDeposit] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const { data } = await supabase
+        .from('app_settings')
+        .select('key, value')
+        .in('key', ['default_price_per_bottle', 'default_deposit_per_bottle'])
+      if (cancelled || !data) return
+      const map = new Map(
+        (data as { key: string; value: unknown }[]).map((r) => [r.key, r.value]),
+      )
+      const price = Number(map.get('default_price_per_bottle'))
+      if (Number.isFinite(price) && price > 0) {
+        setDefaultPrice(String(price))
+        setUnitPrice((cur) => (cur === '0' ? String(price) : cur))
+      }
+      const dep = Number(map.get('default_deposit_per_bottle'))
+      if (Number.isFinite(dep) && dep > 0) {
+        setDefaultDeposit(String(dep))
+        setDeposit((cur) => (cur === '0' ? String(dep) : cur))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -112,6 +154,23 @@ export default function AgentsPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Existing agent accounts (primary role 'agent') that are not linked to
+  // an agent record yet — offered in the create form's account picker.
+  const loadLinkable = useCallback(async () => {
+    if (!canManage) return
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, username, display_name, role, agent_id')
+      .eq('role', 'agent')
+      .is('agent_id', null)
+      .order('username', { ascending: true })
+    setLinkable((data ?? []) as LinkableProfile[])
+  }, [canManage])
+
+  useEffect(() => {
+    loadLinkable()
+  }, [loadLinkable])
 
   async function onAdd(e: FormEvent) {
     e.preventDefault()
@@ -164,6 +223,17 @@ export default function AgentsPage() {
         setMsg(`Agent ဆောက်ပြီးပါပြီ၊ အစအပေါင် သိမ်း၍ မရပါ: ${dErr.message}`)
       }
     }
+    // Optional: link an existing agent login account to the new agent.
+    if (linkUserId) {
+      const { error: lErr } = await supabase
+        .from('profiles')
+        .update({ agent_id: newId })
+        .eq('id', linkUserId)
+      if (lErr) {
+        hadIssue = true
+        setMsg(`Agent ဆောက်ပြီးပါပြီ၊ အကောင့် ချိတ်ဆက်၍ မရပါ: ${lErr.message}`)
+      }
+    }
     if (!hadIssue) {
       let text = `‘${name.trim()}’ ကို ဆောက်ပြီးပါပြီ`
       if (depBottles > 0) {
@@ -175,13 +245,15 @@ export default function AgentsPage() {
     setCode('')
     setPhone('')
     setAddress('')
-    setDeposit('0')
-    setUnitPrice('0')
+    setDeposit(defaultDeposit || '0')
+    setUnitPrice(defaultPrice || '0')
     setBottleLimit('0')
     setCreditLimit('0')
     setInitDepBottles('')
     setInitDepPrice('')
+    setLinkUserId('')
     await load()
+    await loadLinkable()
   }
 
   async function toggleActive(a: AgentRow) {
@@ -265,7 +337,7 @@ export default function AgentsPage() {
             </div>
           </div>
           <div className="rounded-xl bg-stone-50 p-2.5 dark:bg-neutral-800/70">
-            <div className={miniLabel}>အပ်ငွေ/လုံး</div>
+            <div className={miniLabel}>အပေါင်ငွေ/လုံး</div>
             <div className={miniValue}>{formatMMK(a.deposit_per_bottle)}</div>
           </div>
         </div>
@@ -280,7 +352,7 @@ export default function AgentsPage() {
             )}
           </label>
           <label className="flex items-center justify-between gap-1">
-            <span className="opacity-75">အပ်ငွေ/လုံး</span>
+            <span className="opacity-75">အပေါင်ငွေ/လုံး</span>
             {canManage && !a.closed_at ? (
               <InlineNumber value={a.deposit_per_bottle} onSave={(v) => saveField(a, 'deposit_per_bottle', v)} />
             ) : (
@@ -310,7 +382,7 @@ export default function AgentsPage() {
 
   return (
     <div className="space-y-4 lg:space-y-6">
-      <PageHeader title="ကိုယ်စားလှယ်များ" subtitle="ကိုင်ထားဘူး၊ ရရန်ကျန်နှင့် အပ်ငွေ အခြေအနေ" />
+      <PageHeader title="ကိုယ်စားလှယ်များ" subtitle="ကိုင်ထားဘူး၊ ရရန်ကျန်နှင့် အပေါင် အခြေအနေ" />
 
       {msg && (
         <p className="text-sm text-red-600" role="alert">
@@ -380,7 +452,7 @@ export default function AgentsPage() {
             <input value={address} onChange={(e) => setAddress(e.target.value)} className={inputCls} />
           </Field>
           <div className="grid grid-cols-2 gap-2.5">
-            <Field label="ပုလင်းအပ်ငွေ (၁ လုံး)">
+            <Field label="ဗူးတစ်လုံးလျှင် အပေါင်ငွေ (ကျပ်)">
               <input
                 value={deposit}
                 onChange={(e) => setDeposit(e.target.value.replace(/\D/g, ''))}
@@ -388,7 +460,7 @@ export default function AgentsPage() {
                 className={inputCls}
               />
             </Field>
-            <Field label="ပုံမှန် ဈေးနှုန်း (၁ လုံး)">
+            <Field label="ဗူးတစ်လုံး ရောင်းဈေး (ကျပ်)">
               <input
                 value={unitPrice}
                 onChange={(e) => setUnitPrice(e.target.value.replace(/\D/g, ''))}
@@ -396,7 +468,7 @@ export default function AgentsPage() {
                 className={inputCls}
               />
             </Field>
-            <Field label="ဘူး ကန့်သတ်ချက် (၀ = မကန့်သတ်)">
+            <Field label="ဗူး ကန့်သတ်ချက် (လုံး၊ 0 = မကန့်သတ်)">
               <input
                 value={bottleLimit}
                 onChange={(e) => setBottleLimit(e.target.value.replace(/\D/g, ''))}
@@ -404,7 +476,7 @@ export default function AgentsPage() {
                 className={inputCls}
               />
             </Field>
-            <Field label="ကြွေး ကန့်သတ်ချက် (၀ = မကန့်သတ်)">
+            <Field label="ကြွေးကန့်သတ်ချက် (ကျပ်၊ 0 = မကန့်သတ်)">
               <input
                 value={creditLimit}
                 onChange={(e) => setCreditLimit(e.target.value.replace(/\D/g, ''))}
@@ -414,7 +486,7 @@ export default function AgentsPage() {
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-2.5">
-            <Field label="အစအပေါင် ဘူး (ရှိလျှင်)">
+            <Field label="အပေါင်ယူမည့် ဗူး (မထည့်လည်းရ)">
               <input
                 value={initDepBottles}
                 onChange={(e) => setInitDepBottles(e.target.value.replace(/\D/g, ''))}
@@ -427,11 +499,25 @@ export default function AgentsPage() {
                 value={initDepPrice}
                 onChange={(e) => setInitDepPrice(e.target.value.replace(/\D/g, ''))}
                 inputMode="numeric"
-                placeholder="ပုလင်းအပ်ငွေ အတိုင်း"
+                placeholder="အပေါင်ငွေ အတိုင်း"
                 className={inputCls}
               />
             </Field>
           </div>
+          <Field label="ချိတ်ဆက်မည့် အကောင့် (ရွေးချယ်နိုင်)">
+            <select
+              value={linkUserId}
+              onChange={(e) => setLinkUserId(e.target.value)}
+              className={inputCls}
+            >
+              <option value="">မချိတ်ဆက်ပါ</option>
+              {linkable.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.display_name?.trim() ? `${personName(p)} (${p.username})` : p.username}
+                </option>
+              ))}
+            </select>
+          </Field>
           <PrimaryButton type="submit" className="w-full">
             ထည့်ရန်
           </PrimaryButton>

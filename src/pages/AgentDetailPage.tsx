@@ -276,7 +276,7 @@ export default function AgentDetailPage() {
           <div>ဖုန်း: {phone ?? '—'}</div>
           {agent.address && <div>လိပ်စာ: {agent.address}</div>}
           <div>
-            ဈေးနှုန်း: {formatMMK(agent.default_unit_price)}/လုံး · အပ်ငွေ:{' '}
+            ဈေးနှုန်း: {formatMMK(agent.default_unit_price)}/လုံး · အပေါင်:{' '}
             {formatMMK(agent.deposit_per_bottle)}/လုံး
           </div>
           <div>
