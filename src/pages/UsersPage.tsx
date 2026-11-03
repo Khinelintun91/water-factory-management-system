@@ -5,6 +5,7 @@ import { ROLE_LABELS, type Agent, type Profile, type Role } from '../lib/types'
 export default function UsersPage() {
   const [rows, setRows] = useState<Profile[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
+  const [extras, setExtras] = useState<Record<string, Role[]>>({})
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -16,14 +17,38 @@ export default function UsersPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: p }, { data: a }] = await Promise.all([
+    const [{ data: p }, { data: a }, { data: ur }] = await Promise.all([
       supabase.from('profiles').select('id, username, role, agent_id, active').order('created_at', { ascending: true }),
       supabase.from('agents').select('*').order('created_at', { ascending: true }),
+      supabase.from('user_roles').select('profile_id, role'),
     ])
     setRows((p ?? []) as Profile[])
     setAgents((a ?? []) as Agent[])
+    const map: Record<string, Role[]> = {}
+    for (const r of (ur ?? []) as { profile_id: string; role: Role }[]) {
+      ;(map[r.profile_id] ??= []).push(r.role)
+    }
+    setExtras(map)
     setLoading(false)
   }, [])
+
+  async function grantRole(p: Profile, r: Role) {
+    setMsg(null)
+    const { error } = await supabase.from('user_roles').insert({ profile_id: p.id, role: r })
+    if (error) setMsg(error.message)
+    await load()
+  }
+
+  async function revokeRole(p: Profile, r: Role) {
+    setMsg(null)
+    const { error } = await supabase
+      .from('user_roles')
+      .delete()
+      .eq('profile_id', p.id)
+      .eq('role', r)
+    if (error) setMsg(error.message)
+    await load()
+  }
 
   useEffect(() => {
     load()
@@ -133,23 +158,63 @@ export default function UsersPage() {
         <p>ခဏစောင့်ပါ…</p>
       ) : (
         <ul className="divide-y rounded-2xl border">
-          {rows.map((p) => (
-            <li key={p.id} className="flex items-center justify-between gap-2 p-3">
-              <div>
-                <div className="font-medium">
-                  {p.username}
-                  {!p.active && <span className="ml-2 text-xs text-red-500">ပိတ်ထားသည်</span>}
+          {rows.map((p) => {
+            const held = new Set<Role>([p.role, ...(extras[p.id] ?? [])])
+            const grantable = (Object.keys(ROLE_LABELS) as Role[]).filter((r) => !held.has(r))
+            return (
+              <li key={p.id} className="p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="font-medium">
+                      {p.username}
+                      {!p.active && <span className="ml-2 text-xs text-red-500">ပိတ်ထားသည်</span>}
+                    </div>
+                    <div className="text-sm opacity-75">{ROLE_LABELS[p.role]} (အဓိက)</div>
+                  </div>
+                  <button
+                    onClick={() => toggleActive(p)}
+                    className="shrink-0 rounded-lg border px-2.5 py-1.5 text-sm"
+                  >
+                    {p.active ? 'ပိတ်' : 'ဖွင့်'}
+                  </button>
                 </div>
-                <div className="text-sm opacity-75">{ROLE_LABELS[p.role]}</div>
-              </div>
-              <button
-                onClick={() => toggleActive(p)}
-                className="shrink-0 rounded-lg border px-2.5 py-1.5 text-sm"
-              >
-                {p.active ? 'ပိတ်' : 'ဖွင့်'}
-              </button>
-            </li>
-          ))}
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {(extras[p.id] ?? []).map((r) => (
+                    <span
+                      key={r}
+                      className="inline-flex items-center gap-1 rounded-full bg-teal-700/10 px-2 py-0.5 text-xs"
+                    >
+                      {ROLE_LABELS[r]}
+                      <button
+                        onClick={() => revokeRole(p, r)}
+                        className="font-bold text-red-600"
+                        aria-label={`${ROLE_LABELS[r]} ဖယ်ရန်`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  {grantable.length > 0 && (
+                    <select
+                      defaultValue=""
+                      onChange={(e) => {
+                        if (e.target.value) void grantRole(p, e.target.value as Role)
+                        e.target.value = ''
+                      }}
+                      className="rounded-full border px-2 py-0.5 text-xs dark:bg-neutral-900"
+                    >
+                      <option value="">+ အခန်းကဏ္ဍ ထည့်ရန်</option>
+                      {grantable.map((r) => (
+                        <option key={r} value={r}>
+                          {ROLE_LABELS[r]}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </li>
+            )
+          })}
           {rows.length === 0 && <li className="p-3 text-sm opacity-70">မရှိသေးပါ</li>}
         </ul>
       )}

@@ -8,9 +8,17 @@ interface AuthState {
   configured: boolean
   session: Session | null
   profile: Profile | null
+  /** Effective roles: primary role + user_roles extras; co_owner implies manager. */
+  roles: string[]
   signIn: (username: string, pin: string) => Promise<{ error?: string }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
+}
+
+function effectiveRoles(primary: string, extras: string[]): string[] {
+  const set = new Set<string>([primary, ...extras])
+  if (set.has('co_owner')) set.add('manager')
+  return [...set]
 }
 
 const AuthContext = createContext<AuthState | null>(null)
@@ -18,16 +26,28 @@ const AuthContext = createContext<AuthState | null>(null)
 async function logAttempt(username: string, success: boolean) {
   // Best effort only: login history must never block a sign-in.
   try {
-    await supabase.from('login_logs').insert({ username, success })
+    await supabase
+      .from('login_logs')
+      .insert({ username, success, user_agent: navigator.userAgent })
   } catch {
     /* ignore */
   }
+}
+
+function lockedMessage(lockedUntil: string): string {
+  const when = new Date(lockedUntil).toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Yangon',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  return `PIN မှားတာ များလွန်းလို့ ဒီအကောင့် ယာယီ ပိတ်ထားပါတယ် — ${when} အထိ စောင့်ပြီး ပြန်ဝင်ပါ`
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [roles, setRoles] = useState<string[]>([])
 
   const loadProfile = useCallback(async (userId: string) => {
     const { data } = await supabase
@@ -35,7 +55,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .select('id, username, role, agent_id, active')
       .eq('id', userId)
       .maybeSingle()
-    setProfile((data as Profile | null) ?? null)
+    const p = (data as Profile | null) ?? null
+    setProfile(p)
+    if (p) {
+      const { data: extra } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('profile_id', userId)
+      setRoles(
+        effectiveRoles(
+          p.role,
+          ((extra ?? []) as { role: string }[]).map((r) => r.role),
+        ),
+      )
+    } else {
+      setRoles([])
+    }
   }, [])
 
   useEffect(() => {
@@ -51,18 +86,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, s) => {
       setSession(s)
       if (s) await loadProfile(s.user.id)
-      else setProfile(null)
+      else {
+        setProfile(null)
+        setRoles([])
+      }
     })
     return () => sub.subscription.unsubscribe()
   }, [loadProfile])
 
   const signIn = useCallback(async (username: string, pin: string) => {
+    // Lockout (old-app rule): 5 consecutive failures lock the account for
+    // 15 minutes. Checked before the attempt; recorded on failure; cleared
+    // on success. All enforcement lives in the pin_attempts RPCs.
+    const { data: lockedUntil } = await supabase.rpc('login_lock_status', {
+      p_username: username,
+    })
+    if (typeof lockedUntil === 'string' && lockedUntil) {
+      await logAttempt(username, false)
+      return { error: lockedMessage(lockedUntil) }
+    }
     const { data, error } = await supabase.auth.signInWithPassword({
       email: usernameToEmail(username),
       password: pin,
     })
     if (error || !data.user) {
+      const { data: newLock } = await supabase.rpc('record_login_failure', {
+        p_username: username,
+      })
       await logAttempt(username, false)
+      if (typeof newLock === 'string' && newLock) {
+        return { error: lockedMessage(newLock) }
+      }
       return { error: 'အမည် သို့မဟုတ် PIN မှားနေပါတယ်' }
     }
     const { data: p } = await supabase
@@ -76,6 +130,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: 'ဒီအကောင့် ပိတ်ထားပါတယ် — ပိုင်ရှင်ကို ဆက်သွယ်ပါ' }
     }
     setProfile(p as Profile)
+    const { data: extra } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('profile_id', data.user.id)
+    setRoles(
+      effectiveRoles(
+        (p as Profile).role,
+        ((extra ?? []) as { role: string }[]).map((r) => r.role),
+      ),
+    )
+    try {
+      await supabase.rpc('clear_login_failures')
+    } catch {
+      /* best effort */
+    }
     await logAttempt(username, true)
     return {}
   }, [])
@@ -83,6 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     await supabase.auth.signOut()
     setProfile(null)
+    setRoles([])
     setSession(null)
   }, [])
 
@@ -92,7 +162,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ loading, configured: isConfigured, session, profile, signIn, signOut, refreshProfile }}
+      value={{
+        loading,
+        configured: isConfigured,
+        session,
+        profile,
+        roles,
+        signIn,
+        signOut,
+        refreshProfile,
+      }}
     >
       {children}
     </AuthContext.Provider>

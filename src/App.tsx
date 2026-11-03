@@ -6,8 +6,12 @@ import { ROLE_LABELS } from './lib/types'
 import LoginPage from './pages/LoginPage'
 import HomePage from './pages/HomePage'
 import AgentsPage from './pages/AgentsPage'
+import AgentDetailPage from './pages/AgentDetailPage'
+import CloseoutPage from './pages/CloseoutPage'
 import EntriesPage from './pages/EntriesPage'
 import PaymentsPage from './pages/PaymentsPage'
+import CollectionsPage from './pages/CollectionsPage'
+import InventoryPage from './pages/InventoryPage'
 import ExpensesPage from './pages/ExpensesPage'
 import HistoryPage from './pages/HistoryPage'
 import UsersPage from './pages/UsersPage'
@@ -35,6 +39,8 @@ const NAV: { to: string; label: string; roles: string[] }[] = [
   { to: '/entries', label: 'ပို့ဆောင်မှုများ', roles: ['owner', 'manager', 'staff', 'agent'] },
   { to: '/payments', label: 'ငွေကောက်ခံမှုများ', roles: ['owner', 'manager', 'staff', 'agent'] },
   { to: '/agents', label: 'ကိုယ်စားလှယ်များ', roles: ['owner', 'manager', 'staff'] },
+  { to: '/collections', label: 'ကောက်ခံမှုနှင့် ကြွေးစာရင်း', roles: ['owner', 'manager'] },
+  { to: '/inventory', label: 'ပုလင်း စာရင်း', roles: ['owner', 'manager'] },
   { to: '/expenses', label: 'အသုံးစရိတ်များ', roles: ['owner', 'manager'] },
   { to: '/history', label: 'ပြောင်းလဲမှုမှတ်တမ်း', roles: ['owner', 'manager'] },
   { to: '/disputes', label: 'အငြင်းပွားမှုများ', roles: ['owner', 'manager', 'agent'] },
@@ -42,15 +48,20 @@ const NAV: { to: string; label: string; roles: string[] }[] = [
   { to: '/my', label: 'ကျွန်ုပ်၏ စာရင်း', roles: ['agent'] },
 ]
 
-/** Route-level role gate (defense in depth; RLS remains the real boundary). */
-function Guard({ roles, children }: { roles: string[]; children: ReactNode }) {
-  const { profile } = useAuth()
+/** Route-level role gate (defense in depth; RLS remains the real boundary).
+ *  Uses the EFFECTIVE roles (primary + extras; co_owner counts as manager). */
+function Guard({ roles: allowed, children }: { roles: string[]; children: ReactNode }) {
+  const { profile, roles } = useAuth()
   if (!profile) return null
-  return roles.includes(profile.role) ? <>{children}</> : <Navigate to="/" replace />
+  return allowed.some((r) => roles.includes(r)) ? (
+    <>{children}</>
+  ) : (
+    <Navigate to="/" replace />
+  )
 }
 
 export default function App() {
-  const { loading, configured, session, profile, signOut } = useAuth()
+  const { loading, configured, session, profile, roles, signOut } = useAuth()
   const factoryName = useFactoryName()
   const location = useLocation()
 
@@ -73,7 +84,7 @@ export default function App() {
     return <LoginPage factoryName={factoryName} />
   }
 
-  const nav = NAV.filter((n) => n.roles.includes(profile.role))
+  const nav = NAV.filter((n) => n.roles.some((r) => roles.includes(r)))
 
   return (
     <div className="mx-auto min-h-dvh max-w-2xl">
@@ -133,6 +144,38 @@ export default function App() {
             element={
               <Guard roles={['owner', 'manager', 'staff']}>
                 <AgentsPage />
+              </Guard>
+            }
+          />
+          <Route
+            path="/agents/:id"
+            element={
+              <Guard roles={['owner', 'manager']}>
+                <AgentDetailPage />
+              </Guard>
+            }
+          />
+          <Route
+            path="/closeout/:id"
+            element={
+              <Guard roles={['owner', 'manager']}>
+                <CloseoutPage />
+              </Guard>
+            }
+          />
+          <Route
+            path="/collections"
+            element={
+              <Guard roles={['owner', 'manager']}>
+                <CollectionsPage />
+              </Guard>
+            }
+          />
+          <Route
+            path="/inventory"
+            element={
+              <Guard roles={['owner', 'manager']}>
+                <InventoryPage />
               </Guard>
             }
           />
