@@ -17,6 +17,7 @@ export default function EntriesPage() {
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [confirmId, setConfirmId] = useState<string | null>(null)
 
   const [agentId, setAgentId] = useState('')
   const [delivered, setDelivered] = useState('')
@@ -91,9 +92,9 @@ export default function EntriesPage() {
   }
 
   async function onDelete(row: DailyEntry) {
-    if (!confirm('ဒီမှတ်တမ်ကို ဖျက်မှာ သေချာပါသလား? (ယနေ့ မှတ်တမ်သာ ဖျက်လို့ ရပါမယ်)')) return
     const { error } = await supabase.from('daily_entries').delete().eq('id', row.id)
     if (error) setMsg(error.message)
+    setConfirmId(null)
     await load()
   }
 
@@ -192,14 +193,24 @@ export default function EntriesPage() {
                 {formatMMK(r.unit_price)}/လုံး
                 {r.notes ? ` · ${r.notes}` : ''}
               </div>
-              {canWrite && isTodayYangon(r.created_at) && (
-                <button
-                  onClick={() => onDelete(r)}
-                  className="mt-1 text-sm text-red-600"
-                >
-                  ဖျက်ရန်
-                </button>
-              )}
+              {canWrite && isTodayYangon(r.created_at) &&
+                (confirmId === r.id ? (
+                  <span className="mt-1 flex gap-3 text-sm">
+                    <button onClick={() => onDelete(r)} className="font-semibold text-red-600">
+                      သေချာပါတယ်, ဖျက်မည်
+                    </button>
+                    <button onClick={() => setConfirmId(null)} className="opacity-70">
+                      မဖျက်တော့ပါ
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setConfirmId(r.id)}
+                    className="mt-1 text-sm text-red-600"
+                  >
+                    ဖျက်ရန်
+                  </button>
+                ))}
             </li>
           ))}
           {rows.length === 0 && <li className="p-3 text-sm opacity-70">မှတ်တမ် မရှိသေးပါ</li>}

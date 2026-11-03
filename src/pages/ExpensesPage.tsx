@@ -23,6 +23,7 @@ export default function ExpensesPage() {
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [confirmId, setConfirmId] = useState<string | null>(null)
 
   const [title, setTitle] = useState('')
   const [amount, setAmount] = useState('')
@@ -91,9 +92,9 @@ export default function ExpensesPage() {
   }
 
   async function onDelete(row: ExpenseRow) {
-    if (!confirm('ဒီအသုံးစရိတ် မှတ်တမ်ကို ဖျက်မှာ သေချာပါသလား? (ယနေ့ မှတ်တမ်သာ ဖျက်လို့ ရပါမယ်)')) return
     const { error } = await supabase.from('expenses').delete().eq('id', row.id)
     if (error) setMsg(error.message)
+    setConfirmId(null)
     await load()
   }
 
@@ -164,11 +165,21 @@ export default function ExpensesPage() {
                 {catName(r.category_id) ? ` · ${catName(r.category_id)}` : ''}
                 {r.notes ? ` · ${r.notes}` : ''}
               </div>
-              {isTodayYangon(r.created_at) && (
-                <button onClick={() => onDelete(r)} className="mt-1 text-sm text-red-600">
-                  ဖျက်ရန်
-                </button>
-              )}
+              {isTodayYangon(r.created_at) &&
+                (confirmId === r.id ? (
+                  <span className="mt-1 flex gap-3 text-sm">
+                    <button onClick={() => onDelete(r)} className="font-semibold text-red-600">
+                      သေချာပါတယ်, ဖျက်မည်
+                    </button>
+                    <button onClick={() => setConfirmId(null)} className="opacity-70">
+                      မဖျက်တော့ပါ
+                    </button>
+                  </span>
+                ) : (
+                  <button onClick={() => setConfirmId(r.id)} className="mt-1 text-sm text-red-600">
+                    ဖျက်ရန်
+                  </button>
+                ))}
             </li>
           ))}
           {rows.length === 0 && <li className="p-3 text-sm opacity-70">မှတ်တမ် မရှိသေးပါ</li>}
