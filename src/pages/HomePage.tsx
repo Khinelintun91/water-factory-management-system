@@ -5,6 +5,19 @@ import { supabase, usernameToEmail } from '../lib/supabase'
 import { exportBackup, getLastBackupAt, isBackupOverdue } from '../lib/backup'
 import { dailySummaryCsv, monthlyBackupCsv, monthlyBackupXlsx } from '../lib/exports'
 import { formatMMK, todayYangon } from '../lib/types'
+import { NavIcon } from '../components/icons'
+import {
+  Card,
+  CardTitle,
+  LoadingState,
+  PageHeader,
+  PrimaryButton,
+  SecondaryButton,
+  StatCard,
+  btnPrimaryCls,
+  btnSecondaryCls,
+  inputCls,
+} from '../components/ui'
 
 function BackupCard() {
   const [last, setLast] = useState<string | null>(null)
@@ -50,10 +63,8 @@ function BackupCard() {
   const overdue = isBackupOverdue(last)
 
   return (
-    <section
-      className={`rounded-2xl border p-4 ${overdue ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/40' : ''}`}
-    >
-      <h2 className="font-semibold">ဒေတာ Backup</h2>
+    <Card tone={overdue ? 'amber' : 'default'}>
+      <CardTitle>ဒေတာ Backup</CardTitle>
       <p className="mt-1 text-sm opacity-80">
         နောက်ဆုံး backup: {last ? new Date(last).toLocaleString('my-MM') : 'တစ်ခါမှ မလုပ်ရသေးပါ'}
       </p>
@@ -62,40 +73,28 @@ function BackupCard() {
           ⚠️ Backup လုပ်ရန် ကျန်နေပါတယ် — တစ်ပတ်မှာ တစ်ကြိမ်တော့ လုပ်ပေးပါ
         </p>
       )}
-      <button
-        onClick={onExport}
-        disabled={busy}
-        className="mt-3 w-full rounded-xl bg-teal-700 py-2.5 font-semibold text-white disabled:opacity-60"
-      >
+      <PrimaryButton onClick={onExport} disabled={busy} className="mt-3 w-full">
         {busy ? 'ထုတ်နေပါတယ်…' : '⬇ Backup ဒေါင်းလုပ်'}
-      </button>
-      <div className="mt-4 border-t pt-3">
+      </PrimaryButton>
+      <div className="mt-4 border-t border-stone-200/80 pt-3 dark:border-neutral-800">
         <p className="text-sm font-medium">လစဉ် မှတ်တမ်း ထုတ်ရန် (စာရင်းကိုင် အတွက်)</p>
         <div className="mt-2 flex gap-2">
           <input
             type="month"
             value={bkMonth}
             onChange={(e) => setBkMonth(e.target.value)}
-            className="min-w-0 flex-1 rounded-xl border bg-transparent px-3 py-2.5"
+            className={`${inputCls} min-w-0 flex-1`}
           />
-          <button
-            onClick={() => onMonthly('xlsx')}
-            disabled={bkBusy}
-            className="rounded-xl bg-neutral-200 px-3 py-2.5 text-sm font-medium disabled:opacity-60 dark:bg-neutral-800"
-          >
+          <SecondaryButton size="sm" onClick={() => onMonthly('xlsx')} disabled={bkBusy}>
             Excel
-          </button>
-          <button
-            onClick={() => onMonthly('csv')}
-            disabled={bkBusy}
-            className="rounded-xl bg-neutral-200 px-3 py-2.5 text-sm font-medium disabled:opacity-60 dark:bg-neutral-800"
-          >
+          </SecondaryButton>
+          <SecondaryButton size="sm" onClick={() => onMonthly('csv')} disabled={bkBusy}>
             CSV
-          </button>
+          </SecondaryButton>
         </div>
       </div>
       {msg && <p className="mt-2 text-sm">{msg}</p>}
-    </section>
+    </Card>
   )
 }
 
@@ -133,8 +132,8 @@ function MonthLockCard() {
   }
 
   return (
-    <section className="rounded-2xl border p-4">
-      <h2 className="font-semibold">လ ပိတ်ခြင်း (Month Lock)</h2>
+    <Card>
+      <CardTitle>လ ပိတ်ခြင်း (Month Lock)</CardTitle>
       <p className="mt-1 text-sm opacity-80">
         ပိတ်ထားသော လအတွင်း မည်သည့် မှတ်တမ်ကိုမှ ပြင်/ဖျက်/ထည့် လုပ်၍ မရပါ (ပိုင်ရှင် အပါအဝင်)။
       </p>
@@ -143,28 +142,28 @@ function MonthLockCard() {
           type="month"
           value={month}
           onChange={(e) => setMonth(e.target.value)}
-          className="flex-1 rounded-xl border px-3 py-2 dark:bg-neutral-900"
+          className={`${inputCls} min-w-0 flex-1`}
         />
-        <button onClick={onLock} className="rounded-xl bg-teal-700 px-4 py-2 font-semibold text-white">
+        <PrimaryButton onClick={onLock} className="shrink-0">
           ပိတ်ရန်
-        </button>
+        </PrimaryButton>
       </div>
       {msg && <p className="mt-2 text-sm text-red-600">{msg}</p>}
       {locks.length > 0 && (
-        <ul className="mt-3 space-y-1 text-sm">
+        <ul className="mt-3 space-y-1.5 text-sm">
           {locks.map((m) => (
-            <li key={m} className="flex items-center justify-between">
+            <li key={m} className="flex items-center justify-between gap-2">
               <span>🔒 {m.slice(0, 7)}</span>
               {profile?.role === 'owner' && (
-                <button onClick={() => onUnlock(m)} className="rounded-lg border px-2.5 py-1">
+                <SecondaryButton size="sm" onClick={() => onUnlock(m)}>
                   ပြန်ဖွင့်ရန်
-                </button>
+                </SecondaryButton>
               )}
             </li>
           ))}
         </ul>
       )}
-    </section>
+    </Card>
   )
 }
 
@@ -215,11 +214,9 @@ function PinChangeCard() {
     }
   }
 
-  const inputCls =
-    'w-full rounded-xl border bg-transparent px-3 py-2 text-sm outline-none focus:ring'
   return (
-    <section className="rounded-2xl border p-4">
-      <h2 className="font-semibold">ကိုယ့် PIN ပြောင်းရန်</h2>
+    <Card>
+      <CardTitle>ကိုယ့် PIN ပြောင်းရန်</CardTitle>
       <div className="mt-3 space-y-2">
         <input
           className={inputCls}
@@ -248,16 +245,16 @@ function PinChangeCard() {
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
         />
-        <button
-          className="w-full rounded-xl bg-neutral-900 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+        <PrimaryButton
+          className="w-full"
           onClick={onChange}
           disabled={busy || !current || !next || !confirm}
         >
           {busy ? 'ပြောင်းနေသည်…' : 'PIN ပြောင်းမည်'}
-        </button>
+        </PrimaryButton>
         {msg && <p className="text-sm opacity-80">{msg}</p>}
       </div>
-    </section>
+    </Card>
   )
 }
 
@@ -468,108 +465,129 @@ function Dashboard() {
     setCsvBusy(false)
   }
 
-  const statCls = 'rounded-xl bg-neutral-100 p-3 dark:bg-neutral-800'
-  const statLabel = 'text-xs opacity-70'
-  const statValue = 'mt-1 font-bold'
+  const dateInputCls =
+    'min-h-[44px] rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/40 dark:border-neutral-700 dark:bg-neutral-900'
 
   return (
     <>
-      <section className="rounded-2xl border p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-semibold">နေ့စဉ် မြင်ကွင်း</h2>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="rounded-xl border px-3 py-2 text-sm dark:bg-neutral-900"
-          />
-        </div>
+      <Card>
+        <CardTitle
+          action={
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={dateInputCls} />
+          }
+        >
+          နေ့စဉ် မြင်ကွင်း
+        </CardTitle>
         {msg && <p className="mt-2 text-sm text-red-600">{msg}</p>}
         {loading ? (
-          <p className="mt-3 text-sm opacity-70">ခဏစောင့်ပါ…</p>
+          <LoadingState />
         ) : (
           <>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
-              <div className={statCls}>
-                <div className={statLabel}>ပို့ဆောင်မှု အရေအတွက်</div>
-                <div className={statValue}>
-                  <AnimCount value={figs.trips} /> ခု
-                </div>
-              </div>
-              <div className={statCls}>
-                <div className={statLabel}>ပို့ဘူး စုစုပေါင်း</div>
-                <div className={statValue}>
-                  <AnimCount value={figs.out} /> ဘူး
-                </div>
-              </div>
-              <div className={statCls}>
-                <div className={statLabel}>ဘူးခွံပြန် စုစုပေါင်း</div>
-                <div className={statValue}>
-                  <AnimCount value={figs.in} /> ဘူး
-                </div>
-              </div>
-              <div className={statCls}>
-                <div className={statLabel}>ရောင်းငွေ</div>
-                <div className={statValue}>
-                  <AnimMoney value={figs.sales} />
-                </div>
-              </div>
-              <div className={statCls}>
-                <div className={statLabel}>ပို့ချိန် လက်ခံငွေ</div>
-                <div className={statValue}>
-                  <AnimMoney value={figs.entryCash} />
-                </div>
-              </div>
-              <div className={statCls}>
-                <div className={statLabel}>ကြွေးကောက်ငွေ</div>
-                <div className={statValue}>
-                  <AnimMoney value={figs.payments} />
-                </div>
-              </div>
-              <div className={`${statCls} col-span-2 sm:col-span-1`}>
-                <div className={statLabel}>လက်ခံငွေ စုစုပေါင်း</div>
-                <div className={`${statValue} text-teal-700 dark:text-teal-300`}>
-                  <AnimMoney value={netCash} />
-                </div>
-              </div>
-              <div className={statCls}>
-                <div className={statLabel}>အသုံးစရိတ်</div>
-                <div className={statValue}>
-                  <AnimMoney value={expenseTotal} />
-                </div>
-              </div>
+            <div className="mt-3 grid grid-cols-2 gap-2.5 md:grid-cols-3 lg:grid-cols-4">
+              <StatCard
+                label="ပို့ဆောင်မှု အရေအတွက်"
+                value={
+                  <>
+                    <AnimCount value={figs.trips} /> ခု
+                  </>
+                }
+              />
+              <StatCard
+                label="ပို့ဘူး စုစုပေါင်း"
+                value={
+                  <>
+                    <AnimCount value={figs.out} /> ဘူး
+                  </>
+                }
+              />
+              <StatCard
+                label="ဘူးခွံပြန် စုစုပေါင်း"
+                value={
+                  <>
+                    <AnimCount value={figs.in} /> ဘူး
+                  </>
+                }
+              />
+              <StatCard label="ရောင်းငွေ" value={<AnimMoney value={figs.sales} />} />
+              <StatCard label="ပို့ချိန် လက်ခံငွေ" value={<AnimMoney value={figs.entryCash} />} />
+              <StatCard label="ကြွေးကောက်ငွေ" value={<AnimMoney value={figs.payments} />} />
+              <StatCard
+                label="လက်ခံငွေ စုစုပေါင်း"
+                tone="brand"
+                className="col-span-2 md:col-span-1"
+                value={<AnimMoney value={netCash} />}
+              />
+              <StatCard label="အသုံးစရိတ်" value={<AnimMoney value={expenseTotal} />} />
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-center text-sm">
-              <Link to="/entries" className="rounded-xl bg-neutral-100 py-3 dark:bg-neutral-800">
+            <div className="mt-3 grid grid-cols-2 gap-2.5">
+              <Link to="/entries" className={btnPrimaryCls}>
+                <NavIcon to="/entries" className="h-5 w-5" />
                 ပို့ဆောင်မှု ထည့်ရန် / ကြည့်ရန်
               </Link>
-              <Link to="/payments" className="rounded-xl bg-neutral-100 py-3 dark:bg-neutral-800">
+              <Link to="/payments" className={btnSecondaryCls}>
+                <NavIcon to="/payments" className="h-5 w-5" />
                 ငွေကောက်ခံမှု
               </Link>
             </div>
             {staffView && (
               <div className="mt-3">
-                <button
-                  onClick={onDailyCsv}
-                  disabled={csvBusy}
-                  className="w-full rounded-xl border py-2.5 font-semibold disabled:opacity-60"
-                >
+                <SecondaryButton onClick={onDailyCsv} disabled={csvBusy} className="w-full">
                   {csvBusy ? 'ထုတ်နေပါတယ်…' : `⬇ နေ့စဉ် CSV (${date})`}
-                </button>
+                </SecondaryButton>
                 {csvMsg && <p className="mt-2 text-sm">{csvMsg}</p>}
               </div>
             )}
           </>
         )}
-      </section>
+      </Card>
 
       {staffView && !loading && empRows.length > 0 && (
-        <section className="rounded-2xl border p-4">
-          <h2 className="font-semibold">ဝန်ထမ်းအလိုက် အကျဉ်းချုပ်</h2>
-          <div className="mt-3 overflow-x-auto">
+        <Card>
+          <CardTitle>ဝန်ထမ်းအလိုက် အကျဉ်းချုပ်</CardTitle>
+          {/* Phone: one card per employee. */}
+          <div className="mt-3 space-y-2.5 md:hidden">
+            {empRows.map((r) => (
+              <div
+                key={r.id}
+                className="rounded-xl border border-stone-200/80 p-3 dark:border-neutral-800"
+              >
+                <div className="font-semibold">{r.name}</div>
+                <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-stone-500 dark:text-neutral-400">ပို့အရေအတွက်</dt>
+                    <dd className="tabular-nums">{r.trips}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-stone-500 dark:text-neutral-400">ပို့</dt>
+                    <dd className="tabular-nums">{r.out}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-stone-500 dark:text-neutral-400">ပြန်</dt>
+                    <dd className="tabular-nums">{r.in}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-stone-500 dark:text-neutral-400">လက်ခံငွေ</dt>
+                    <dd className="tabular-nums">{formatMMK(r.cash)}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-stone-500 dark:text-neutral-400">ကျန်ကြွေး</dt>
+                    <dd className={`tabular-nums ${r.debt > 0 ? 'font-semibold text-red-600 dark:text-red-400' : ''}`}>
+                      {formatMMK(r.debt)}
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-stone-500 dark:text-neutral-400">ကောက်ခံငွေ</dt>
+                    <dd className="tabular-nums">{formatMMK(r.payments)}</dd>
+                  </div>
+                </dl>
+              </div>
+            ))}
+          </div>
+          {/* Tablet / desktop: table. */}
+          <div className="mt-3 hidden overflow-x-auto md:block">
             <table className="w-full min-w-[560px] text-sm">
               <thead>
-                <tr className="border-b text-left opacity-70">
+                <tr className="border-b border-stone-200 text-left text-stone-500 dark:border-neutral-800 dark:text-neutral-400">
                   <th className="py-2 pr-2 font-medium">ဝန်ထမ်း</th>
                   <th className="py-2 pr-2 text-right font-medium">ပို့အရေအတွက်</th>
                   <th className="py-2 pr-2 text-right font-medium">ပို့</th>
@@ -581,22 +599,22 @@ function Dashboard() {
               </thead>
               <tbody>
                 {empRows.map((r) => (
-                  <tr key={r.id} className="border-b last:border-0">
+                  <tr key={r.id} className="border-b border-stone-100 last:border-0 dark:border-neutral-800/70">
                     <td className="py-2 pr-2 font-medium">{r.name}</td>
-                    <td className="py-2 pr-2 text-right">{r.trips}</td>
-                    <td className="py-2 pr-2 text-right">{r.out}</td>
-                    <td className="py-2 pr-2 text-right">{r.in}</td>
-                    <td className="py-2 pr-2 text-right">{formatMMK(r.cash)}</td>
-                    <td className={`py-2 pr-2 text-right ${r.debt > 0 ? 'font-medium text-red-600' : ''}`}>
+                    <td className="py-2 pr-2 text-right tabular-nums">{r.trips}</td>
+                    <td className="py-2 pr-2 text-right tabular-nums">{r.out}</td>
+                    <td className="py-2 pr-2 text-right tabular-nums">{r.in}</td>
+                    <td className="py-2 pr-2 text-right tabular-nums">{formatMMK(r.cash)}</td>
+                    <td className={`py-2 pr-2 text-right tabular-nums ${r.debt > 0 ? 'font-medium text-red-600 dark:text-red-400' : ''}`}>
                       {formatMMK(r.debt)}
                     </td>
-                    <td className="py-2 text-right">{formatMMK(r.payments)}</td>
+                    <td className="py-2 text-right tabular-nums">{formatMMK(r.payments)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </section>
+        </Card>
       )}
     </>
   )
@@ -607,25 +625,32 @@ export default function HomePage() {
   const role = profile?.role
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 lg:space-y-6">
+      <PageHeader title="ပင်မ" subtitle="ယနေ့ ရောင်းအား၊ လက်ခံငွေနှင့် လုပ်ရန်အလုပ်များ" />
+
       <Dashboard />
 
       {role === 'agent' && (
-        <section className="rounded-2xl border p-4">
-          <h2 className="font-semibold">ကျွန်ုပ်၏ စာရင်း</h2>
+        <Card>
+          <CardTitle>ကျွန်ုပ်၏ စာရင်း</CardTitle>
           <p className="mt-1 text-sm opacity-80">သင့်ရဲ့ ကိုယ်ပိုင် မှတ်တမ်းများကိုပဲ မြင်ရပါမယ်။</p>
-          <Link
-            to="/my"
-            className="mt-3 block rounded-xl bg-teal-700 py-2.5 text-center font-semibold text-white"
-          >
+          <Link to="/my" className={`${btnPrimaryCls} mt-3 w-full`}>
             ကြည့်ရန်
           </Link>
-        </section>
+        </Card>
       )}
 
-      {role === 'owner' && <BackupCard />}
-      {(role === 'owner' || role === 'manager') && <MonthLockCard />}
-      {profile && <PinChangeCard />}
+      {/* Management tools: visually demoted below the daily summary. */}
+      {profile && (
+        <section className="space-y-3">
+          <h2 className="px-0.5 text-base font-bold">စီမံခန့်ခွဲမှု</h2>
+          <div className="grid items-start gap-4 lg:grid-cols-3">
+            {role === 'owner' && <BackupCard />}
+            {(role === 'owner' || role === 'manager') && <MonthLockCard />}
+            <PinChangeCard />
+          </div>
+        </section>
+      )}
     </div>
   )
 }

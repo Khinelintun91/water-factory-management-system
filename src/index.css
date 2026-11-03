@@ -4,10 +4,73 @@
    not the OS preference. See lib/theme.ts. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-:root {
-  color-scheme: light dark;
+/* ---------------------------------------------------------------------------
+   Phase D design tokens.
+   Brand = deep teal (anchored on #0F766E), accent = warm amber (money /
+   attention states), surfaces = warm neutrals (stone family + paper).
+   Tailwind v4 turns these into utilities: bg-brand-700, text-accent-600,
+   shadow-card, bg-paper, ...
+--------------------------------------------------------------------------- */
+@theme {
+  --color-brand-50: #effaf8;
+  --color-brand-100: #d7f2ee;
+  --color-brand-200: #b2e4de;
+  --color-brand-300: #81cfc7;
+  --color-brand-400: #4db3aa;
+  --color-brand-500: #2f968e;
+  --color-brand-600: #217a74;
+  --color-brand-700: #0f766e;
+  --color-brand-800: #115954;
+  --color-brand-900: #0f4a46;
+  --color-brand-950: #042f2c;
+
+  --color-accent-50: #fffbeb;
+  --color-accent-100: #fef3c7;
+  --color-accent-200: #fde68a;
+  --color-accent-300: #fcd34d;
+  --color-accent-400: #fbbf24;
+  --color-accent-500: #f59e0b;
+  --color-accent-600: #d97706;
+  --color-accent-700: #b45309;
+  --color-accent-800: #92400e;
+
+  /* Warm app background (light mode). Dark mode uses neutral-950. */
+  --color-paper: #faf8f5;
+
+  --shadow-card: 0 1px 2px rgb(41 37 36 / 0.05), 0 8px 24px -12px rgb(41 37 36 / 0.14);
+  --shadow-pop: 0 12px 32px -8px rgb(41 37 36 / 0.28);
 }
 
-body {
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Myanmar", sans-serif;
+:root {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+@layer base {
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Myanmar", sans-serif;
+    @apply bg-paper text-stone-900 antialiased dark:bg-neutral-950 dark:text-neutral-100;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Visible keyboard focus everywhere (mouse/touch focus stays clean). */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
+}
+
+/* Respect reduced motion globally (the Home number tween also checks). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -23,6 +23,8 @@ import HandoverPage from './pages/HandoverPage'
 import DataQualityPage from './pages/DataQualityPage'
 import SettingsPage from './pages/SettingsPage'
 import NotificationBell from './components/NotificationBell'
+import { DropIcon, MoreIcon, NavIcon } from './components/icons'
+import { LoadingState, SecondaryButton } from './components/ui'
 import { applyStoredTheme } from './lib/theme'
 import { applyLanguage } from './lib/i18n'
 
@@ -64,6 +66,15 @@ const NAV: { to: string; label: string; roles: string[] }[] = [
   { to: '/settings', label: 'ဆက်တင်', roles: ['owner', 'manager', 'staff', 'agent'] },
 ]
 
+/** Which nav item the current path belongs to (detail pages highlight
+ *  their parent section, e.g. an agent detail / close-out highlights
+ *  Agents). */
+function isNavActive(to: string, pathname: string): boolean {
+  if (to === '/') return pathname === '/'
+  if (to === '/agents') return pathname.startsWith('/agents') || pathname.startsWith('/closeout')
+  return pathname === to || pathname.startsWith(`${to}/`)
+}
+
 /** Route-level role gate (defense in depth; RLS remains the real boundary).
  *  Uses the EFFECTIVE roles (primary + extras; co_owner counts as manager). */
 function Guard({ roles: allowed, children }: { roles: string[]; children: ReactNode }) {
@@ -80,6 +91,20 @@ export default function App() {
   const { loading, configured, session, profile, roles, signOut } = useAuth()
   const factoryName = useFactoryName()
   const location = useLocation()
+  const [moreOpen, setMoreOpen] = useState(false)
+
+  // The "more" sheet closes whenever the route changes / on Escape.
+  useEffect(() => {
+    setMoreOpen(false)
+  }, [location.pathname])
+  useEffect(() => {
+    if (!moreOpen) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setMoreOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [moreOpen])
 
   if (!configured) {
     return (
@@ -93,7 +118,11 @@ export default function App() {
   }
 
   if (loading) {
-    return <div className="p-6 text-center">ခဏစောင့်ပါ…</div>
+    return (
+      <div className="grid min-h-dvh place-items-center p-6">
+        <LoadingState />
+      </div>
+    )
   }
 
   if (!session || !profile) {
@@ -102,178 +131,309 @@ export default function App() {
 
   const nav = NAV.filter((n) => n.roles.some((r) => roles.includes(r)))
 
+  // Phone bottom tabs: the role's primary destinations in priority order,
+  // up to four; everything else lives under "More".
+  const TAB_PRIORITY = ['/', '/entries', '/agents', '/collections', '/payments', '/my', '/disputes']
+  const tabs = TAB_PRIORITY.filter((p) => nav.some((n) => n.to === p))
+    .slice(0, 4)
+    .map((p) => nav.find((n) => n.to === p)!)
+  const moreActive =
+    !tabs.some((t) => isNavActive(t.to, location.pathname)) &&
+    nav.some((n) => isNavActive(n.to, location.pathname))
+
+  const tabItemCls = (active: boolean) =>
+    `flex min-h-[62px] flex-col items-center justify-center gap-1 px-1 py-1.5 text-center text-[11px] leading-tight ${
+      active
+        ? 'font-semibold text-brand-700 dark:text-brand-300'
+        : 'text-stone-500 dark:text-neutral-400'
+    }`
+
   return (
-    <div className="mx-auto min-h-dvh max-w-2xl">
-      <header className="sticky top-0 z-10 border-b bg-white/90 px-4 py-3 backdrop-blur dark:bg-neutral-900/90">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <div className="font-bold leading-tight">{factoryName}</div>
-            <div className="text-xs opacity-70">
-              {profile.username} · {ROLE_LABELS[profile.role]}
+    <div className="min-h-dvh">
+      {/* Tablet icon rail (768-1023px) / desktop sidebar (>=1024px). */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[76px] flex-col border-r border-stone-200/90 bg-white dark:border-neutral-800 dark:bg-neutral-900 md:flex lg:w-64">
+        <div className="flex items-center justify-center gap-2.5 px-3 pb-2 pt-4 lg:justify-start lg:px-5">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white shadow-sm">
+            <DropIcon className="h-6 w-6" />
+          </span>
+          <span className="hidden min-w-0 lg:block">
+            <span className="block truncate font-bold leading-tight">{factoryName}</span>
+            <span className="block text-xs text-stone-500 dark:text-neutral-400">
+              စီမံခန့်ခွဲမှုစနစ်
+            </span>
+          </span>
+        </div>
+        <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-3 lg:px-3" aria-label="Menu">
+          {nav.map((n) => {
+            const active = isNavActive(n.to, location.pathname)
+            return (
+              <Link
+                key={n.to}
+                to={n.to}
+                aria-current={active ? 'page' : undefined}
+                className={`flex flex-col items-center justify-center gap-1 rounded-xl px-1 py-2.5 text-center text-[11px] leading-tight transition lg:flex-row lg:justify-start lg:gap-3 lg:px-3.5 lg:text-left lg:text-sm ${
+                  active
+                    ? 'bg-brand-700 font-semibold text-white shadow-sm'
+                    : 'text-stone-600 hover:bg-brand-50 hover:text-brand-800 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-white'
+                }`}
+              >
+                <NavIcon to={n.to} className="h-6 w-6 shrink-0 lg:h-5 lg:w-5" />
+                <span className="min-w-0">{n.label}</span>
+              </Link>
+            )
+          })}
+        </nav>
+      </aside>
+
+      <div className="flex min-h-dvh flex-col md:pl-[76px] lg:pl-64">
+        {/* Top bar: identity + bell + sign-out on every size. */}
+        <header className="sticky top-0 z-20 border-b border-stone-200/90 bg-white/85 backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/85">
+          <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-2 px-4 py-2.5 md:max-w-3xl lg:max-w-6xl lg:px-6">
+            <div className="min-w-0">
+              <div className="truncate font-bold leading-tight lg:hidden">{factoryName}</div>
+              <div className="truncate text-xs text-stone-500 dark:text-neutral-400">
+                {profile.username} · {ROLE_LABELS[profile.role]}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <NotificationBell />
+              <SecondaryButton size="sm" onClick={signOut}>
+                ထွက်ရန်
+              </SecondaryButton>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <NotificationBell />
-            <button
-              onClick={signOut}
-              className="rounded-lg border px-3 py-1.5 text-sm active:scale-95"
-            >
-              ထွက်ရန်
-            </button>
-          </div>
-        </div>
-        <nav className="mt-3 flex gap-2 overflow-x-auto pb-1">
-          {nav.map((n) => (
-            <Link
-              key={n.to}
-              to={n.to}
-              className={`whitespace-nowrap rounded-full px-3 py-1.5 text-sm ${
-                location.pathname === n.to
-                  ? 'bg-teal-700 text-white'
-                  : 'bg-neutral-100 dark:bg-neutral-800'
+        </header>
+
+        <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-[calc(6.5rem_+_env(safe-area-inset-bottom))] pt-4 md:max-w-3xl md:pb-10 lg:max-w-6xl lg:px-6 lg:pt-6">
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route
+              path="/entries"
+              element={
+                <Guard roles={['owner', 'manager', 'staff', 'agent']}>
+                  <EntriesPage />
+                </Guard>
+              }
+            />
+            <Route
+              path="/payments"
+              element={
+                <Guard roles={['owner', 'manager', 'staff', 'agent']}>
+                  <PaymentsPage />
+                </Guard>
+              }
+            />
+            <Route
+              path="/agents"
+              element={
+                <Guard roles={['owner', 'manager', 'staff']}>
+                  <AgentsPage />
+                </Guard>
+              }
+            />
+            <Route
+              path="/agents/:id"
+              element={
+                <Guard roles={['owner', 'manager']}>
+                  <AgentDetailPage />
+                </Guard>
+              }
+            />
+            <Route
+              path="/closeout/:id"
+              element={
+                <Guard roles={['owner', 'manager']}>
+                  <CloseoutPage />
+                </Guard>
+              }
+            />
+            <Route
+              path="/collections"
+              element={
+                <Guard roles={['owner', 'manager']}>
+                  <CollectionsPage />
+                </Guard>
+              }
+            />
+            <Route
+              path="/inventory"
+              element={
+                <Guard roles={['owner', 'manager']}>
+                  <InventoryPage />
+                </Guard>
+              }
+            />
+            <Route
+              path="/expenses"
+              element={
+                <Guard roles={['owner', 'manager']}>
+                  <ExpensesPage />
+                </Guard>
+              }
+            />
+            <Route
+              path="/payroll"
+              element={
+                <Guard roles={['owner', 'manager']}>
+                  <PayrollPage />
+                </Guard>
+              }
+            />
+            <Route
+              path="/reports"
+              element={
+                <Guard roles={['owner', 'manager']}>
+                  <ReportsPage />
+                </Guard>
+              }
+            />
+            <Route
+              path="/handover"
+              element={
+                <Guard roles={['owner', 'manager']}>
+                  <HandoverPage />
+                </Guard>
+              }
+            />
+            <Route
+              path="/data-quality"
+              element={
+                <Guard roles={['owner', 'manager']}>
+                  <DataQualityPage />
+                </Guard>
+              }
+            />
+            <Route
+              path="/history"
+              element={
+                <Guard roles={['owner', 'manager']}>
+                  <HistoryPage />
+                </Guard>
+              }
+            />
+            <Route
+              path="/disputes"
+              element={
+                <Guard roles={['owner', 'manager', 'agent']}>
+                  <DisputesPage />
+                </Guard>
+              }
+            />
+            <Route
+              path="/users"
+              element={
+                <Guard roles={['owner']}>
+                  <UsersPage />
+                </Guard>
+              }
+            />
+            <Route
+              path="/my"
+              element={
+                <Guard roles={['agent']}>
+                  <MyPage />
+                </Guard>
+              }
+            />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+      </div>
+
+      {/* Phone bottom tab bar: primary destinations + More. */}
+      <nav
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/95 md:hidden"
+        aria-label="Menu"
+      >
+        <div
+          className="grid"
+          style={{ gridTemplateColumns: `repeat(${tabs.length + 1}, minmax(0, 1fr))` }}
+        >
+          {tabs.map((t) => {
+            const active = isNavActive(t.to, location.pathname)
+            return (
+              <Link
+                key={t.to}
+                to={t.to}
+                aria-current={active ? 'page' : undefined}
+                className={tabItemCls(active)}
+              >
+                <span
+                  className={`flex items-center justify-center rounded-full px-3 py-0.5 ${
+                    active ? 'bg-brand-100 dark:bg-brand-900/60' : ''
+                  }`}
+                >
+                  <NavIcon to={t.to} className="h-6 w-6" />
+                </span>
+                <span className="line-clamp-2 max-w-full">{t.label}</span>
+              </Link>
+            )
+          })}
+          <button
+            type="button"
+            onClick={() => setMoreOpen(true)}
+            aria-expanded={moreOpen}
+            className={tabItemCls(moreActive)}
+          >
+            <span
+              className={`flex items-center justify-center rounded-full px-3 py-0.5 ${
+                moreActive ? 'bg-brand-100 dark:bg-brand-900/60' : ''
               }`}
             >
-              {n.label}
-            </Link>
-          ))}
-        </nav>
-      </header>
+              <MoreIcon className="h-6 w-6" />
+            </span>
+            <span className="line-clamp-2 max-w-full">နောက်ထပ်</span>
+          </button>
+        </div>
+      </nav>
 
-      <main className="p-4">
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route
-            path="/entries"
-            element={
-              <Guard roles={['owner', 'manager', 'staff', 'agent']}>
-                <EntriesPage />
-              </Guard>
-            }
+      {/* Phone "More" sheet: the full nav list for the role. */}
+      {moreOpen && (
+        <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label="နောက်ထပ်">
+          <button
+            type="button"
+            aria-label="ပိတ်ရန်"
+            onClick={() => setMoreOpen(false)}
+            className="absolute inset-0 h-full w-full bg-black/40"
           />
-          <Route
-            path="/payments"
-            element={
-              <Guard roles={['owner', 'manager', 'staff', 'agent']}>
-                <PaymentsPage />
-              </Guard>
-            }
-          />
-          <Route
-            path="/agents"
-            element={
-              <Guard roles={['owner', 'manager', 'staff']}>
-                <AgentsPage />
-              </Guard>
-            }
-          />
-          <Route
-            path="/agents/:id"
-            element={
-              <Guard roles={['owner', 'manager']}>
-                <AgentDetailPage />
-              </Guard>
-            }
-          />
-          <Route
-            path="/closeout/:id"
-            element={
-              <Guard roles={['owner', 'manager']}>
-                <CloseoutPage />
-              </Guard>
-            }
-          />
-          <Route
-            path="/collections"
-            element={
-              <Guard roles={['owner', 'manager']}>
-                <CollectionsPage />
-              </Guard>
-            }
-          />
-          <Route
-            path="/inventory"
-            element={
-              <Guard roles={['owner', 'manager']}>
-                <InventoryPage />
-              </Guard>
-            }
-          />
-          <Route
-            path="/expenses"
-            element={
-              <Guard roles={['owner', 'manager']}>
-                <ExpensesPage />
-              </Guard>
-            }
-          />
-          <Route
-            path="/payroll"
-            element={
-              <Guard roles={['owner', 'manager']}>
-                <PayrollPage />
-              </Guard>
-            }
-          />
-          <Route
-            path="/reports"
-            element={
-              <Guard roles={['owner', 'manager']}>
-                <ReportsPage />
-              </Guard>
-            }
-          />
-          <Route
-            path="/handover"
-            element={
-              <Guard roles={['owner', 'manager']}>
-                <HandoverPage />
-              </Guard>
-            }
-          />
-          <Route
-            path="/data-quality"
-            element={
-              <Guard roles={['owner', 'manager']}>
-                <DataQualityPage />
-              </Guard>
-            }
-          />
-          <Route
-            path="/history"
-            element={
-              <Guard roles={['owner', 'manager']}>
-                <HistoryPage />
-              </Guard>
-            }
-          />
-          <Route
-            path="/disputes"
-            element={
-              <Guard roles={['owner', 'manager', 'agent']}>
-                <DisputesPage />
-              </Guard>
-            }
-          />
-          <Route
-            path="/users"
-            element={
-              <Guard roles={['owner']}>
-                <UsersPage />
-              </Guard>
-            }
-          />
-          <Route
-            path="/my"
-            element={
-              <Guard roles={['agent']}>
-                <MyPage />
-              </Guard>
-            }
-          />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
+          <div className="absolute inset-x-0 bottom-0 rounded-t-3xl bg-white p-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))] shadow-pop dark:bg-neutral-900">
+            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-stone-300 dark:bg-neutral-700" />
+            <div className="mb-3 flex items-center justify-between">
+              <span className="font-bold">နောက်ထပ်</span>
+              <button
+                type="button"
+                onClick={() => setMoreOpen(false)}
+                aria-label="ပိတ်ရန်"
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-stone-100 text-lg leading-none dark:bg-neutral-800"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="grid max-h-[55vh] grid-cols-4 gap-2 overflow-y-auto">
+              {nav.map((n) => {
+                const active = isNavActive(n.to, location.pathname)
+                return (
+                  <Link
+                    key={n.to}
+                    to={n.to}
+                    aria-current={active ? 'page' : undefined}
+                    onClick={() => setMoreOpen(false)}
+                    className={`flex flex-col items-center gap-1.5 rounded-2xl border px-1 py-3 text-center text-[11px] leading-tight ${
+                      active
+                        ? 'border-brand-600 bg-brand-50 font-semibold text-brand-800 dark:border-brand-500 dark:bg-brand-950/50 dark:text-brand-200'
+                        : 'border-stone-200 text-stone-600 dark:border-neutral-800 dark:text-neutral-300'
+                    }`}
+                  >
+                    <NavIcon to={n.to} className="h-6 w-6" />
+                    <span className="line-clamp-2 max-w-full">{n.label}</span>
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

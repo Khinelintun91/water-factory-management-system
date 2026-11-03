@@ -3,6 +3,16 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { formatMMK, todayYangon, type Agent } from '../lib/types'
+import {
+  EmptyState,
+  Field,
+  LoadingState,
+  PageHeader,
+  PrimaryButton,
+  SecondaryButton,
+  cardCls,
+  inputCls,
+} from '../components/ui'
 
 interface AgentRow extends Agent {
   phone: string | null
@@ -29,7 +39,7 @@ function InlineNumber({
         const v = Number(e.target.value.replace(/\D/g, '')) || 0
         if (v !== value) onSave(v)
       }}
-      className="w-24 rounded-lg border px-2 py-1 text-right text-sm dark:bg-neutral-900"
+      className="min-h-[40px] w-24 rounded-lg border border-stone-300 px-2 py-1.5 text-right text-sm tabular-nums outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/40 dark:border-neutral-700 dark:bg-neutral-900"
     />
   )
 }
@@ -41,6 +51,7 @@ export default function AgentsPage() {
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
 
   // Add-agent form
   const [name, setName] = useState('')
@@ -192,47 +203,74 @@ export default function AgentsPage() {
     await load()
   }
 
+  const q = query.trim().toLowerCase()
+  const matches = (a: AgentRow) =>
+    q === '' ||
+    a.name.toLowerCase().includes(q) ||
+    (a.code ?? '').toLowerCase().includes(q) ||
+    (a.phone ?? '').includes(q)
+
   const open = rows.filter((a) => !a.closed_at)
   const closed = rows.filter((a) => a.closed_at)
+  const displayOpen = open.filter(matches)
+  const displayClosed = closed.filter(matches)
 
-  function renderRow(a: AgentRow) {
+  const chipCls =
+    'rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-600 dark:bg-red-950/40 dark:text-red-400'
+  const miniLabel = 'text-[11px] font-medium text-stone-500 dark:text-neutral-400'
+  const miniValue = 'mt-0.5 text-sm font-bold tabular-nums'
+
+  function renderCard(a: AgentRow) {
     return (
-      <li key={a.id} className="p-3">
+      <li key={a.id} className={`${cardCls} p-4`}>
         <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="font-medium">
+          <div className="min-w-0">
+            <div className="font-semibold">
               {canManage ? (
-                <Link to={`/agents/${a.id}`} className="text-teal-700 underline dark:text-teal-400">
+                <Link to={`/agents/${a.id}`} className="text-brand-700 underline underline-offset-2 dark:text-brand-300">
                   {a.name}
                 </Link>
               ) : (
                 a.name
               )}{' '}
-              {a.code && <span className="text-xs opacity-60">({a.code})</span>}
-              {!a.active && !a.closed_at && (
-                <span className="ml-2 text-xs text-red-500">ပိတ်ထားသည်</span>
-              )}
-              {a.closed_at && <span className="ml-2 text-xs text-red-500">စာရင်းပိတ်ပြီး</span>}
+              {a.code && <span className="text-xs font-normal opacity-60">({a.code})</span>}
             </div>
-            <div className="text-sm opacity-75">
+            {(!a.active && !a.closed_at) || a.closed_at ? (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {!a.active && !a.closed_at && <span className={chipCls}>ပိတ်ထားသည်</span>}
+                {a.closed_at && <span className={chipCls}>စာရင်းပိတ်ပြီး</span>}
+              </div>
+            ) : null}
+            <div className="mt-1 text-sm text-stone-500 dark:text-neutral-400">
               ဖုန်း: {a.phone ?? '—'}
               {a.address ? ` · ${a.address}` : ''}
             </div>
-            <div className="text-sm opacity-75">
-              ကိုင်ထားဘူး: {a.held.toLocaleString('en-US')} လုံး · ရရန်ကျန်:{' '}
+          </div>
+          {canManage && !a.closed_at && (
+            <SecondaryButton size="sm" onClick={() => toggleActive(a)} className="shrink-0">
+              {a.active ? 'ပိတ်' : 'ဖွင့်'}
+            </SecondaryButton>
+          )}
+        </div>
+
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <div className="rounded-xl bg-stone-50 p-2.5 dark:bg-neutral-800/70">
+            <div className={miniLabel}>ကိုင်ထားဘူး</div>
+            <div className={miniValue}>{a.held.toLocaleString('en-US')} လုံး</div>
+          </div>
+          <div className="rounded-xl bg-stone-50 p-2.5 dark:bg-neutral-800/70">
+            <div className={miniLabel}>ရရန်ကျန်</div>
+            <div className={`${miniValue} ${a.outstanding > 0 ? 'text-red-600 dark:text-red-400' : ''}`}>
               {formatMMK(a.outstanding)}
             </div>
           </div>
-          {canManage && !a.closed_at && (
-            <button
-              onClick={() => toggleActive(a)}
-              className="shrink-0 rounded-lg border px-2.5 py-1.5 text-sm"
-            >
-              {a.active ? 'ပိတ်' : 'ဖွင့်'}
-            </button>
-          )}
+          <div className="rounded-xl bg-stone-50 p-2.5 dark:bg-neutral-800/70">
+            <div className={miniLabel}>အပ်ငွေ/လုံး</div>
+            <div className={miniValue}>{formatMMK(a.deposit_per_bottle)}</div>
+          </div>
         </div>
-        <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-sm sm:grid-cols-4">
+
+        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-stone-100 pt-3 text-sm dark:border-neutral-800">
           <label className="flex items-center justify-between gap-1">
             <span className="opacity-75">ဈေးနှုန်း/လုံး</span>
             {canManage && !a.closed_at ? (
@@ -271,124 +309,135 @@ export default function AgentsPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-bold">ကိုယ်စားလှယ်များ</h1>
+    <div className="space-y-4 lg:space-y-6">
+      <PageHeader title="ကိုယ်စားလှယ်များ" subtitle="ကိုင်ထားဘူး၊ ရရန်ကျန်နှင့် အပ်ငွေ အခြေအနေ" />
 
-      {msg && <p className="text-sm text-red-600">{msg}</p>}
-      {okMsg && <p className="text-sm font-medium text-teal-700 dark:text-teal-400">{okMsg}</p>}
+      {msg && (
+        <p className="text-sm text-red-600" role="alert">
+          {msg}
+        </p>
+      )}
+      {okMsg && <p className="text-sm font-medium text-brand-700 dark:text-brand-300">{okMsg}</p>}
+
+      <div className="relative">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-stone-400"
+          aria-hidden="true"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20.5 20.5-4.6-4.6" />
+        </svg>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="အမည်၊ ကုဒ် သို့မဟုတ် ဖုန်းဖြင့် ရှာရန်"
+          aria-label="အမည်၊ ကုဒ် သို့မဟုတ် ဖုန်းဖြင့် ရှာရန်"
+          className={`${inputCls} pl-11`}
+        />
+      </div>
+
+      {loading ? (
+        <LoadingState />
+      ) : (
+        <>
+          {open.length === 0 ? (
+            <EmptyState text="မရှိသေးပါ" />
+          ) : displayOpen.length === 0 ? (
+            <EmptyState text="ရှာတွေ့ခြင်း မရှိပါ" />
+          ) : (
+            <ul className="grid gap-3 lg:grid-cols-2">{displayOpen.map(renderCard)}</ul>
+          )}
+
+          {closed.length > 0 && displayClosed.length > 0 && (
+            <div className="space-y-2.5">
+              <h2 className="font-semibold opacity-80">စာရင်းပိတ်ပြီး ကိုယ်စားလှယ်များ</h2>
+              <ul className="grid gap-3 opacity-80 lg:grid-cols-2">{displayClosed.map(renderCard)}</ul>
+            </div>
+          )}
+        </>
+      )}
 
       {canManage && (
-        <form onSubmit={onAdd} className="space-y-2 rounded-2xl border p-4">
-          <div className="font-semibold">ကိုယ်စားလှယ်အသစ် ထည့်ရန်</div>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            placeholder="အမည်"
-            className="w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="ကုဒ် (ရှိလျှင်)"
-              className="rounded-xl border px-3 py-2 dark:bg-neutral-900"
-            />
-            <input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="ဖုန်းနံပါတ်"
-              className="rounded-xl border px-3 py-2 dark:bg-neutral-900"
-            />
+        <form onSubmit={onAdd} className={`${cardCls} space-y-3 p-4 lg:p-5`}>
+          <div className="text-base font-semibold">ကိုယ်စားလှယ်အသစ် ထည့်ရန်</div>
+          <Field label="အမည်">
+            <input value={name} onChange={(e) => setName(e.target.value)} required className={inputCls} />
+          </Field>
+          <div className="grid grid-cols-2 gap-2.5">
+            <Field label="ကုဒ် (ရှိလျှင်)">
+              <input value={code} onChange={(e) => setCode(e.target.value)} className={inputCls} />
+            </Field>
+            <Field label="ဖုန်းနံပါတ်">
+              <input value={phone} onChange={(e) => setPhone(e.target.value)} className={inputCls} />
+            </Field>
           </div>
-          <input
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            placeholder="လိပ်စာ (ရှိလျှင်)"
-            className="w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <label className="text-sm">
-              ပုလင်းအပ်ငွေ (၁ လုံး)
+          <Field label="လိပ်စာ (ရှိလျှင်)">
+            <input value={address} onChange={(e) => setAddress(e.target.value)} className={inputCls} />
+          </Field>
+          <div className="grid grid-cols-2 gap-2.5">
+            <Field label="ပုလင်းအပ်ငွေ (၁ လုံး)">
               <input
                 value={deposit}
                 onChange={(e) => setDeposit(e.target.value.replace(/\D/g, ''))}
                 inputMode="numeric"
-                className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+                className={inputCls}
               />
-            </label>
-            <label className="text-sm">
-              ပုံမှန် ဈေးနှုန်း (၁ လုံး)
+            </Field>
+            <Field label="ပုံမှန် ဈေးနှုန်း (၁ လုံး)">
               <input
                 value={unitPrice}
                 onChange={(e) => setUnitPrice(e.target.value.replace(/\D/g, ''))}
                 inputMode="numeric"
-                className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+                className={inputCls}
               />
-            </label>
-            <label className="text-sm">
-              ဘူး ကန့်သတ်ချက် (၀ = မကန့်သတ်)
+            </Field>
+            <Field label="ဘူး ကန့်သတ်ချက် (၀ = မကန့်သတ်)">
               <input
                 value={bottleLimit}
                 onChange={(e) => setBottleLimit(e.target.value.replace(/\D/g, ''))}
                 inputMode="numeric"
-                className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+                className={inputCls}
               />
-            </label>
-            <label className="text-sm">
-              ကြွေး ကန့်သတ်ချက် (၀ = မကန့်သတ်)
+            </Field>
+            <Field label="ကြွေး ကန့်သတ်ချက် (၀ = မကန့်သတ်)">
               <input
                 value={creditLimit}
                 onChange={(e) => setCreditLimit(e.target.value.replace(/\D/g, ''))}
                 inputMode="numeric"
-                className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+                className={inputCls}
               />
-            </label>
+            </Field>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="text-sm">
-              အစအပေါင် ဘူး (ရှိလျှင်)
+          <div className="grid grid-cols-2 gap-2.5">
+            <Field label="အစအပေါင် ဘူး (ရှိလျှင်)">
               <input
                 value={initDepBottles}
                 onChange={(e) => setInitDepBottles(e.target.value.replace(/\D/g, ''))}
                 inputMode="numeric"
-                className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+                className={inputCls}
               />
-            </label>
-            <label className="text-sm">
-              အပေါင် ဈေးနှုန်း (၁ လုံး)
+            </Field>
+            <Field label="အပေါင် ဈေးနှုန်း (၁ လုံး)">
               <input
                 value={initDepPrice}
                 onChange={(e) => setInitDepPrice(e.target.value.replace(/\D/g, ''))}
                 inputMode="numeric"
                 placeholder="ပုလင်းအပ်ငွေ အတိုင်း"
-                className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+                className={inputCls}
               />
-            </label>
+            </Field>
           </div>
-          <button className="w-full rounded-xl bg-teal-700 py-2.5 font-semibold text-white">
+          <PrimaryButton type="submit" className="w-full">
             ထည့်ရန်
-          </button>
+          </PrimaryButton>
         </form>
       )}
 
-      {loading ? (
-        <p>ခဏစောင့်ပါ…</p>
-      ) : (
-        <>
-          <ul className="divide-y rounded-2xl border">
-            {open.map(renderRow)}
-            {open.length === 0 && <li className="p-3 text-sm opacity-70">မရှိသေးပါ</li>}
-          </ul>
-
-          {closed.length > 0 && (
-            <div className="space-y-2">
-              <h2 className="font-semibold opacity-80">စာရင်းပိတ်ပြီး ကိုယ်စားလှယ်များ</h2>
-              <ul className="divide-y rounded-2xl border opacity-80">{closed.map(renderRow)}</ul>
-            </div>
-          )}
-        </>
-      )}
       <p className="text-xs opacity-60">
         ဖုန်းနံပါတ်များကို ပိုင်ရှင်နှင့် မန်နေဂျာသာ မြင်ရပါတယ် (ဝန်ထမ်းများ မမြင်ရပါ)။ ကန့်သတ်ချက် ၀
         ဆိုသည်မှာ မကန့်သတ်ပါ။
