@@ -168,19 +168,22 @@ export default function PayrollPage() {
             .filter((r) => r.month !== month)
             .reduce((s, r) => s + r.amount, 0)
           const remaining = a.amount - paidOtherMonths
+          // "ကြိုတင်ငွေ ကျန်ရှိ" must be the ACTUAL remaining (all repayments
+          // counted, incl. this month's) so it matches the per-advance
+          // detail below; the deduction PLAN keeps the RPC's other-months
+          // semantics via `remaining`.
+          const remainingNow = a.amount - repaidTotal
+          if (remainingNow > 0) outstanding += remainingNow
           let planAmount: number | null = null
-          if (remaining > 0) {
-            outstanding += remaining
-            if (a.advance_date.slice(0, 7) <= month) {
-              planAmount =
-                a.installment > 0 ? Math.min(a.installment, remaining) : remaining
-              deduction += planAmount
-            }
+          if (remaining > 0 && a.advance_date.slice(0, 7) <= month) {
+            planAmount =
+              a.installment > 0 ? Math.min(a.installment, remaining) : remaining
+            deduction += planAmount
           }
           return {
             ...a,
             repaidTotal,
-            remainingNow: a.amount - repaidTotal,
+            remainingNow,
             planAmount,
             repaidThisMonth: reps.some((r) => r.month === month),
           }

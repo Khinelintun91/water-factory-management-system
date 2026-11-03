@@ -1015,6 +1015,10 @@ export const EN: Record<string, string> = {
   "ကို Supabase မှာ deploy လုပ်ထားဖို့ လိုပါတယ်": "needs to be deployed in Supabase",
   "ကြည့်ပါ": "see",
   // ---- Phase D redesign strings (only ones not already in the dict) ----
+  "အစီရင်ခံစာ": "Reports",
+  "ငွေလွှဲအပ်": "Handover",
+  "Data စစ်ဆေးမှု": "Data Quality",
+  "ဖုန်း push အသိပေးချက် မဖွင့်ရသေးပါ — စီမံသူ ဆက်တင် ကျန်ပါသေးတယ်။": "Phone push notifications are not enabled yet — admin setup is still pending.",
   "ကိုယ်စားလှယ်များထံမှ ကြွေးကောက် လက်ခံငွေ မှတ်ရန်": "Record debt-collection payments received from agents",
   "ကိုယ်စားလှယ်အလိုက် ရောင်းအား၊ ကောက်ခံငွေနှင့် ကျန်ကြွေး ကြည့်ရန်": "See sales, collections and outstanding by agent",
   "နေ့စဉ် ကုန်ကျစရိတ်များ မှတ်တမ်း ထည့်ရန်": "Record daily expenses",
