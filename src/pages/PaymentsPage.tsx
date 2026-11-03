@@ -16,6 +16,7 @@ export default function PaymentsPage() {
   const [rows, setRows] = useState<AgentPayment[]>([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
   const [agentId, setAgentId] = useState('')
   const [amount, setAmount] = useState('')
@@ -48,9 +49,12 @@ export default function PaymentsPage() {
 
   async function onAdd(e: FormEvent) {
     e.preventDefault()
+    if (busy) return
+    setBusy(true)
     setMsg(null)
     if (!agentId) {
       setMsg('ကိုယ်စားလှယ် ရွေးပါ')
+      setBusy(false)
       return
     }
     const { error } = await supabase.from('agent_payments').insert({
@@ -63,11 +67,13 @@ export default function PaymentsPage() {
     })
     if (error) {
       setMsg(error.message)
+      setBusy(false)
       return
     }
     setAmount('')
     setNotes('')
     await load()
+    setBusy(false)
   }
 
   async function onDelete(row: AgentPayment) {
@@ -129,7 +135,7 @@ export default function PaymentsPage() {
             className="w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
           />
           {msg && <p className="text-sm text-red-600">{msg}</p>}
-          <button className="w-full rounded-xl bg-teal-700 py-2.5 font-semibold text-white">
+          <button disabled={busy} className="w-full rounded-xl bg-teal-700 py-2.5 font-semibold text-white disabled:opacity-50">
             သိမ်းရန်
           </button>
         </form>

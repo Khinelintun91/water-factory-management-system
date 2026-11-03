@@ -22,6 +22,7 @@ export default function ExpensesPage() {
   const [cats, setCats] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
   const [title, setTitle] = useState('')
   const [amount, setAmount] = useState('')
@@ -47,6 +48,8 @@ export default function ExpensesPage() {
 
   async function onAdd(e: FormEvent) {
     e.preventDefault()
+    if (busy) return
+    setBusy(true)
     setMsg(null)
     let categoryId: string | null = null
     const name = categoryName.trim()
@@ -62,6 +65,7 @@ export default function ExpensesPage() {
           .single()
         if (error) {
           setMsg(error.message)
+          setBusy(false)
           return
         }
         categoryId = (data as { id: string }).id
@@ -76,12 +80,14 @@ export default function ExpensesPage() {
     })
     if (error) {
       setMsg(error.message)
+      setBusy(false)
       return
     }
     setTitle('')
     setAmount('')
     setNotes('')
     await load()
+    setBusy(false)
   }
 
   async function onDelete(row: ExpenseRow) {
@@ -138,7 +144,7 @@ export default function ExpensesPage() {
           className="w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
         />
         {msg && <p className="text-sm text-red-600">{msg}</p>}
-        <button className="w-full rounded-xl bg-teal-700 py-2.5 font-semibold text-white">
+        <button disabled={busy} className="w-full rounded-xl bg-teal-700 py-2.5 font-semibold text-white disabled:opacity-50">
           သိမ်းရန်
         </button>
       </form>
