@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Dark mode follows the .dark class on <html> (per-device theme setting),
+   not the OS preference. See lib/theme.ts. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   color-scheme: light dark;
 }

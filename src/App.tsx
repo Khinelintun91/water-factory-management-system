@@ -21,6 +21,11 @@ import PayrollPage from './pages/PayrollPage'
 import ReportsPage from './pages/ReportsPage'
 import HandoverPage from './pages/HandoverPage'
 import DataQualityPage from './pages/DataQualityPage'
+import SettingsPage from './pages/SettingsPage'
+import NotificationBell from './components/NotificationBell'
+import { applyStoredTheme } from './lib/theme'
+
+applyStoredTheme()
 
 function useFactoryName(): string {
   const [name, setName] = useState('ရေသန့်စက်ရုံ')
@@ -54,6 +59,7 @@ const NAV: { to: string; label: string; roles: string[] }[] = [
   { to: '/disputes', label: 'အငြင်းပွားမှုများ', roles: ['owner', 'manager', 'agent'] },
   { to: '/users', label: 'အသုံးပြုသူများ', roles: ['owner'] },
   { to: '/my', label: 'ကျွန်ုပ်၏ စာရင်း', roles: ['agent'] },
+  { to: '/settings', label: 'ဆက်တင်', roles: ['owner', 'manager', 'staff', 'agent'] },
 ]
 
 /** Route-level role gate (defense in depth; RLS remains the real boundary).
@@ -104,12 +110,15 @@ export default function App() {
               {profile.username} · {ROLE_LABELS[profile.role]}
             </div>
           </div>
-          <button
-            onClick={signOut}
-            className="rounded-lg border px-3 py-1.5 text-sm active:scale-95"
-          >
-            ထွက်ရန်
-          </button>
+          <div className="flex items-center gap-2">
+            <NotificationBell />
+            <button
+              onClick={signOut}
+              className="rounded-lg border px-3 py-1.5 text-sm active:scale-95"
+            >
+              ထွက်ရန်
+            </button>
+          </div>
         </div>
         <nav className="mt-3 flex gap-2 overflow-x-auto pb-1">
           {nav.map((n) => (
@@ -259,6 +268,7 @@ export default function App() {
               </Guard>
             }
           />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

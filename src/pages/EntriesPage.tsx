@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import {
+  count as queueCount,
+  enqueue,
+  isNetworkError,
+  peekAll,
+  removeAt,
+  type EntryInsert,
+} from '../lib/offlineQueue'
 import {
   formatMMK,
   isTodayYangon,
@@ -65,6 +73,12 @@ export default function EntriesPage() {
   const [notes, setNotes] = useState('')
   const [confirming, setConfirming] = useState(false)
 
+  // Offline queue (lib/offlineQueue): entries saved while unreachable.
+  const [queued, setQueued] = useState(() => queueCount())
+  const [droppedStale, setDroppedStale] = useState(0)
+  const [flushing, setFlushing] = useState(false)
+  const flushingRef = useRef(false)
+
   // Same-day edit form (one row at a time).
   const [editId, setEditId] = useState<string | null>(null)
   const [eDelivered, setEDelivered] = useState('')
@@ -96,6 +110,65 @@ export default function EntriesPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Flush queued entries in order. An entry rejected by the DB same-day
+  // insert guard (queued before midnight, flushed after) can NEVER succeed,
+  // so it is dropped and counted instead of blocking everything queued
+  // behind it forever; the dropped count surfaces as a persistent warning
+  // below. Any other failure stops the flush so nothing is skipped over a
+  // server-rule error. Returns the first blocking error message, or null.
+  const flushQueue = useCallback(async (): Promise<string | null> => {
+    if (flushingRef.current) return null
+    if (peekAll().length === 0) {
+      setQueued(0)
+      return null
+    }
+    flushingRef.current = true
+    setFlushing(true)
+    let firstError: string | null = null
+    let dropped = 0
+    const resolved: number[] = [] // indices sent or dropped; removed after
+    const items = peekAll()
+    for (let i = 0; i < items.length; i++) {
+      let failure: string | null = null
+      try {
+        const { error } = await supabase.from('daily_entries').insert(items[i].payload)
+        if (error) failure = error.message
+      } catch (err) {
+        failure = err instanceof Error ? err.message : String(err)
+      }
+      if (failure === null) {
+        resolved.push(i)
+      } else if (failure.includes('same_day_only')) {
+        // Stale: its Yangon day has passed; the guard will never accept it.
+        resolved.push(i)
+        dropped += 1
+      } else {
+        firstError = failure
+        break
+      }
+    }
+    if (resolved.length > 0) {
+      // Remove from the end backwards so earlier indices stay valid.
+      for (const i of [...resolved].sort((a, b) => b - a)) removeAt(i)
+      await load()
+    }
+    if (dropped > 0) setDroppedStale((n) => n + dropped)
+    setQueued(queueCount())
+    flushingRef.current = false
+    setFlushing(false)
+    return firstError
+  }, [load])
+
+  // Auto-flush on mount and whenever the connection comes back.
+  useEffect(() => {
+    flushQueue()
+    const onOnline = () => {
+      flushQueue()
+    }
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [flushQueue])
 
   // Live preview from the selected agent's price (server snapshots the same
   // price and computes the amount; this is display-only).
@@ -135,7 +208,7 @@ export default function EntriesPage() {
     setBusy(true)
     setMsg(null)
     // unit_price and amount are computed by the server — do not send them.
-    const { error } = await supabase.from('daily_entries').insert({
+    const payload: EntryInsert = {
       entry_date: todayYangon(),
       agent_id: agentId,
       delivered_qty: qty,
@@ -143,9 +216,29 @@ export default function EntriesPage() {
       amount_collected: cashNum,
       notes: notes.trim() || null,
       created_by: profile?.id ?? null,
-    })
-    if (error) {
-      setMsg(error.message)
+    }
+    // Offline right now: queue the exact payload instead of losing the form.
+    if (!navigator.onLine) {
+      enqueue(payload)
+      afterQueued()
+      return
+    }
+    let failure: unknown = null
+    try {
+      const { error } = await supabase.from('daily_entries').insert(payload)
+      failure = error
+    } catch (err) {
+      failure = err
+    }
+    if (failure) {
+      // Connection dropped mid-save: queue it, same as the offline path.
+      if (isNetworkError(failure)) {
+        enqueue(payload)
+        afterQueued()
+        return
+      }
+      const m = (failure as { message?: unknown }).message
+      setMsg(typeof m === 'string' ? m : String(failure))
       setConfirming(false)
       setBusy(false)
       return
@@ -156,6 +249,21 @@ export default function EntriesPage() {
     setNotes('')
     setConfirming(false)
     await load()
+    setBusy(false)
+  }
+
+  // Shared tail for "saved to the offline queue": clear the form and tell
+  // the user it will upload itself when the connection returns.
+  function afterQueued() {
+    setDelivered('')
+    setReturned('')
+    setCash('')
+    setNotes('')
+    setConfirming(false)
+    setQueued(queueCount())
+    setMsg(
+      'အင်တာနက် မရှိသေးလို့ သိမ်းထားပါတယ် — ပြန်ချိတ်ရင် အလိုအလျောက် တင်ပေးပါမယ်',
+    )
     setBusy(false)
   }
 
@@ -232,6 +340,29 @@ export default function EntriesPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-lg font-bold">ပို့ဆောင်မှု မှတ်တမ်းများ</h1>
+
+      {queued > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-400 bg-amber-50 p-3 text-sm dark:bg-neutral-900">
+          <span>⏳ တင်ရန် စောင့်နေသော မှတ်တမ်း {queued} ခု</span>
+          <button
+            type="button"
+            disabled={flushing}
+            onClick={async () => {
+              const err = await flushQueue()
+              if (err) setMsg(err)
+            }}
+            className="shrink-0 rounded-xl bg-teal-700 px-3 py-1.5 font-semibold text-white disabled:opacity-50"
+          >
+            အခု တင်မယ်
+          </button>
+        </div>
+      )}
+
+      {droppedStale > 0 && (
+        <div className="rounded-2xl border border-red-400 bg-red-50 p-3 text-sm font-medium text-red-700 dark:bg-neutral-900 dark:text-red-400">
+          ⚠️ ရက်ကျော်သွားလို့ တင်လို့ မရတော့သော မှတ်တမ်း {droppedStale} ခု ရှိပါတယ် — စီမံသူကို အကြောင်းကြားပါ
+        </div>
+      )}
 
       {canWrite && (
         <form onSubmit={onAdd} className="space-y-2 rounded-2xl border p-4">
