@@ -12,6 +12,7 @@ export default function HistoryPage() {
   const [rows, setRows] = useState<AuditLogRow[]>([])
   const [loading, setLoading] = useState(true)
   const [openId, setOpenId] = useState<number | null>(null)
+  const [hasMore, setHasMore] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -21,8 +22,20 @@ export default function HistoryPage() {
       .order('created_at', { ascending: false })
       .limit(100)
     setRows((data ?? []) as AuditLogRow[])
+    setHasMore((data ?? []).length === 100)
     setLoading(false)
   }, [])
+
+  async function loadMore() {
+    const { data } = await supabase
+      .from('audit_log')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(rows.length, rows.length + 99)
+    const page = (data ?? []) as AuditLogRow[]
+    setRows((prev) => [...prev, ...page])
+    setHasMore(page.length === 100)
+  }
 
   useEffect(() => {
     load()
@@ -71,6 +84,11 @@ export default function HistoryPage() {
           ))}
           {rows.length === 0 && <li className="p-3 text-sm opacity-70">မှတ်တမ် မရှိသေးပါ</li>}
         </ul>
+      )}
+      {hasMore && (
+        <button onClick={loadMore} className="w-full rounded-xl border py-2.5 text-sm">
+          နောက်ထပ် ၁၀၀ ကြည့်ရန်
+        </button>
       )}
     </div>
   )

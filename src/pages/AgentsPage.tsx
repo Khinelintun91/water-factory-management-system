@@ -76,7 +76,9 @@ export default function AgentsPage() {
   }
 
   async function toggleActive(a: AgentRow) {
-    await supabase.from('agents').update({ active: !a.active }).eq('id', a.id)
+    setMsg(null)
+    const { error } = await supabase.from('agents').update({ active: !a.active }).eq('id', a.id)
+    if (error) setMsg(error.message)
     await load()
   }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { supabase } from './lib/supabase'
@@ -41,6 +41,13 @@ const NAV: { to: string; label: string; roles: string[] }[] = [
   { to: '/users', label: 'အသုံးပြုသူများ', roles: ['owner'] },
   { to: '/my', label: 'ကျွန်ုပ်၏ စာရင်း', roles: ['agent'] },
 ]
+
+/** Route-level role gate (defense in depth; RLS remains the real boundary). */
+function Guard({ roles, children }: { roles: string[]; children: ReactNode }) {
+  const { profile } = useAuth()
+  if (!profile) return null
+  return roles.includes(profile.role) ? <>{children}</> : <Navigate to="/" replace />
+}
 
 export default function App() {
   const { loading, configured, session, profile, signOut } = useAuth()
@@ -105,14 +112,70 @@ export default function App() {
       <main className="p-4">
         <Routes>
           <Route path="/" element={<HomePage />} />
-          <Route path="/entries" element={<EntriesPage />} />
-          <Route path="/payments" element={<PaymentsPage />} />
-          <Route path="/agents" element={<AgentsPage />} />
-          <Route path="/expenses" element={<ExpensesPage />} />
-          <Route path="/history" element={<HistoryPage />} />
-          <Route path="/disputes" element={<DisputesPage />} />
-          <Route path="/users" element={<UsersPage />} />
-          <Route path="/my" element={<MyPage />} />
+          <Route
+            path="/entries"
+            element={
+              <Guard roles={['owner', 'manager', 'staff', 'agent']}>
+                <EntriesPage />
+              </Guard>
+            }
+          />
+          <Route
+            path="/payments"
+            element={
+              <Guard roles={['owner', 'manager', 'staff', 'agent']}>
+                <PaymentsPage />
+              </Guard>
+            }
+          />
+          <Route
+            path="/agents"
+            element={
+              <Guard roles={['owner', 'manager', 'staff']}>
+                <AgentsPage />
+              </Guard>
+            }
+          />
+          <Route
+            path="/expenses"
+            element={
+              <Guard roles={['owner', 'manager']}>
+                <ExpensesPage />
+              </Guard>
+            }
+          />
+          <Route
+            path="/history"
+            element={
+              <Guard roles={['owner', 'manager']}>
+                <HistoryPage />
+              </Guard>
+            }
+          />
+          <Route
+            path="/disputes"
+            element={
+              <Guard roles={['owner', 'manager', 'agent']}>
+                <DisputesPage />
+              </Guard>
+            }
+          />
+          <Route
+            path="/users"
+            element={
+              <Guard roles={['owner']}>
+                <UsersPage />
+              </Guard>
+            }
+          />
+          <Route
+            path="/my"
+            element={
+              <Guard roles={['agent']}>
+                <MyPage />
+              </Guard>
+            }
+          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

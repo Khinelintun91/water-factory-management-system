@@ -31,7 +31,7 @@ export default function PaymentsPage() {
   const load = useCallback(async () => {
     setLoading(true)
     const [{ data: ag }, { data: pm }] = await Promise.all([
-      supabase.from('agents').select('*').eq('active', true).order('created_at'),
+      supabase.from('agents').select('*').order('created_at'),
       supabase
         .from('agent_payments')
         .select('*')
@@ -97,7 +97,7 @@ export default function PaymentsPage() {
             className="w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
           >
             <option value="">ကိုယ်စားလှယ် ရွေးပါ</option>
-            {agents.map((a) => (
+            {agents.filter((a) => a.active).map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
               </option>

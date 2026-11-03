@@ -33,7 +33,7 @@ export default function EntriesPage() {
   const load = useCallback(async () => {
     setLoading(true)
     const [{ data: ag }, { data: en }] = await Promise.all([
-      supabase.from('agents').select('*').eq('active', true).order('created_at'),
+      supabase.from('agents').select('*').order('created_at'),
       supabase
         .from('daily_entries')
         .select('*')
@@ -49,16 +49,12 @@ export default function EntriesPage() {
     load()
   }, [load])
 
-  // When an agent is picked, prefill their default price and compute the amount.
-  useEffect(() => {
-    const a = agents.find((x) => x.id === agentId)
-    if (a && !unitPrice) setUnitPrice(String(a.default_unit_price || ''))
-  }, [agentId, agents, unitPrice])
-
+  // Amount follows quantity x price; clearing the quantity clears it too
+  // (a stale amount must never ride along with a zero quantity).
   useEffect(() => {
     const q = Number(delivered) || 0
     const p = Number(unitPrice) || 0
-    if (q > 0) setAmount(String(q * p))
+    setAmount(q > 0 ? String(q * p) : '')
   }, [delivered, unitPrice])
 
   async function onAdd(e: FormEvent) {
@@ -110,12 +106,17 @@ export default function EntriesPage() {
           <div className="font-semibold">ယနေ့ မှတ်တမ်အသစ်</div>
           <select
             value={agentId}
-            onChange={(e) => setAgentId(e.target.value)}
+            onChange={(e) => {
+              const id = e.target.value
+              setAgentId(id)
+              const a = agents.find((x) => x.id === id)
+              if (a) setUnitPrice(String(a.default_unit_price || ''))
+            }}
             required
             className="w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
           >
             <option value="">ကိုယ်စားလှယ် ရွေးပါ</option>
-            {agents.map((a) => (
+            {agents.filter((a) => a.active).map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
               </option>

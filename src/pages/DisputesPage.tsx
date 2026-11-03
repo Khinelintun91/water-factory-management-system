@@ -24,6 +24,7 @@ export default function DisputesPage() {
   const [rows, setRows] = useState<Dispute[]>([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
+  const [agentNames, setAgentNames] = useState<Record<string, string>>({})
   const [message, setMessage] = useState('')
   const [replyById, setReplyById] = useState<Record<string, string>>({})
 
@@ -35,6 +36,12 @@ export default function DisputesPage() {
       .order('created_at', { ascending: false })
       .limit(100)
     setRows((data ?? []) as Dispute[])
+    const { data: ag } = await supabase.from('agents').select('id, name')
+    if (ag) {
+      setAgentNames(
+        Object.fromEntries((ag as { id: string; name: string }[]).map((a) => [a.id, a.name])),
+      )
+    }
     setLoading(false)
   }, [])
 
@@ -106,7 +113,10 @@ export default function DisputesPage() {
           {rows.map((d) => (
             <li key={d.id} className="p-3">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium">{STATUS_LABELS[d.status]}</span>
+                <span className="text-sm font-medium">
+                  {agentNames[d.agent_id] ? `${agentNames[d.agent_id]} · ` : ''}
+                  {STATUS_LABELS[d.status]}
+                </span>
                 <span className="text-xs opacity-60">
                   {new Date(d.created_at).toLocaleString('my-MM')}
                 </span>

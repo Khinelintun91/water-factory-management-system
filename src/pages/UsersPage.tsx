@@ -30,7 +30,14 @@ export default function UsersPage() {
   }, [load])
 
   async function toggleActive(p: Profile) {
-    await supabase.from('profiles').update({ active: !p.active }).eq('id', p.id)
+    setMsg(null)
+    if (p.role === 'owner' && p.active) {
+      setMsg('Owner အကောင့်ကို ပိတ်၍ မရပါ')
+      return
+    }
+    if (p.active && !confirm(`${p.username} အကောင့်ကို ပိတ်မှာ သေချာပါသလား?`)) return
+    const { error } = await supabase.from('profiles').update({ active: !p.active }).eq('id', p.id)
+    if (error) setMsg(error.message)
     await load()
   }
 
