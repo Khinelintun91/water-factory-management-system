@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { supabase, usernameToEmail } from '../lib/supabase'
 import { exportBackup, getLastBackupAt, isBackupOverdue } from '../lib/backup'
 import { dailySummaryCsv, monthlyBackupCsv, monthlyBackupXlsx } from '../lib/exports'
-import { formatMMK, todayYangon } from '../lib/types'
+import { formatMMK, personName, todayYangon } from '../lib/types'
 import { NavIcon } from '../components/icons'
 import {
   Card,
@@ -366,13 +366,17 @@ function Dashboard() {
         fetchDay<DayEntry>('daily_entries', 'delivered_qty, returned_qty, amount, amount_collected, created_by', 'entry_date', d),
         fetchDay<DayPayment>('agent_payments', 'amount, created_by', 'payment_date', d),
         fetchDay<{ amount: number }>('expenses', 'amount', 'expense_date', d),
-        supabase.from('profiles').select('id, username'),
+        supabase.from('profiles').select('id, username, display_name'),
       ])
       setEntries(en)
       setPayments(pm)
       setExpenseTotal(ex.reduce((s, x) => s + Number(x.amount), 0))
       setNames(
-        new Map(((profs.data ?? []) as { id: string; username: string }[]).map((p) => [p.id, p.username])),
+        new Map(
+          ((profs.data ?? []) as { id: string; username: string; display_name?: string | null }[]).map(
+            (p) => [p.id, personName(p)] as const,
+          ),
+        ),
       )
       setMsg(null)
     } catch (err) {

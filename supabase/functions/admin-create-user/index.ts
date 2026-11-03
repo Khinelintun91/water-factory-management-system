@@ -1,16 +1,19 @@
 // admin-create-user — Owner-only account creation.
 //
+// NOTE (2026-11-03): NOT the live path. This Edge Function could not be
+// deployed from the build environment, so account administration is
+// implemented as security-definer database RPCs instead — see migration
+// 0014 (admin_create_user / admin_reset_pin), which the app's Users page
+// calls. This file is kept as a reference implementation only; do not wire
+// the UI back to it without deploying it first.
+//
 // Creating a Supabase Auth user requires the service_role key, which must
 // never reach the browser. This Edge Function runs server-side inside the
 // owner's Supabase project: it verifies the caller's JWT, checks the
 // caller's profile role is 'owner', then creates the auth user + profile.
 //
-// Deploy: Supabase dashboard -> Edge Functions -> Deploy a new function ->
-// name it `admin-create-user` and paste this file (or use the Supabase CLI:
-// `supabase functions deploy admin-create-user`).
-//
-// Request body: { username: string, pin: string, role: 'owner'|'manager'|'staff'|'agent', agent_id?: string }
-// Response:     { profile: { id, username, role, agent_id, active } }
+// Request body: { username: string, pin: string, role: 'owner'|'manager'|'staff'|'agent', agent_id?: string, display_name?: string }
+// Response:     { profile: { id, username, display_name, role, agent_id, active } }
 
 // @ts-nocheck — Deno runtime (Supabase Edge Functions), not part of the Vite build.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
@@ -59,10 +62,17 @@ Deno.serve(async (req) => {
   const pin = String(body?.pin ?? '')
   const role = String(body?.role ?? '')
   const agentId = body?.agent_id ? String(body.agent_id) : null
+  const displayNameRaw = typeof body?.display_name === 'string' ? body.display_name.trim() : ''
+  const displayName = displayNameRaw ? displayNameRaw : null
 
   if (!/^[a-z0-9_.-]{3,32}$/.test(username)) return json({ error: 'invalid_username' }, 400)
-  if (!/^\d{6,12}$/.test(pin)) return json({ error: 'pin_must_be_6_to_12_digits' }, 400)
   if (!['owner', 'manager', 'staff', 'agent'].includes(role)) return json({ error: 'invalid_role' }, 400)
+  // Credential policy (old-app parity, owner-confirmed 2026-11-03):
+  // owner/manager PINs are 6–12 digits; staff/agent PINs may be 4–12 digits.
+  const minPin = role === 'owner' || role === 'manager' ? 6 : 4
+  if (!/^\d+$/.test(pin) || pin.length < minPin || pin.length > 12) {
+    return json({ error: `pin_must_be_${minPin}_to_12_digits` }, 400)
+  }
   if (role === 'agent' && !agentId) return json({ error: 'agent_id_required' }, 400)
 
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
@@ -77,8 +87,14 @@ Deno.serve(async (req) => {
 
   const { data: profile, error: profileErr } = await admin
     .from('profiles')
-    .insert({ id: created.user.id, username, role, agent_id: role === 'agent' ? agentId : null })
-    .select('id, username, role, agent_id, active')
+    .insert({
+      id: created.user.id,
+      username,
+      display_name: displayName,
+      role,
+      agent_id: role === 'agent' ? agentId : null,
+    })
+    .select('id, username, display_name, role, agent_id, active')
     .single()
   if (profileErr) {
     // Roll back the auth user so a retry does not collide.

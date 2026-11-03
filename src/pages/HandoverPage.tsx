@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
-import { formatMMK, todayYangon, type Role } from '../lib/types'
+import { formatMMK, personName, todayYangon, type Role } from '../lib/types'
 import {
   Card,
   EmptyState,
@@ -31,7 +31,8 @@ interface HandoverRow {
 
 interface EmployeeLite {
   id: string
-  username: string
+  /** Display name (personName): display_name when set, else username. */
+  name: string
 }
 
 const STAFF_ROLES: Role[] = ['staff', 'manager', 'co_owner']
@@ -72,7 +73,7 @@ export default function HandoverPage() {
     setMsg(null)
     try {
       const [{ data: profs, error: pErr }, { data: roleRows, error: rErr }] = await Promise.all([
-        supabase.from('profiles').select('id, username, role, active').eq('active', true).order('username'),
+        supabase.from('profiles').select('id, username, display_name, role, active').eq('active', true).order('username'),
         supabase.from('user_roles').select('profile_id, role'),
       ])
       if (pErr) throw new Error(pErr.message)
@@ -81,9 +82,11 @@ export default function HandoverPage() {
       for (const r of (roleRows ?? []) as { profile_id: string; role: Role }[]) {
         extra.set(r.profile_id, [...(extra.get(r.profile_id) ?? []), r.role])
       }
-      const emps: EmployeeLite[] = ((profs ?? []) as { id: string; username: string; role: Role }[])
+      const emps: EmployeeLite[] = (
+        (profs ?? []) as { id: string; username: string; display_name?: string | null; role: Role }[]
+      )
         .filter((p) => [p.role, ...(extra.get(p.id) ?? [])].some((r) => STAFF_ROLES.includes(r)))
-        .map((p) => ({ id: p.id, username: p.username }))
+        .map((p) => ({ id: p.id, name: personName(p) }))
       setEmployees(emps)
 
       const [entryRows, paymentRows, handoverRows] = await Promise.all([
@@ -235,7 +238,7 @@ export default function HandoverPage() {
               return (
                 <Card key={emp.id}>
                   <div className="flex items-center justify-between gap-2">
-                    <div className="font-semibold">{emp.username}</div>
+                    <div className="font-semibold">{emp.name}</div>
                     {diffBadge(diff)}
                   </div>
                   <div className="mt-3 grid grid-cols-2 items-end gap-2.5">

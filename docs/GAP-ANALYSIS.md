@@ -137,7 +137,7 @@ Status key: **HAVE** (equal or better) · **PARTIAL** (exists, missing pieces) �
 |---|---|
 | Trigger audit with full old/new images on 9 tables; UPDATE/DELETE blocked | HAVE (14 tables incl. profiles/app_settings after 0005) |
 | Field-level diff view, edit reasons shown, date range, 300-row paging, CSV export | PARTIAL — raw before/after JSON view + load-more; add diffs/reasons/CSV |
-| Owner-only purge (RPC) — the sole deletion path | **CONFLICT** — rebuild SPEC explicitly said NO purge; user's 2026-11-03 parity instruction says nothing left behind. Decision: implement owner-only purge (newest instruction wins), flagged to the user |
+| Owner-only purge (RPC) — the sole deletion path | **CONFLICT — RESOLVED by the owner 2026-11-03 ~23:19: NO purge, ever.** The earlier decision in this row (implement owner-only purge, "newest instruction wins") is SUPERSEDED by the owner's explicit choice: the audit log stays insert-only for everyone including the Owner, exactly as SPEC rule 5 states. No purge feature is to be built. |
 
 ## UI/UX (redesign targets — must EXCEED old)
 Old baseline (from inventory §10): shadcn/Tailwind v4 oklch single-blue theme, full dark palette, .app-card shadow/press system, sidebar + sticky blurred header, 4 grouped nav sections with icons, phone bottom nav (≤4 items, safe-area), tablet icon rail, desktop expandable sidebar + two-pane layouts at xl, h-11→h-14 touch targets (shrink ≥sm), 180 ms transitions, reduced-motion, PWA icons/manifest with editable app name, system font.

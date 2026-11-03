@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
-import { formatMMK, type AgentPayment, type DailyEntry } from '../lib/types'
+import { formatMMK, personName, type AgentPayment, type DailyEntry } from '../lib/types'
 import { LoadingState, PageHeader, StatCard, cardCls } from '../components/ui'
 
 export default function MyPage() {
@@ -31,7 +31,7 @@ export default function MyPage() {
       <PageHeader
         title={
           <>
-            ကျွန်ုပ်၏ စာရင်း — {profile?.username}
+            ကျွန်ုပ်၏ စာရင်း — {profile ? personName(profile) : ''}
           </>
         }
         subtitle="ကိုယ်ပိုင် ပို့ဆောင်မှုနှင့် ပေးချေမှု မှတ်တမ်းများ"

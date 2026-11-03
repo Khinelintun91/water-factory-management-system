@@ -7,8 +7,8 @@ This system is the rebuild of Aqua Crate Ledger: same functions, bugs fixed, str
 - **Code:** this GitHub repo is the source of truth.
 - **Push notifications (later phase):** Firebase Cloud Messaging, project `water-delivery-noti`.
 
-## Roles (4)
-- Owner, Manager, Staff, Agent. Owner manages accounts.
+## Roles (5)
+- Owner, Manager, Co-owner (an extra granted role that counts exactly as Manager), Staff, Agent. A user has one primary role plus any extra granted roles in `user_roles`. Owner manages accounts.
 - Server-side enforcement is mandatory for every rule below. A UI-only restriction is a bug, not a rule.
 
 ## Non-negotiable rules
@@ -34,6 +34,12 @@ Salary calculation, accounting reports, Excel/PDF/CSV export, dashboard charts, 
 - Delivery pricing: [TBD]
 - Who may lock/unlock a month, and the unlock procedure: [TBD — interim default in code: Owner and Manager may lock; only Owner may unlock; both actions audited]
 - Dispute workflow steps: [TBD — Phase 1 keeps the old app's simple flow: agent raises → manager replies → notification]
+
+## Devices and usability (owner requirement, 2026-11-03)
+- **Phone is the primary device** — most daily use happens on phones. Design phone-first.
+- **Desktop** is used at home and must be comfortable too; **tablet** must also work well — the in-between layout needs deliberate care, not just a stretched phone layout.
+- End-user convenience outranks visual cleverness in every UI decision: layout, placement and ordering of elements must serve the person doing daily work.
+- During builds, the QA/testing loop must continuously check every screen at phone, tablet and desktop widths and fix placement/layout problems until all three are comfortable. This is an acceptance criterion for any UI work, including the redesign (which must also beat the old Lovable app's UI/UX, with nothing from the old app left behind).
 
 ## Backups and data safety (decided 2026-11-03)
 - Foundation: Path A — the business's own Supabase project (Postgres), Free plan. Verified: Supabase Free has NO automatic backups and no point-in-time recovery — backups are OUR system, not Supabase's.

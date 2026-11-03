@@ -3,9 +3,17 @@ export type Role = 'owner' | 'co_owner' | 'manager' | 'staff' | 'agent'
 export interface Profile {
   id: string
   username: string
+  /** Free-text display name (Burmese welcome); login username stays Latin. */
+  display_name?: string | null
   role: Role
   agent_id: string | null
   active: boolean
+}
+
+/** Person's display name when set (trimmed, non-empty), else their login username. */
+export function personName(p: { display_name?: string | null; username: string }): string {
+  const d = p.display_name?.trim()
+  return d ? d : p.username
 }
 
 export interface Agent {

@@ -52,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loadProfile = useCallback(async (userId: string) => {
     const { data } = await supabase
       .from('profiles')
-      .select('id, username, role, agent_id, active')
+      .select('id, username, display_name, role, agent_id, active')
       .eq('id', userId)
       .maybeSingle()
     const p = (data as Profile | null) ?? null
@@ -121,7 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const { data: p } = await supabase
       .from('profiles')
-      .select('id, username, role, agent_id, active')
+      .select('id, username, display_name, role, agent_id, active')
       .eq('id', data.user.id)
       .maybeSingle()
     if (!p || !(p as Profile).active) {

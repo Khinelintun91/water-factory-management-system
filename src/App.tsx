@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { supabase } from './lib/supabase'
-import { ROLE_LABELS } from './lib/types'
+import { personName, ROLE_LABELS } from './lib/types'
 import LoginPage from './pages/LoginPage'
 import HomePage from './pages/HomePage'
 import AgentsPage from './pages/AgentsPage'
@@ -192,7 +192,7 @@ export default function App() {
             <div className="min-w-0">
               <div className="truncate font-bold leading-tight lg:hidden">{factoryName}</div>
               <div className="truncate text-xs text-stone-500 dark:text-neutral-400">
-                {profile.username} · {ROLE_LABELS[profile.role]}
+                {personName(profile)} · {ROLE_LABELS[profile.role]}
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">

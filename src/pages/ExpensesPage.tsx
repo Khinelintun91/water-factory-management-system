@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
+import { fetchAll } from '../lib/fetchAll'
 import { formatMMK, isTodayYangon, todayYangon } from '../lib/types'
 import {
   DangerButton,
@@ -43,11 +44,18 @@ export default function ExpensesPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: ex }, { data: ct }] = await Promise.all([
-      supabase.from('expenses').select('*').order('created_at', { ascending: false }).limit(100),
+    const [ex, { data: ct }] = await Promise.all([
+      // Full pagination instead of a silent 100-row cap.
+      fetchAll<ExpenseRow>((from, to) =>
+        supabase
+          .from('expenses')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(from, to),
+      ),
       supabase.from('expense_categories').select('*').order('name'),
     ])
-    setRows((ex ?? []) as ExpenseRow[])
+    setRows(ex)
     setCats((ct ?? []) as Category[])
     setLoading(false)
   }, [])

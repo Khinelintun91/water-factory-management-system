@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { fetchAll } from '../lib/fetchAll'
 import {
   count as queueCount,
   enqueue,
@@ -109,18 +110,32 @@ export default function EntriesPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: ag }, { data: en }] = await Promise.all([
+    const [{ data: ag }, en] = await Promise.all([
       supabase.from('agents').select('*').order('created_at'),
-      supabase
-        .from('daily_entries')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100),
+      // The selected month is filtered server-side by entry_date range and
+      // every page is fetched — the old client-side filter over a capped
+      // list silently dropped rows from busier months.
+      fetchAll<EntryRow>((from, to) => {
+        let q = supabase.from('daily_entries').select('*')
+        if (monthFilter !== 'all') {
+          const [y, m] = monthFilter.split('-').map(Number)
+          const start = `${monthFilter}-01`
+          const end =
+            m === 12
+              ? `${y + 1}-01-01`
+              : `${y}-${String(m + 1).padStart(2, '0')}-01`
+          q = q.gte('entry_date', start).lt('entry_date', end)
+        }
+        return q
+          .order('entry_date', { ascending: false })
+          .order('created_at', { ascending: false })
+          .range(from, to)
+      }),
     ])
     setAgents((ag ?? []) as Agent[])
-    setRows((en ?? []) as EntryRow[])
+    setRows(en)
     setLoading(false)
-  }, [])
+  }, [monthFilter])
 
   useEffect(() => {
     load()
@@ -194,13 +209,8 @@ export default function EntriesPage() {
   const cashNum = Number(cash) || 0
   const remaining = due - cashNum
 
-  const visibleRows = useMemo(
-    () =>
-      monthFilter === 'all'
-        ? rows
-        : rows.filter((r) => r.entry_date.startsWith(monthFilter)),
-    [rows, monthFilter],
-  )
+  // Rows arrive already scoped to the selected month (see load()).
+  const visibleRows = rows
 
   function onAdd(e: FormEvent) {
     e.preventDefault()
@@ -669,10 +679,14 @@ export default function EntriesPage() {
 
       {loading ? (
         <LoadingState />
-      ) : rows.length === 0 ? (
-        <EmptyState text="မှတ်တမ် မရှိသေးပါ" />
       ) : visibleRows.length === 0 ? (
-        <EmptyState text="ရွေးထားသော လတွင် မှတ်တမ် မရှိပါ" />
+        <EmptyState
+          text={
+            monthFilter === 'all'
+              ? 'မှတ်တမ် မရှိသေးပါ'
+              : 'ရွေးထားသော လတွင် မှတ်တမ် မရှိပါ'
+          }
+        />
       ) : (
         <>
           {/* Phone / tablet: one card per record. */}

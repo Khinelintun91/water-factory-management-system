@@ -26,8 +26,31 @@ const BACKUP_TABLES: { table: string; orderBy: string }[] = [
   { table: 'disputes', orderBy: 'id' },
   { table: 'month_locks', orderBy: 'month' },
   { table: 'profiles', orderBy: 'id' },
+  // Phase A–C tables (migrations 0006/0009/0011), placed after the tables
+  // they reference: user_roles, salary_settings, advances, bonuses,
+  // payroll_runs, cash_handovers, notifications, notify_prefs and
+  // push_tokens hang off profiles; agent_deposits, write_offs and
+  // agent_settlements hang off agents (+ profiles via created_by);
+  // advance_repayments hangs off advances.
+  { table: 'user_roles', orderBy: 'id' },
+  { table: 'agent_deposits', orderBy: 'id' },
+  { table: 'write_offs', orderBy: 'id' },
+  { table: 'agent_settlements', orderBy: 'id' },
+  { table: 'salary_settings', orderBy: 'user_id' },
+  { table: 'advances', orderBy: 'id' },
+  { table: 'bonuses', orderBy: 'id' },
+  { table: 'payroll_runs', orderBy: 'id' },
+  { table: 'advance_repayments', orderBy: 'id' },
+  { table: 'cash_handovers', orderBy: 'id' },
+  // Own-row RLS: notifications, notify_prefs and push_tokens export only
+  // the rows visible to the exporting user (the owner) under RLS — other
+  // users' rows in these tables are not included in this file.
+  { table: 'notifications', orderBy: 'id' },
+  { table: 'notify_prefs', orderBy: 'user_id' },
+  { table: 'push_tokens', orderBy: 'id' },
   { table: 'app_settings', orderBy: 'key' },
   { table: 'login_logs', orderBy: 'id' },
+  { table: 'pin_attempts', orderBy: 'username' },
   { table: 'audit_log', orderBy: 'id' },
 ]
 

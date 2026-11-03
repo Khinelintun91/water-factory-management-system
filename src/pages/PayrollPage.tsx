@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { supabase } from '../lib/supabase'
 import {
   formatMMK,
+  personName,
   todayYangon,
   ROLE_LABELS,
   type Advance,
@@ -107,7 +108,7 @@ export default function PayrollPage() {
     setMsg(null)
     try {
       const [pf, ur, sal, bon, adv, rep, run] = await Promise.all([
-        supabase.from('profiles').select('id, username, role, agent_id, active').eq('active', true).order('username'),
+        supabase.from('profiles').select('id, username, display_name, role, agent_id, active').eq('active', true).order('username'),
         supabase.from('user_roles').select('profile_id, role'),
         supabase.from('salary_settings').select('*'),
         supabase.from('bonuses').select('*').eq('month', month).order('created_at'),
@@ -407,14 +408,14 @@ function PayrollCard({
     setConfirmPay(false)
     setBusy(false)
     if (error) onError(readablePayError(error.message, month))
-    else onPaid(row.user.username)
+    else onPaid(personName(row.user))
   }
 
   return (
     <Card className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <span className="font-semibold">{row.user.username}</span>
+          <span className="font-semibold">{personName(row.user)}</span>
           <span className="ml-2 text-xs text-stone-500 dark:text-neutral-400">
             {row.roles.map((r) => ROLE_LABELS[r]).join(' · ')}
           </span>
@@ -665,7 +666,7 @@ function PayrollCard({
         (confirmPay ? (
           <div className="space-y-2 rounded-xl border border-brand-600 p-3 dark:border-brand-800">
             <p className="text-sm">
-              {row.user.username} ကို {formatMMK(row.net)} ပေးမှာ သေချာပါသလား? ပေးပြီးရင်
+              {personName(row.user)} ကို {formatMMK(row.net)} ပေးမှာ သေချာပါသလား? ပေးပြီးရင်
               ပြန်ပြင်လို့ မရပါ။
             </p>
             <div className="flex gap-2">

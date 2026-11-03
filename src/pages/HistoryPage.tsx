@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import type { AuditLogRow } from '../lib/types'
+import { historyCsv } from '../lib/exports'
+import { todayYangon, type AuditLogRow } from '../lib/types'
 import {
   EmptyState,
   LoadingState,
@@ -48,9 +49,37 @@ export default function HistoryPage() {
     load()
   }, [load])
 
+  // Export the rows currently loaded (including any "load more" pages) —
+  // same shaping pattern as the Data-Quality page's CSV export.
+  function onExportCsv() {
+    historyCsv(
+      rows.map((r) => ({
+        အချိန်: new Date(r.created_at).toLocaleString('my-MM'),
+        ဇယား: r.table_name,
+        လုပ်ဆောင်ချက်: ACTION_LABELS[r.action],
+        'မှတ်တမ်း ID': r.row_id,
+        'အရင် အချက်အလက်': r.old_data ? JSON.stringify(r.old_data) : '',
+        'အသစ် အချက်အလက်': r.new_data ? JSON.stringify(r.new_data) : '',
+      })),
+      `history-${todayYangon()}.csv`,
+    )
+  }
+
   return (
     <div className="space-y-4 lg:space-y-6">
-      <PageHeader title="ပြောင်းလဲမှုမှတ်တမ်း" subtitle="မည်သူ ဘာပြောင်းခဲ့လဲ ပြန်ကြည့်ရန်" />
+      <PageHeader
+        title="ပြောင်းလဲမှုမှတ်တမ်း"
+        subtitle="မည်သူ ဘာပြောင်းခဲ့လဲ ပြန်ကြည့်ရန်"
+        action={
+          <SecondaryButton
+            onClick={onExportCsv}
+            disabled={loading || rows.length === 0}
+            className="shrink-0"
+          >
+            CSV ဒေါင်းလုပ်
+          </SecondaryButton>
+        }
+      />
       <p className="text-sm text-stone-500 dark:text-neutral-400">
         မှတ်တမ်းအားလုံးကို ပြင်ဆင်/ဖျက်ချ၍ မရပါ (ပိုင်ရှင် အပါအဝင်)။ မှားယွင်းမှု ဖြစ်ခဲ့ရင် ဒီမှတ်တမ်းက
         မူလ အချက်အလက်ကို ပြန်ဆယ်ရန် သုံးနိုင်ပါတယ်။
