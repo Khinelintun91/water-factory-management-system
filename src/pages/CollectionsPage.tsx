@@ -1,6 +1,29 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { formatMMK, type Agent, type Profile } from '../lib/types'
+import {
+  Banner,
+  Card,
+  CardTitle,
+  EmptyState,
+  Field,
+  LoadingState,
+  PageHeader,
+  cardCls,
+  inputCls,
+} from '../components/ui'
+
+// Display labels for the stored payment-method values (same words as the
+// PaymentsPage form's <option> labels).
+const METHOD_LABELS: Record<string, string> = {
+  cash: 'ငွေသား',
+  kbzpay: 'KBZPay',
+  wavepay: 'WavePay',
+  bank: 'ဘဏ်',
+}
+
+const detailBtnCls =
+  'inline-flex min-h-[40px] shrink-0 items-center rounded-lg bg-brand-50 px-3.5 font-medium text-brand-700 transition active:scale-[0.98] dark:bg-brand-950/50 dark:text-brand-300'
 
 // Row shapes for the collections datasets (columns added by migration 0006
 // are not in lib/types yet, so the page defines what it reads locally).
@@ -199,7 +222,7 @@ export default function CollectionsPage() {
         key: `pay-${p.id}`,
         date: p.payment_date,
         label: 'ကြွေးကောက်',
-        detail: p.method,
+        detail: METHOD_LABELS[p.method] ?? p.method,
         delta: -p.amount,
         sortKey: p.created_at,
         ord: 2,
@@ -263,14 +286,24 @@ export default function CollectionsPage() {
 
   const reportTotal = filteredPayments.reduce((s, p) => s + p.amount, 0)
 
-  return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-bold">ကောက်ခံမှုနှင့် ကြွေးစာရင်း</h1>
+  const thCls = 'px-3 py-3 font-medium'
+  const tdCls = 'px-3 py-3 tabular-nums'
 
-      {msg && <p className="text-sm text-red-600">{msg}</p>}
+  return (
+    <div className="space-y-4 lg:space-y-6">
+      <PageHeader
+        title="ကောက်ခံမှုနှင့် ကြွေးစာရင်း"
+        subtitle="ကိုယ်စားလှယ်အလိုက် ရောင်းအား၊ ကောက်ခံငွေနှင့် ကျန်ကြွေး ကြည့်ရန်"
+      />
+
+      {msg && (
+        <Banner tone="red">
+          <span role="alert">{msg}</span>
+        </Banner>
+      )}
 
       {loading ? (
-        <p>ခဏစောင့်ပါ…</p>
+        <LoadingState />
       ) : (
         <>
           <div className="space-y-3">
@@ -284,7 +317,7 @@ export default function CollectionsPage() {
               }
               const expanded = expandedId === a.id
               return (
-                <div key={a.id} className="rounded-2xl border p-4">
+                <div key={a.id} className={`${cardCls} p-4 lg:p-5`}>
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-semibold">
                       {a.name}
@@ -292,79 +325,88 @@ export default function CollectionsPage() {
                     </div>
                     <button
                       onClick={() => setExpandedId(expanded ? null : a.id)}
-                      className="text-sm text-teal-700"
+                      className={detailBtnCls}
                     >
                       {expanded ? 'ပိတ်ရန်' : 'အသေးစိတ် စာရင်း'}
                     </button>
                   </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                  <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm lg:grid-cols-4">
                     <div>
-                      <span className="opacity-70">စုစုပေါင်း ရောင်းအား</span>
-                      <div className="font-medium">{formatMMK(t.sales)}</div>
+                      <div className="text-xs font-medium text-stone-500 dark:text-neutral-400">
+                        စုစုပေါင်း ရောင်းအား
+                      </div>
+                      <div className="mt-0.5 font-semibold tabular-nums">{formatMMK(t.sales)}</div>
                     </div>
                     <div>
-                      <span className="opacity-70">ပို့ချိန် လက်ခံရရှိငွေ</span>
-                      <div className="font-medium">{formatMMK(t.cash)}</div>
+                      <div className="text-xs font-medium text-stone-500 dark:text-neutral-400">
+                        ပို့ချိန် လက်ခံရရှိငွေ
+                      </div>
+                      <div className="mt-0.5 font-semibold tabular-nums">{formatMMK(t.cash)}</div>
                     </div>
                     <div>
-                      <span className="opacity-70">နောက်မှ ကောက်ခံငွေ</span>
-                      <div className="font-medium">{formatMMK(t.payments)}</div>
+                      <div className="text-xs font-medium text-stone-500 dark:text-neutral-400">
+                        နောက်မှ ကောက်ခံငွေ
+                      </div>
+                      <div className="mt-0.5 font-semibold tabular-nums">{formatMMK(t.payments)}</div>
                     </div>
                     <div>
-                      <span className="opacity-70">ကြွေးပယ်ဖျက်</span>
-                      <div className="font-medium">{formatMMK(t.writeOffs)}</div>
+                      <div className="text-xs font-medium text-stone-500 dark:text-neutral-400">
+                        ကြွေးပယ်ဖျက်
+                      </div>
+                      <div className="mt-0.5 font-semibold tabular-nums">{formatMMK(t.writeOffs)}</div>
                     </div>
                   </div>
-                  <div className="mt-2 flex items-center justify-between border-t pt-2">
+                  <div className="mt-3 flex items-center justify-between border-t border-stone-100 pt-3 dark:border-neutral-800">
                     <span className="text-sm font-semibold">ကျန်ကြွေး</span>
                     <span
-                      className={`font-bold ${t.outstanding > 0 ? 'text-red-600' : ''}`}
+                      className={`font-bold tabular-nums ${t.outstanding > 0 ? 'text-red-600 dark:text-red-400' : ''}`}
                     >
                       {formatMMK(t.outstanding)}
                     </span>
                   </div>
                   {expanded && (
-                    <ul className="mt-3 divide-y border-t">
+                    <ul className="mt-3 divide-y divide-stone-100 border-t border-stone-100 dark:divide-neutral-800 dark:border-neutral-800">
                       {expandedLedger.map(({ line, balance }) => (
-                        <li key={line.key} className="flex items-center justify-between gap-2 py-2 text-sm">
+                        <li key={line.key} className="flex items-center justify-between gap-2 py-2.5 text-sm">
                           <div>
                             <span className="font-medium">{line.label}</span>{' '}
-                            <span className="opacity-70">
+                            <span className="text-stone-500 dark:text-neutral-400">
                               {line.date}
                               {line.detail ? ` · ${line.detail}` : ''}
                             </span>
                           </div>
                           <div className="text-right">
-                            <div className="font-medium">
+                            <div className="font-medium tabular-nums">
                               {line.delta >= 0 ? '+' : ''}
                               {formatMMK(line.delta)}
                             </div>
-                            <div className="text-xs opacity-60">ကျန် {formatMMK(balance)}</div>
+                            <div className="text-xs text-stone-500 tabular-nums dark:text-neutral-400">
+                              ကျန် {formatMMK(balance)}
+                            </div>
                           </div>
                         </li>
                       ))}
                       {expandedLedger.length === 0 && (
-                        <li className="py-2 text-sm opacity-70">စာရင်း မရှိသေးပါ</li>
+                        <li className="py-2.5 text-sm text-stone-500 dark:text-neutral-400">
+                          စာရင်း မရှိသေးပါ
+                        </li>
                       )}
                     </ul>
                   )}
                 </div>
               )
             })}
-            {visibleAgents.length === 0 && (
-              <p className="text-sm opacity-70">ကိုယ်စားလှယ် မရှိသေးပါ</p>
-            )}
+            {visibleAgents.length === 0 && <EmptyState text="ကိုယ်စားလှယ် မရှိသေးပါ" />}
           </div>
 
-          <div className="space-y-2 rounded-2xl border p-4">
-            <div className="font-semibold">ကောက်ခံမှု အစီရင်ခံစာ</div>
-            <div className="grid grid-cols-2 gap-2">
-              <label className="text-sm">
-                ကိုယ်စားလှယ်
+          <Card className="space-y-3">
+            <CardTitle>ကောက်ခံမှု အစီရင်ခံစာ</CardTitle>
+            <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+              <Field label="ကိုယ်စားလှယ်">
                 <select
                   value={fAgent}
                   onChange={(e) => setFAgent(e.target.value)}
-                  className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+                  className={inputCls}
                 >
                   <option value="">အားလုံး</option>
                   {agents.map((a) => (
@@ -373,13 +415,12 @@ export default function CollectionsPage() {
                     </option>
                   ))}
                 </select>
-              </label>
-              <label className="text-sm">
-                ထည့်သွင်းသူ
+              </Field>
+              <Field label="ထည့်သွင်းသူ">
                 <select
                   value={fBy}
                   onChange={(e) => setFBy(e.target.value)}
-                  className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+                  className={inputCls}
                 >
                   <option value="">အားလုံး</option>
                   {profiles.map((p) => (
@@ -388,48 +429,86 @@ export default function CollectionsPage() {
                     </option>
                   ))}
                 </select>
-              </label>
-              <label className="text-sm">
-                ရက်စ မှ
+              </Field>
+              <Field label="ရက်စ မှ">
                 <input
                   type="date"
                   value={fFrom}
                   onChange={(e) => setFFrom(e.target.value)}
-                  className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+                  className={inputCls}
                 />
-              </label>
-              <label className="text-sm">
-                ရက်စ အထိ
+              </Field>
+              <Field label="ရက်စ အထိ">
                 <input
                   type="date"
                   value={fTo}
                   onChange={(e) => setFTo(e.target.value)}
-                  className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+                  className={inputCls}
                 />
-              </label>
+              </Field>
             </div>
-            <p className="text-sm">
-              စုစုပေါင်း {filteredPayments.length} ခု · {formatMMK(reportTotal)}
+            <p className="rounded-xl bg-brand-50 px-3.5 py-2.5 text-sm font-medium dark:bg-brand-950/40">
+              စုစုပေါင်း {filteredPayments.length} ခု ·{' '}
+              <span className="tabular-nums">{formatMMK(reportTotal)}</span>
             </p>
-          </div>
+          </Card>
 
-          <ul className="divide-y rounded-2xl border">
-            {filteredPayments.map((p) => (
-              <li key={p.id} className="p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="font-medium">{p.agent_name ?? agentName(p.agent_id)}</div>
-                  <div className="text-sm font-semibold">{formatMMK(p.amount)}</div>
-                </div>
-                <div className="text-sm opacity-75">
-                  {p.payment_date} · {p.method} · ထည့်သွင်းသူ {usernameOf(p.created_by)}
-                  {p.notes ? ` · ${p.notes}` : ''}
-                </div>
-              </li>
-            ))}
-            {filteredPayments.length === 0 && (
-              <li className="p-3 text-sm opacity-70">ကောက်ခံမှု မှတ်တမ် မရှိပါ</li>
-            )}
-          </ul>
+          {filteredPayments.length === 0 ? (
+            <EmptyState text="ကောက်ခံမှု မှတ်တမ် မရှိပါ" />
+          ) : (
+            <>
+              {/* Phone / tablet: one card per record. */}
+              <ul className="space-y-3 lg:hidden">
+                {filteredPayments.map((p) => (
+                  <li key={p.id} className={`${cardCls} p-3.5`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-semibold">{p.agent_name ?? agentName(p.agent_id)}</div>
+                      <div className="font-bold tabular-nums">{formatMMK(p.amount)}</div>
+                    </div>
+                    <div className="mt-0.5 text-sm text-stone-500 dark:text-neutral-400">
+                      {p.payment_date} · {METHOD_LABELS[p.method] ?? p.method} · ထည့်သွင်းသူ{' '}
+                      {usernameOf(p.created_by)}
+                      {p.notes ? ` · ${p.notes}` : ''}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              {/* Desktop: table. */}
+              <div className={`${cardCls} hidden overflow-x-auto lg:block`}>
+                <table className="w-full min-w-[820px] text-sm">
+                  <thead>
+                    <tr className="border-b border-stone-200 bg-stone-50/80 text-left text-stone-500 dark:border-neutral-800 dark:bg-neutral-800/50 dark:text-neutral-400">
+                      <th className={`${thCls} pl-4`}>ကိုယ်စားလှယ်</th>
+                      <th className={thCls}>ရက်စွဲ</th>
+                      <th className={thCls}>နည်းလမ်း</th>
+                      <th className={thCls}>ထည့်သွင်းသူ</th>
+                      <th className={`${thCls} pr-4 text-right`}>ပမာဏ (ကျပ်)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPayments.map((p) => (
+                      <tr
+                        key={p.id}
+                        className="border-b border-stone-100 align-top last:border-0 dark:border-neutral-800/70"
+                      >
+                        <td className="px-3 py-3 pl-4">
+                          <div className="font-medium">{p.agent_name ?? agentName(p.agent_id)}</div>
+                          {p.notes && <div className="text-xs opacity-60">{p.notes}</div>}
+                        </td>
+                        <td className={`${tdCls} whitespace-nowrap`}>{p.payment_date}</td>
+                        <td className="px-3 py-3">{METHOD_LABELS[p.method] ?? p.method}</td>
+                        <td className="px-3 py-3">{usernameOf(p.created_by)}</td>
+                        <td className={`${tdCls} pr-4 text-right font-semibold`}>
+                          {formatMMK(p.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </>
       )}
     </div>

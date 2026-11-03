@@ -3,6 +3,14 @@ import { supabase } from '../lib/supabase'
 import { getLastBackupAt } from '../lib/backup'
 import { dataQualityCsv } from '../lib/exports'
 import { todayYangon } from '../lib/types'
+import {
+  Card,
+  LoadingState,
+  PageHeader,
+  PrimaryButton,
+  SecondaryButton,
+  cardCls,
+} from '../components/ui'
 
 // Data-quality checks, ported from the old app's data-quality.ts
 // (checkDataQuality + checkDebtAndHabits) and its month-lock annotation
@@ -422,8 +430,8 @@ const GROUP_TITLES: { kind: IssueKind; title: string }[] = [
 
 const SEVERITY_BADGE: Record<Severity, { label: string; cls: string }> = {
   high: { label: 'အရေးကြီး', cls: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' },
-  medium: { label: 'သတိပေးချက်', cls: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200' },
-  low: { label: 'အသေးစား', cls: 'bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300' },
+  medium: { label: 'သတိပေးချက်', cls: 'bg-accent-100 text-accent-800 dark:bg-amber-900 dark:text-amber-200' },
+  low: { label: 'အသေးစား', cls: 'bg-stone-200 text-stone-700 dark:bg-neutral-800 dark:text-neutral-300' },
 }
 
 export default function DataQualityPage() {
@@ -515,9 +523,12 @@ export default function DataQualityPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-bold">ဒေတာ အရည်အသွေး စစ်ဆေးမှု</h1>
-      <p className="text-sm opacity-80">
+    <div className="space-y-4 lg:space-y-6">
+      <PageHeader
+        title="ဒေတာ အရည်အသွေး စစ်ဆေးမှု"
+        subtitle="မှတ်တမ်းများထဲက မှားယွင်းမှုများ အလိုအလျောက် စစ်ဆေးရန်"
+      />
+      <p className="text-sm text-stone-500 dark:text-neutral-400">
         စစ်ဆေးမှုများကို စာမျက်နှာ ဖွင့်ချိန်တွင် နောက်ဆုံး ဒေတာဖြင့် အလိုအလျောက် လုပ်ဆောင်ပါတယ်။
         {checkedAt && <> နောက်ဆုံး စစ်ဆေးချိန်: {checkedAt}</>}
         {counts && (
@@ -530,78 +541,75 @@ export default function DataQualityPage() {
       </p>
 
       <div className="flex flex-wrap gap-2">
-        <button
-          onClick={load}
-          disabled={loading}
-          className="rounded-xl bg-teal-700 px-4 py-2 font-semibold text-white disabled:opacity-60"
-        >
+        <PrimaryButton onClick={load} disabled={loading}>
           {loading ? 'စစ်ဆေးနေပါတယ်…' : 'ပြန်စစ်ရန်'}
-        </button>
-        <button
-          onClick={onExportCsv}
-          disabled={loading || issues.length === 0}
-          className="rounded-xl border px-4 py-2 font-semibold disabled:opacity-50"
-        >
+        </PrimaryButton>
+        <SecondaryButton onClick={onExportCsv} disabled={loading || issues.length === 0}>
           ⬇ CSV ထုတ်ရန်
-        </button>
+        </SecondaryButton>
       </div>
 
       {msg && <p className="text-sm text-red-600">{msg}</p>}
 
       {loading ? (
-        <p>ခဏစောင့်ပါ…</p>
+        <LoadingState />
       ) : (
         <>
-          <section className="rounded-2xl border p-4">
+          <Card>
             <div className="flex flex-wrap gap-2 text-sm">
-              <span className="rounded-full bg-neutral-200 px-3 py-1 font-semibold dark:bg-neutral-800">
+              <span className="rounded-full bg-stone-200 px-3 py-1.5 font-semibold dark:bg-neutral-800">
                 စုစုပေါင်း ပြဿနာ {issues.length} ခု
               </span>
-              <span className={`rounded-full px-3 py-1 font-semibold ${SEVERITY_BADGE.high.cls}`}>
+              <span className={`rounded-full px-3 py-1.5 font-semibold ${SEVERITY_BADGE.high.cls}`}>
                 အရေးကြီး {countsBySeverity.high}
               </span>
-              <span className={`rounded-full px-3 py-1 font-semibold ${SEVERITY_BADGE.medium.cls}`}>
+              <span className={`rounded-full px-3 py-1.5 font-semibold ${SEVERITY_BADGE.medium.cls}`}>
                 သတိပေးချက် {countsBySeverity.medium}
               </span>
-              <span className={`rounded-full px-3 py-1 font-semibold ${SEVERITY_BADGE.low.cls}`}>
+              <span className={`rounded-full px-3 py-1.5 font-semibold ${SEVERITY_BADGE.low.cls}`}>
                 အသေးစား {countsBySeverity.low}
               </span>
             </div>
-          </section>
+          </Card>
 
           {issues.length === 0 ? (
-            <section className="rounded-2xl border border-teal-300 bg-teal-50 p-4 dark:bg-teal-950/40">
-              <p className="font-semibold text-teal-800 dark:text-teal-200">
+            <section className="rounded-2xl border border-brand-300 bg-brand-50 p-4 shadow-card dark:border-brand-800 dark:bg-brand-950/40 lg:p-5">
+              <p className="font-semibold text-brand-800 dark:text-brand-200">
                 ✓ စစ်ဆေးမှု အားလုံး အောင်မြင်ပါတယ် — ပြဿနာ မတွေ့ပါ
               </p>
             </section>
           ) : (
             grouped.map((g) => (
               <section key={g.kind} className="space-y-2">
-                <h2 className="font-semibold">
-                  {g.title} <span className="opacity-60">({g.items.length})</span>
+                <h2 className="px-0.5 text-base font-bold">
+                  {g.title}{' '}
+                  <span className="text-stone-400 dark:text-neutral-500">({g.items.length})</span>
                 </h2>
-                <ul className="divide-y rounded-2xl border">
+                <ul className={`${cardCls} divide-y divide-stone-100 overflow-hidden dark:divide-neutral-800/70`}>
                   {g.items.map((i, idx) => (
-                    <li key={`${i.recordId}-${idx}`} className="p-3">
+                    <li key={`${i.recordId}-${idx}`} className="p-3.5">
                       <div className="flex items-start justify-between gap-2">
                         <div className="font-medium">{i.problem}</div>
                         <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${SEVERITY_BADGE[i.severity].cls}`}>
                           {SEVERITY_BADGE[i.severity].label}
                         </span>
                       </div>
-                      <div className="mt-1 text-sm opacity-75">
+                      <div className="mt-1 text-sm text-stone-500 dark:text-neutral-400">
                         {i.name} · {i.date}
                         {i.locked && <span className="ml-2">🔒 လ ပိတ်ထားသည်</span>}
                       </div>
-                      <div className="mt-1 text-sm opacity-80">အကြံပြုချက်: {i.suggestion}</div>
+                      <div className="mt-1 text-sm text-stone-600 dark:text-neutral-300">
+                        အကြံပြုချက်: {i.suggestion}
+                      </div>
                     </li>
                   ))}
                 </ul>
               </section>
             ))
           )}
-          <p className="text-xs opacity-60">ပြဿနာများကို အရေးကြီး အဆင့်မှ အစဉ်လိုက် ပြထားပါသည်။</p>
+          <p className="text-xs text-stone-400 dark:text-neutral-500">
+            ပြဿနာများကို အရေးကြီး အဆင့်မှ အစဉ်လိုက် ပြထားပါသည်။
+          </p>
         </>
       )}
     </div>

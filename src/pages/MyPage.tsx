@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { formatMMK, type AgentPayment, type DailyEntry } from '../lib/types'
+import { LoadingState, PageHeader, StatCard, cardCls } from '../components/ui'
 
 export default function MyPage() {
   const { profile } = useAuth()
@@ -26,45 +27,50 @@ export default function MyPage() {
   const totalPaid = payments.reduce((s, r) => s + r.amount, 0)
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-bold">ကျွန်ုပ်၏ စာရင်း — {profile?.username}</h1>
+    <div className="space-y-4 lg:space-y-6">
+      <PageHeader
+        title={
+          <>
+            ကျွန်ုပ်၏ စာရင်း — {profile?.username}
+          </>
+        }
+        subtitle="ကိုယ်ပိုင် ပို့ဆောင်မှုနှင့် ပေးချေမှု မှတ်တမ်းများ"
+      />
 
-      <section className="grid grid-cols-2 gap-2 text-center">
-        <div className="rounded-2xl border p-3">
-          <div className="text-xs opacity-70">ပို့ဆောင်မှု စုစုပေါင်း (နောက်ဆုံး ၅၀)</div>
-          <div className="mt-1 font-bold">{formatMMK(totalDelivered)}</div>
-        </div>
-        <div className="rounded-2xl border p-3">
-          <div className="text-xs opacity-70">ပေးချေပြီး စုစုပေါင်း (နောက်ဆုံး ၅၀)</div>
-          <div className="mt-1 font-bold">{formatMMK(totalPaid)}</div>
-        </div>
+      <section className="grid grid-cols-2 gap-2.5">
+        <StatCard label="ပို့ဆောင်မှု စုစုပေါင်း (နောက်ဆုံး ၅၀)" value={formatMMK(totalDelivered)} />
+        <StatCard label="ပေးချေပြီး စုစုပေါင်း (နောက်ဆုံး ၅၀)" value={formatMMK(totalPaid)} />
       </section>
 
       {loading ? (
-        <p>ခဏစောင့်ပါ…</p>
+        <LoadingState />
       ) : (
         <>
           <section>
-            <h2 className="mb-2 font-semibold">ပို့ဆောင်မှုများ</h2>
-            <ul className="divide-y rounded-2xl border">
+            <h2 className="mb-2 px-0.5 text-base font-bold">ပို့ဆောင်မှုများ</h2>
+            <ul className={`${cardCls} divide-y divide-stone-100 overflow-hidden dark:divide-neutral-800/70`}>
               {entries.map((r) => (
-                <li key={r.id} className="p-3 text-sm">
+                <li key={r.id} className="p-3.5 text-sm">
                   {r.entry_date} · ပို့ {r.delivered_qty} · ပြန် {r.returned_qty} ·{' '}
                   {formatMMK(r.amount)}
                 </li>
               ))}
-              {entries.length === 0 && <li className="p-3 text-sm opacity-70">မရှိသေးပါ</li>}
+              {entries.length === 0 && (
+                <li className="p-3.5 text-sm text-stone-500 dark:text-neutral-400">မရှိသေးပါ</li>
+              )}
             </ul>
           </section>
           <section>
-            <h2 className="mb-2 font-semibold">ပေးချေမှုများ</h2>
-            <ul className="divide-y rounded-2xl border">
+            <h2 className="mb-2 px-0.5 text-base font-bold">ပေးချေမှုများ</h2>
+            <ul className={`${cardCls} divide-y divide-stone-100 overflow-hidden dark:divide-neutral-800/70`}>
               {payments.map((r) => (
-                <li key={r.id} className="p-3 text-sm">
+                <li key={r.id} className="p-3.5 text-sm">
                   {r.payment_date} · {formatMMK(r.amount)} · {r.method}
                 </li>
               ))}
-              {payments.length === 0 && <li className="p-3 text-sm opacity-70">မရှိသေးပါ</li>}
+              {payments.length === 0 && (
+                <li className="p-3.5 text-sm text-stone-500 dark:text-neutral-400">မရှိသေးပါ</li>
+              )}
             </ul>
           </section>
         </>

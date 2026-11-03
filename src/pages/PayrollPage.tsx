@@ -12,6 +12,16 @@ import {
   type Role,
   type SalarySetting,
 } from '../lib/types'
+import {
+  Card,
+  EmptyState,
+  Field,
+  LoadingState,
+  PageHeader,
+  PrimaryButton,
+  SecondaryButton,
+  inputCls,
+} from '../components/ui'
 
 const MONTH_NAMES = [
   'ဇန်နဝါရီ', 'ဖေဖော်ဝါရီ', 'မတ်', 'ဧပြီ', 'မေ', 'ဇွန်',
@@ -195,19 +205,21 @@ export default function PayrollPage() {
   const options = useMemo(monthOptions, [])
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-bold">လစာ စီမံခန့်ခွဲမှု</h1>
-      <p className="text-sm opacity-80">
+    <div className="space-y-4 lg:space-y-6">
+      <PageHeader
+        title="လစာ စီမံခန့်ခွဲမှု"
+        subtitle="ဝန်ထမ်းများ၏ လစဉ် လစာ၊ အပိုဆုနှင့် ကြိုတင်ငွေ စီမံရန်"
+      />
+      <p className="text-sm text-stone-500 dark:text-neutral-400">
         ဝန်ထမ်းများ၏ လစဉ် လစာ၊ အပိုဆု နှင့် ကြိုတင်ငွေ ဖြတ်တောက်မှုများကို ဒီနေရာမှာ
         စီမံပြီး လကုန်မှာ လစာ ပေးနိုင်ပါတယ်။
       </p>
 
-      <label className="block text-sm">
-        လ ရွေးရန်
+      <Field label="လ ရွေးရန်" className="max-w-xs">
         <select
           value={month}
           onChange={(e) => setMonth(e.target.value)}
-          className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+          className={inputCls}
         >
           {options.map((o) => (
             <option key={o.value} value={o.value}>
@@ -215,15 +227,15 @@ export default function PayrollPage() {
             </option>
           ))}
         </select>
-      </label>
+      </Field>
 
       {msg && <p className="text-sm text-red-600">{msg}</p>}
-      {okMsg && <p className="text-sm font-medium text-teal-700">{okMsg}</p>}
+      {okMsg && <p className="text-sm font-medium text-brand-700 dark:text-brand-400">{okMsg}</p>}
 
       {loading ? (
-        <p>ခဏစောင့်ပါ…</p>
+        <LoadingState />
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3 lg:space-y-4">
           {rows.map((row) => (
             <PayrollCard
               key={row.user.id}
@@ -240,9 +252,7 @@ export default function PayrollPage() {
               }}
             />
           ))}
-          {rows.length === 0 && (
-            <p className="text-sm opacity-70">လစာ ရမည့် ဝန်ထမ်း မရှိသေးပါ</p>
-          )}
+          {rows.length === 0 && <EmptyState text="လစာ ရမည့် ဝန်ထမ်း မရှိသေးပါ" />}
         </div>
       )}
     </div>
@@ -397,19 +407,17 @@ function PayrollCard({
     else onPaid(row.user.username)
   }
 
-  const inputCls = 'w-full rounded-xl border px-3 py-2 dark:bg-neutral-900'
-
   return (
-    <section className="space-y-3 rounded-2xl border p-4">
+    <Card className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div>
           <span className="font-semibold">{row.user.username}</span>
-          <span className="ml-2 text-xs opacity-60">
+          <span className="ml-2 text-xs text-stone-500 dark:text-neutral-400">
             {row.roles.map((r) => ROLE_LABELS[r]).join(' · ')}
           </span>
         </div>
         {paid && (
-          <span className="rounded-full bg-teal-700 px-2.5 py-1 text-xs font-semibold text-white">
+          <span className="rounded-full bg-brand-700 px-2.5 py-1 text-xs font-semibold text-white">
             ပေးပြီး
           </span>
         )}
@@ -417,76 +425,81 @@ function PayrollCard({
 
       {/* Salary setting */}
       <div className="flex items-end gap-2">
-        <label className="flex-1 text-sm">
-          လစဉ် အခြေခံလစာ (ကျပ်)
+        <Field label="လစဉ် အခြေခံလစာ (ကျပ်)" className="flex-1">
           <input
             value={salaryValue}
             onChange={(e) => setSalaryDraft(e.target.value.replace(/\D/g, ''))}
             inputMode="numeric"
-            className={`mt-1 ${inputCls}`}
+            className={inputCls}
           />
-        </label>
-        <button
+        </Field>
+        <SecondaryButton
+          size="sm"
           onClick={saveSalary}
           disabled={busy || salaryDraft === null}
-          className="rounded-xl bg-neutral-200 px-4 py-2 text-sm font-semibold disabled:opacity-50 dark:bg-neutral-800"
+          className="shrink-0"
         >
           သိမ်းရန်
-        </button>
+        </SecondaryButton>
       </div>
 
       {/* Summary (preview or stored run figures) */}
-      <div className="grid grid-cols-2 gap-2 rounded-xl bg-neutral-50 p-3 text-sm dark:bg-neutral-900">
+      <div className="grid grid-cols-2 gap-2 rounded-xl bg-stone-100/70 p-3 text-sm dark:bg-neutral-800/50">
         <div>
-          <span className="opacity-70">အခြေခံလစာ</span>
-          <div className="font-medium">{formatMMK(row.base)}</div>
+          <span className="text-stone-500 dark:text-neutral-400">အခြေခံလစာ</span>
+          <div className="font-medium tabular-nums">{formatMMK(row.base)}</div>
         </div>
         <div>
-          <span className="opacity-70">အပိုဆု</span>
-          <div className="font-medium">+ {formatMMK(row.bonusTotal)}</div>
+          <span className="text-stone-500 dark:text-neutral-400">အပိုဆု</span>
+          <div className="font-medium tabular-nums">+ {formatMMK(row.bonusTotal)}</div>
         </div>
         <div>
-          <span className="opacity-70">ကြိုတင်ငွေ ဖြတ်မည်</span>
-          <div className="font-medium">− {formatMMK(row.deduction)}</div>
+          <span className="text-stone-500 dark:text-neutral-400">ကြိုတင်ငွေ ဖြတ်မည်</span>
+          <div className="font-medium tabular-nums">− {formatMMK(row.deduction)}</div>
         </div>
         <div>
-          <span className="opacity-70">ကြိုတင်ငွေ ကျန်ရှိ</span>
-          <div className="font-medium">{formatMMK(row.outstanding)}</div>
+          <span className="text-stone-500 dark:text-neutral-400">ကြိုတင်ငွေ ကျန်ရှိ</span>
+          <div className="font-medium tabular-nums">{formatMMK(row.outstanding)}</div>
         </div>
-        <div className="col-span-2 flex items-center justify-between border-t pt-2">
+        <div className="col-span-2 flex items-center justify-between border-t border-stone-200 pt-2 dark:border-neutral-700">
           <span className="font-semibold">{paid ? 'ပေးခဲ့သော စုစုပေါင်း' : 'ပေးရမည့် စုစုပေါင်း'}</span>
-          <span className="text-base font-bold">{formatMMK(row.net)}</span>
+          <span className="text-base font-bold tabular-nums">{formatMMK(row.net)}</span>
         </div>
       </div>
 
       {/* Bonuses for this month */}
       <div className="space-y-2">
         <div className="text-sm font-semibold">အပိုဆုများ (ဒီလ)</div>
-        <ul className="divide-y rounded-xl border">
+        <ul className="divide-y divide-stone-100 overflow-hidden rounded-xl border border-stone-200/80 dark:divide-neutral-800/70 dark:border-neutral-800">
           {row.bonuses.map((b) => (
-            <li key={b.id} className="flex items-center justify-between gap-2 p-2.5 text-sm">
+            <li key={b.id} className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm">
               <span>
                 {formatMMK(b.amount)}
-                {b.note ? <span className="opacity-70"> · {b.note}</span> : null}
+                {b.note ? (
+                  <span className="text-stone-500 dark:text-neutral-400"> · {b.note}</span>
+                ) : null}
               </span>
               {!paid &&
                 (confirmBonusId === b.id ? (
-                  <span className="flex gap-3">
+                  <span className="flex gap-1">
                     <button
                       onClick={() => deleteBonus(b)}
                       disabled={busy}
-                      className="font-semibold text-red-600"
+                      className="flex min-h-[44px] items-center rounded-lg px-2 font-semibold text-red-600"
                     >
                       သေချာပါတယ်, ဖျက်မည်
                     </button>
-                    <button onClick={() => setConfirmBonusId(null)} className="opacity-70">
+                    <button
+                      onClick={() => setConfirmBonusId(null)}
+                      className="flex min-h-[44px] items-center rounded-lg px-2 text-stone-500 dark:text-neutral-400"
+                    >
                       မဖျက်တော့ပါ
                     </button>
                   </span>
                 ) : (
                   <button
                     onClick={() => setConfirmBonusId(b.id)}
-                    className="text-red-600"
+                    className="flex min-h-[44px] items-center rounded-lg px-2 text-red-600"
                   >
                     ဖျက်ရန်
                   </button>
@@ -494,35 +507,30 @@ function PayrollCard({
             </li>
           ))}
           {row.bonuses.length === 0 && (
-            <li className="p-2.5 text-sm opacity-70">အပိုဆု မရှိသေးပါ</li>
+            <li className="p-3 text-sm text-stone-500 dark:text-neutral-400">အပိုဆု မရှိသေးပါ</li>
           )}
         </ul>
         {!paid && (
-          <form onSubmit={addBonus} className="grid grid-cols-2 gap-2">
-            <label className="text-sm">
-              ပမာဏ (ကျပ်)
+          <form onSubmit={addBonus} className="grid grid-cols-2 gap-2.5">
+            <Field label="ပမာဏ (ကျပ်)">
               <input
                 value={bonusAmount}
                 onChange={(e) => setBonusAmount(e.target.value.replace(/\D/g, ''))}
                 inputMode="numeric"
                 required
-                className={`mt-1 ${inputCls}`}
+                className={inputCls}
               />
-            </label>
-            <label className="text-sm">
-              မှတ်ချက်
+            </Field>
+            <Field label="မှတ်ချက်">
               <input
                 value={bonusNote}
                 onChange={(e) => setBonusNote(e.target.value)}
-                className={`mt-1 ${inputCls}`}
+                className={inputCls}
               />
-            </label>
-            <button
-              disabled={busy}
-              className="col-span-2 rounded-xl bg-neutral-200 py-2 text-sm font-semibold disabled:opacity-50 dark:bg-neutral-800"
-            >
+            </Field>
+            <SecondaryButton type="submit" disabled={busy} className="col-span-2">
               အပိုဆု ထည့်ရန်
-            </button>
+            </SecondaryButton>
           </form>
         )}
       </div>
@@ -530,14 +538,14 @@ function PayrollCard({
       {/* Advances */}
       <div className="space-y-2">
         <div className="text-sm font-semibold">ကြိုတင်ငွေများ</div>
-        <ul className="divide-y rounded-xl border">
+        <ul className="divide-y divide-stone-100 overflow-hidden rounded-xl border border-stone-200/80 dark:divide-neutral-800/70 dark:border-neutral-800">
           {row.advances.map((a) => (
-            <li key={a.id} className="p-2.5 text-sm">
+            <li key={a.id} className="p-3 text-sm">
               <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">{formatMMK(a.amount)}</span>
-                <span className="opacity-70">{a.advance_date}</span>
+                <span className="font-medium tabular-nums">{formatMMK(a.amount)}</span>
+                <span className="text-stone-500 dark:text-neutral-400">{a.advance_date}</span>
               </div>
-              <div className="opacity-75">
+              <div className="text-stone-600 dark:text-neutral-300">
                 {a.installment > 0
                   ? `လစဉ် ${formatMMK(a.installment)} ဖြတ်မည်`
                   : 'တစ်ခါတည်း အပြည့် ဖြတ်မည်'}
@@ -545,7 +553,9 @@ function PayrollCard({
                 {a.note ? ` · ${a.note}` : ''}
               </div>
               {!paid && a.planAmount !== null && (
-                <div className="opacity-75">ဒီလ ဖြတ်မည်: {formatMMK(a.planAmount)}</div>
+                <div className="text-stone-600 dark:text-neutral-300">
+                  ဒီလ ဖြတ်မည်: {formatMMK(a.planAmount)}
+                </div>
               )}
               {confirmAdvanceId === a.id ? (
                 <div className="mt-1 space-y-1">
@@ -553,15 +563,18 @@ function PayrollCard({
                     ဒီကြိုတင်ငွေကို ဖျက်ရင် သူ့ ပြန်ဆပ်မှတ်တမ်းတွေပါ အကုန် ပျက်ပါမယ်။
                     ဆက်ဖျက်မလား?
                   </p>
-                  <span className="flex gap-3">
+                  <span className="flex gap-1">
                     <button
                       onClick={() => deleteAdvance(a)}
                       disabled={busy}
-                      className="font-semibold text-red-600"
+                      className="flex min-h-[44px] items-center rounded-lg px-2 font-semibold text-red-600"
                     >
                       သေချာပါတယ်, ဖျက်မည်
                     </button>
-                    <button onClick={() => setConfirmAdvanceId(null)} className="opacity-70">
+                    <button
+                      onClick={() => setConfirmAdvanceId(null)}
+                      className="flex min-h-[44px] items-center rounded-lg px-2 text-stone-500 dark:text-neutral-400"
+                    >
                       မဖျက်တော့ပါ
                     </button>
                   </span>
@@ -570,7 +583,7 @@ function PayrollCard({
                 <button
                   onClick={() => setConfirmAdvanceId(a.id)}
                   disabled={paid && a.repaidThisMonth}
-                  className="mt-1 text-red-600 disabled:opacity-40"
+                  className="mt-1 flex min-h-[44px] items-center rounded-lg px-2 text-red-600 disabled:opacity-40"
                 >
                   ဖျက်ရန်
                 </button>
@@ -578,115 +591,102 @@ function PayrollCard({
             </li>
           ))}
           {row.advances.length === 0 && (
-            <li className="p-2.5 text-sm opacity-70">ကြိုတင်ငွေ မရှိသေးပါ</li>
+            <li className="p-3 text-sm text-stone-500 dark:text-neutral-400">ကြိုတင်ငွေ မရှိသေးပါ</li>
           )}
         </ul>
-        <form onSubmit={addAdvance} className="grid grid-cols-2 gap-2">
-          <label className="text-sm">
-            ရက်စွဲ
+        <form onSubmit={addAdvance} className="grid grid-cols-2 gap-2.5">
+          <Field label="ရက်စွဲ">
             <input
               type="date"
               value={advDate}
               onChange={(e) => setAdvDate(e.target.value)}
               required
-              className={`mt-1 ${inputCls}`}
+              className={inputCls}
             />
-          </label>
-          <label className="text-sm">
-            ပမာဏ (ကျပ်)
+          </Field>
+          <Field label="ပမာဏ (ကျပ်)">
             <input
               value={advAmount}
               onChange={(e) => setAdvAmount(e.target.value.replace(/\D/g, ''))}
               inputMode="numeric"
               required
-              className={`mt-1 ${inputCls}`}
+              className={inputCls}
             />
-          </label>
-          <label className="text-sm">
-            ပြန်ဆပ်ပုံ
+          </Field>
+          <Field label="ပြန်ဆပ်ပုံ">
             <select
               value={advMode}
               onChange={(e) => setAdvMode(e.target.value as 'once' | 'monthly')}
-              className={`mt-1 ${inputCls}`}
+              className={inputCls}
             >
               <option value="once">တစ်ခါတည်း အပြည့် ဖြတ်မည်</option>
               <option value="monthly">လစဉ် ခွဲဖြတ်မည်</option>
             </select>
-          </label>
+          </Field>
           {advMode === 'monthly' ? (
-            <label className="text-sm">
-              လစဉ် ဖြတ်မည့် ပမာဏ (ကျပ်)
+            <Field label="လစဉ် ဖြတ်မည့် ပမာဏ (ကျပ်)">
               <input
                 value={advInstallment}
                 onChange={(e) => setAdvInstallment(e.target.value.replace(/\D/g, ''))}
                 inputMode="numeric"
                 required
-                className={`mt-1 ${inputCls}`}
+                className={inputCls}
               />
-            </label>
+            </Field>
           ) : (
-            <label className="text-sm">
-              မှတ်ချက်
+            <Field label="မှတ်ချက်">
               <input
                 value={advNote}
                 onChange={(e) => setAdvNote(e.target.value)}
-                className={`mt-1 ${inputCls}`}
+                className={inputCls}
               />
-            </label>
+            </Field>
           )}
           {advMode === 'monthly' && (
-            <label className="col-span-2 text-sm">
-              မှတ်ချက်
+            <Field label="မှတ်ချက်" className="col-span-2">
               <input
                 value={advNote}
                 onChange={(e) => setAdvNote(e.target.value)}
-                className={`mt-1 ${inputCls}`}
+                className={inputCls}
               />
-            </label>
+            </Field>
           )}
-          <button
-            disabled={busy}
-            className="col-span-2 rounded-xl bg-neutral-200 py-2 text-sm font-semibold disabled:opacity-50 dark:bg-neutral-800"
-          >
+          <SecondaryButton type="submit" disabled={busy} className="col-span-2">
             ကြိုတင်ငွေ ထည့်ရန်
-          </button>
+          </SecondaryButton>
         </form>
       </div>
 
       {/* Pay */}
       {!paid &&
         (confirmPay ? (
-          <div className="space-y-2 rounded-xl border border-teal-700 p-3">
+          <div className="space-y-2 rounded-xl border border-brand-600 p-3 dark:border-brand-800">
             <p className="text-sm">
               {row.user.username} ကို {formatMMK(row.net)} ပေးမှာ သေချာပါသလား? ပေးပြီးရင်
               ပြန်ပြင်လို့ မရပါ။
             </p>
             <div className="flex gap-2">
-              <button
-                onClick={pay}
-                disabled={busy}
-                className="flex-1 rounded-xl bg-teal-700 py-2.5 font-semibold text-white disabled:opacity-50"
-              >
+              <PrimaryButton onClick={pay} disabled={busy} className="flex-1">
                 သေချာပါတယ်, ပေးမည်
-              </button>
-              <button
+              </PrimaryButton>
+              <SecondaryButton
                 onClick={() => setConfirmPay(false)}
                 disabled={busy}
-                className="flex-1 rounded-xl bg-neutral-200 py-2.5 font-semibold disabled:opacity-50 dark:bg-neutral-800"
+                className="flex-1"
               >
                 မပေးတော့ပါ
-              </button>
+              </SecondaryButton>
             </div>
           </div>
         ) : (
-          <button
+          <PrimaryButton
             onClick={() => setConfirmPay(true)}
             disabled={busy}
-            className="w-full rounded-xl bg-teal-700 py-2.5 font-semibold text-white disabled:opacity-50"
+            className="w-full"
           >
             လစာ ပေးရန် — {formatMMK(row.net)}
-          </button>
+          </PrimaryButton>
         ))}
-    </section>
+    </Card>
   )
 }

@@ -11,6 +11,18 @@ import {
   type WriteOff,
 } from '../lib/types'
 import { SettlementSummary } from './AgentDetailPage'
+import {
+  Banner,
+  Card,
+  Field,
+  LoadingState,
+  PageHeader,
+  PrimaryButton,
+  SecondaryButton,
+  btnSecondaryCls,
+  cardCls,
+  inputCls,
+} from '../components/ui'
 
 interface SettlementPreview {
   missing: number
@@ -63,6 +75,70 @@ function computeSettlementPreview(
     netRefund: Math.max(0, Math.round(net)),
     agentOwes: Math.max(0, Math.round(-net)),
   }
+}
+
+type StepState = 'done' | 'current' | 'todo' | 'locked'
+
+/** Wizard progress header: numbered steps with the current one ringed,
+ *  finished ones checked, and not-yet-open ones (3–4 before the debt is
+ *  cleared) visibly dimmed/locked. Pure presentation of the step logic. */
+function StepProgress({ steps }: { steps: { num: string; label: string; state: StepState }[] }) {
+  const circleCls = (s: StepState) =>
+    s === 'done'
+      ? 'bg-brand-700 text-white'
+      : s === 'current'
+        ? 'bg-brand-50 text-brand-700 ring-2 ring-brand-600 dark:bg-brand-950/50 dark:text-brand-300'
+        : s === 'locked'
+          ? 'bg-stone-100 text-stone-400 dark:bg-neutral-800 dark:text-neutral-500'
+          : 'bg-stone-100 text-stone-500 dark:bg-neutral-800 dark:text-neutral-400'
+  const labelCls = (s: StepState) =>
+    s === 'done' || s === 'current'
+      ? 'font-semibold text-stone-800 dark:text-neutral-100'
+      : s === 'locked'
+        ? 'text-stone-400 dark:text-neutral-500'
+        : 'text-stone-500 dark:text-neutral-400'
+  return (
+    <div className={`${cardCls} px-4 py-3.5`}>
+      <ol className="flex items-start">
+        {steps.map((s, i) => (
+          <li key={s.num} className="flex flex-1 items-start last:flex-none">
+            <div className="flex w-14 flex-col items-center">
+              <span
+                className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold ${circleCls(s.state)}`}
+              >
+                {s.state === 'done' ? '✓' : s.num}
+              </span>
+              <span className={`mt-1.5 text-center text-xs leading-tight ${labelCls(s.state)}`}>
+                {s.label}
+                {s.state === 'locked' ? ' 🔒' : ''}
+              </span>
+            </div>
+            {i < steps.length - 1 && (
+              <span
+                className={`mx-1 mt-4 h-0.5 min-w-3 flex-1 rounded ${
+                  s.state === 'done'
+                    ? 'bg-brand-300 dark:bg-brand-700'
+                    : 'bg-stone-200 dark:bg-neutral-800'
+                }`}
+              />
+            )}
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
+/** Section heading: numbered badge + the step's existing title text. */
+function StepHeading({ num, title }: { num: string; title: string }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-700 text-sm font-bold text-white">
+        {num}
+      </span>
+      <h2 className="text-base font-semibold">{title}</h2>
+    </div>
+  )
 }
 
 export default function CloseoutPage() {
@@ -218,17 +294,20 @@ export default function CloseoutPage() {
     await load()
   }
 
-  if (loading) return <p>ခဏစောင့်ပါ…</p>
+  if (loading) return <LoadingState />
   if (!agent) return <p className="text-sm text-red-600">ကိုယ်စားလှယ် မတွေ့ပါ</p>
 
   if (result || existing) {
     const s = result ?? existing
     return (
-      <div className="space-y-4">
-        <h1 className="text-lg font-bold">စာရင်းပိတ်ခြင်း — {agent.name}</h1>
-        <p className="text-sm text-teal-700">✅ စာရင်းပိတ်ပြီးပါပြီ</p>
+      <div className="space-y-4 lg:space-y-6">
+        <PageHeader
+          title={`စာရင်းပိတ်ခြင်း — ${agent.name}`}
+          subtitle="ဘူးရေတွက်၊ ကြွေးရှင်းပြီး အပေါင် ပြန်အမ်း၍ စာရင်းပိတ်ရန်"
+        />
+        <Banner tone="brand">✅ စာရင်းပိတ်ပြီးပါပြီ</Banner>
         {s && <SettlementSummary s={s} />}
-        <Link to="/agents" className="block text-center text-sm text-teal-700 underline dark:text-teal-400">
+        <Link to="/agents" className={btnSecondaryCls}>
           ကိုယ်စားလှယ်များသို့ ပြန်သွားရန်
         </Link>
       </div>
@@ -237,6 +316,29 @@ export default function CloseoutPage() {
 
   const step2Done = outstanding <= 0
   const canFinalize = returnedValid && step2Done && priceNum > 0
+
+  const steps: { num: string; label: string; state: StepState }[] = [
+    {
+      num: '၁',
+      label: 'ဘူးရေတွက်',
+      state: returnedValid ? 'done' : 'current',
+    },
+    {
+      num: '၂',
+      label: 'ကြွေးရှင်း',
+      state: step2Done ? 'done' : returnedValid ? 'current' : 'todo',
+    },
+    {
+      num: '၃',
+      label: 'အပေါင် ပြန်အမ်း',
+      state: !step2Done ? 'locked' : priceNum > 0 ? 'done' : 'current',
+    },
+    {
+      num: '၄',
+      label: 'အတည်ပြု',
+      state: !step2Done ? 'locked' : canFinalize ? 'current' : 'todo',
+    },
+  ]
 
   const previewRows: [string, string][] = [
     ['အပေါင်ဘူး စုစုပေါင်း', `${depBottles.toLocaleString('en-US')} လုံး (ပျမ်းမျှ ${formatMMK(Math.round(preview.avg))}/လုံး)`],
@@ -251,172 +353,188 @@ export default function CloseoutPage() {
   ]
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 lg:space-y-6">
       <div>
-        <Link to={`/agents/${agent.id}`} className="text-sm text-teal-700 underline dark:text-teal-400">
+        <Link
+          to={`/agents/${agent.id}`}
+          className="text-sm font-medium text-brand-700 underline dark:text-brand-300"
+        >
           ← {agent.name} အသေးစိတ်
         </Link>
-        <h1 className="mt-1 text-lg font-bold">စာရင်းပိတ်ခြင်း — {agent.name}</h1>
+        <div className="mt-1.5">
+          <PageHeader
+            title={`စာရင်းပိတ်ခြင်း — ${agent.name}`}
+            subtitle="ဘူးရေတွက်၊ ကြွေးရှင်းပြီး အပေါင် ပြန်အမ်း၍ စာရင်းပိတ်ရန်"
+          />
+        </div>
       </div>
 
-      {msg && <p className="text-sm text-red-600">{msg}</p>}
+      {msg && (
+        <p className="text-sm text-red-600" role="alert">
+          {msg}
+        </p>
+      )}
 
-      <section className="space-y-2 rounded-2xl border p-4">
-        <div className="font-semibold">အဆင့် ၁ — ဘူးရေတွက်</div>
-        <div className="text-sm">
-          ကိုင်ထားဘူး: <span className="font-semibold">{held.toLocaleString('en-US')} လုံး</span>
+      <StepProgress steps={steps} />
+
+      <Card className="space-y-3">
+        <StepHeading num="၁" title="အဆင့် ၁ — ဘူးရေတွက်" />
+        <div className="rounded-xl bg-brand-50 px-3.5 py-2.5 text-sm dark:bg-brand-950/40">
+          ကိုင်ထားဘူး:{' '}
+          <span className="font-bold tabular-nums">{held.toLocaleString('en-US')} လုံး</span>
         </div>
-        <label className="block text-sm">
-          ပြန်အပ်ဘူး (၀ မှ {held.toLocaleString('en-US')} အတွင်း)
+        <Field label={`ပြန်အပ်ဘူး (၀ မှ ${held.toLocaleString('en-US')} အတွင်း)`}>
           <input
             value={returned}
             onChange={(e) => setReturned(e.target.value.replace(/\D/g, ''))}
             inputMode="numeric"
-            className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+            className={inputCls}
           />
-        </label>
+        </Field>
         {returned !== '' && !returnedValid && (
           <p className="text-sm text-red-600">ပြန်အပ်ဘူး အရေအတွက် မမှန်ပါ</p>
         )}
-        <p className="text-sm opacity-75">
+        <p className="text-sm text-stone-500 dark:text-neutral-400">
           ပျောက်ဘူး: {preview.missing.toLocaleString('en-US')} လုံး
         </p>
-      </section>
+      </Card>
 
-      <section className="space-y-3 rounded-2xl border p-4">
-        <div className="font-semibold">အဆင့် ၂ — ကြွေးရှင်း</div>
-        <div className="text-sm">
-          ရရန်ကျန်: <span className="font-semibold">{formatMMK(outstanding)}</span>
+      <Card className="space-y-3">
+        <StepHeading num="၂" title="အဆင့် ၂ — ကြွေးရှင်း" />
+        <div className="rounded-xl bg-accent-50 px-3.5 py-2.5 text-sm dark:bg-amber-950/30">
+          ရရန်ကျန်: <span className="font-bold tabular-nums">{formatMMK(outstanding)}</span>
         </div>
         {step2Done ? (
-          <p className="text-sm text-teal-700">✅ ကြွေးရှင်းပြီးပါပြီ — နောက်အဆင့်များ ဆက်လုပ်နိုင်ပါပြီ</p>
+          <Banner tone="brand">✅ ကြွေးရှင်းပြီးပါပြီ — နောက်အဆင့်များ ဆက်လုပ်နိုင်ပါပြီ</Banner>
         ) : (
           <>
-            <form onSubmit={onAddPayment} className="space-y-2">
-              <div className="text-sm font-medium">ငွေကောက် ထည့်ရန်</div>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="text-sm">
-                  ရက်စွဲ
+            <form onSubmit={onAddPayment} className="space-y-2.5">
+              <div className="text-sm font-semibold">ငွေကောက် ထည့်ရန်</div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <Field label="ရက်စွဲ">
                   <input
                     type="date"
                     value={payDate}
                     onChange={(e) => setPayDate(e.target.value)}
                     required
-                    className="mt-1 w-full rounded-xl border px-2 py-2 dark:bg-neutral-900"
+                    className={inputCls}
                   />
-                </label>
-                <label className="text-sm">
-                  ပမာဏ (ကျပ်)
+                </Field>
+                <Field label="ပမာဏ (ကျပ်)">
                   <input
                     value={payAmount}
                     onChange={(e) => setPayAmount(e.target.value.replace(/\D/g, ''))}
                     inputMode="numeric"
                     required
-                    className="mt-1 w-full rounded-xl border px-2 py-2 dark:bg-neutral-900"
+                    className={inputCls}
                   />
-                </label>
+                </Field>
               </div>
               <input
                 value={payNote}
                 onChange={(e) => setPayNote(e.target.value)}
                 placeholder="မှတ်ချက် (ရှိလျှင်)"
-                className="w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+                className={inputCls}
               />
-              <button className="w-full rounded-xl bg-teal-700 py-2.5 font-semibold text-white">
+              <PrimaryButton type="submit" className="w-full">
                 ငွေကောက် သိမ်းရန်
-              </button>
+              </PrimaryButton>
             </form>
 
-            <form onSubmit={onAddWriteOff} className="space-y-2">
-              <div className="text-sm font-medium">ကြွေးဖျက် ထည့်ရန် (Write-off)</div>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="text-sm">
-                  ပမာဏ (ကျပ်)
+            <form onSubmit={onAddWriteOff} className="space-y-2.5">
+              <div className="text-sm font-semibold">ကြွေးဖျက် ထည့်ရန် (Write-off)</div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <Field label="ပမာဏ (ကျပ်)">
                   <input
                     value={woAmount}
                     onChange={(e) => setWoAmount(e.target.value.replace(/\D/g, ''))}
                     inputMode="numeric"
                     required
-                    className="mt-1 w-full rounded-xl border px-2 py-2 dark:bg-neutral-900"
+                    className={inputCls}
                   />
-                </label>
-                <label className="text-sm">
-                  အကြောင်းပြချက် (လိုအပ်)
+                </Field>
+                <Field label="အကြောင်းပြချက် (လိုအပ်)">
                   <input
                     value={woNote}
                     onChange={(e) => setWoNote(e.target.value)}
                     required
-                    className="mt-1 w-full rounded-xl border px-2 py-2 dark:bg-neutral-900"
+                    className={inputCls}
                   />
-                </label>
+                </Field>
               </div>
-              <button className="w-full rounded-xl border py-2.5 font-semibold">
+              <SecondaryButton type="submit" className="w-full">
                 ကြွေးဖျက် သိမ်းရန်
-              </button>
+              </SecondaryButton>
             </form>
 
             {(payments.length > 0 || writeOffs.length > 0) && (
-              <ul className="divide-y text-sm">
+              <ul className="divide-y divide-stone-100 text-sm dark:divide-neutral-800">
                 {payments.map((p) => (
-                  <li key={p.id} className="flex justify-between py-1.5">
+                  <li key={p.id} className="flex items-baseline justify-between gap-2 py-2">
                     <span>
                       {p.payment_date} · ငွေကောက်{p.notes ? ` · ${p.notes}` : ''}
                     </span>
-                    <span className="font-medium">{formatMMK(p.amount)}</span>
+                    <span className="font-medium tabular-nums">{formatMMK(p.amount)}</span>
                   </li>
                 ))}
                 {writeOffs.map((w) => (
-                  <li key={w.id} className="flex justify-between py-1.5">
+                  <li key={w.id} className="flex items-baseline justify-between gap-2 py-2">
                     <span>
                       {w.writeoff_date} · ကြွေးဖျက် · {w.note}
                     </span>
-                    <span className="font-medium">{formatMMK(w.amount)}</span>
+                    <span className="font-medium tabular-nums">{formatMMK(w.amount)}</span>
                   </li>
                 ))}
               </ul>
             )}
           </>
         )}
-      </section>
+      </Card>
 
       {/* Steps 3–4 stay visible from the start so the user can see the whole
           flow; they render locked (dimmed, disabled) until the debt in
           step 2 is cleared, then unlock live on the next load. */}
-      <section
-        className={`space-y-2 rounded-2xl border p-4 ${step2Done ? '' : 'opacity-50'}`}
-      >
-        <div className="font-semibold">အဆင့် ၃ — အပေါင် ပြန်အမ်း</div>
+      <Card className={`space-y-3 ${step2Done ? '' : 'opacity-50'}`}>
+        <StepHeading num="၃" title="အဆင့် ၃ — အပေါင် ပြန်အမ်း" />
         {!step2Done && (
-          <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
+          <p className="text-sm font-medium text-accent-700 dark:text-amber-500">
             🔒 ကြွေး အရင် ရှင်းပြီးမှ ဒီ အဆင့် ဖွင့်ပါမယ်
           </p>
         )}
-        <label className="block text-sm">
-          ယနေ့ အပေါင် ပေါက်ဈေး (၁ လုံး)
+        <Field label="ယနေ့ အပေါင် ပေါက်ဈေး (၁ လုံး)">
           <input
             value={price}
             onChange={(e) => setPrice(e.target.value.replace(/\D/g, ''))}
             inputMode="numeric"
             disabled={!step2Done}
-            className="mt-1 w-full rounded-xl border px-3 py-2 disabled:cursor-not-allowed dark:bg-neutral-900"
+            className={`${inputCls} disabled:cursor-not-allowed disabled:opacity-60`}
           />
-        </label>
-        <dl className="space-y-1 text-sm">
+        </Field>
+        <dl className="text-sm">
           {previewRows.map(([k, v]) => (
-            <div key={k} className="flex items-center justify-between gap-2">
-              <dt className="opacity-75">{k}</dt>
-              <dd className="font-medium">{v}</dd>
+            <div
+              key={k}
+              className="flex items-baseline justify-between gap-3 border-b border-stone-100 py-1.5 last:border-0 dark:border-neutral-800/70"
+            >
+              <dt className="text-stone-500 dark:text-neutral-400">{k}</dt>
+              <dd
+                className={`tabular-nums ${
+                  k === 'အမှန် ပြန်အမ်းငွေ' || k === 'ကိုယ်စားလှယ် ပေးရန်ကျန်'
+                    ? 'font-bold'
+                    : 'font-medium'
+                }`}
+              >
+                {v}
+              </dd>
             </div>
           ))}
         </dl>
-      </section>
+      </Card>
 
-      <section
-        className={`space-y-2 rounded-2xl border p-4 ${step2Done ? '' : 'opacity-50'}`}
-      >
-        <div className="font-semibold">အဆင့် ၄ — အတည်ပြု</div>
+      <Card className={`space-y-3 ${step2Done ? '' : 'opacity-50'}`}>
+        <StepHeading num="၄" title="အဆင့် ၄ — အတည်ပြု" />
         {!step2Done && (
-          <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
+          <p className="text-sm font-medium text-accent-700 dark:text-amber-500">
             🔒 ကြွေး အရင် ရှင်းပြီးမှ ဒီ အဆင့် ဖွင့်ပါမယ်
           </p>
         )}
@@ -425,21 +543,17 @@ export default function CloseoutPage() {
           onChange={(e) => setNote(e.target.value)}
           placeholder="မှတ်ချက် (ရှိလျှင်)"
           disabled={!step2Done}
-          className="w-full rounded-xl border px-3 py-2 disabled:cursor-not-allowed dark:bg-neutral-900"
+          className={`${inputCls} disabled:cursor-not-allowed disabled:opacity-60`}
         />
-        <button
-          onClick={onFinalize}
-          disabled={!canFinalize || busy}
-          className="w-full rounded-xl bg-teal-700 py-2.5 font-semibold text-white disabled:opacity-50"
-        >
+        <PrimaryButton onClick={onFinalize} disabled={!canFinalize || busy} className="w-full">
           {busy ? 'ပိတ်နေပါတယ်…' : 'စာရင်းပိတ် အတည်ပြုရန်'}
-        </button>
-        <p className="text-xs opacity-60">
+        </PrimaryButton>
+        <p className="text-xs text-stone-500 dark:text-neutral-400">
           အတည်ပြုလိုက်ရင် ကိုယ်စားလှယ်ကို ပိတ်ပြီး စာရင်းပိတ် မှတ်တမ်း သိမ်းပါမယ်။ ဈေးကွာ
           ရှိရင် (ဈေးကွာ ၀ ထက် များရင်) အသုံးစရိတ်ထဲမှာ «ဗူးအပေါင် ဈေးကွာ» မှတ်တမ်း
           အလိုအလျောက် ထည့်ပေးပါမယ်။
         </p>
-      </section>
+      </Card>
     </div>
   )
 }

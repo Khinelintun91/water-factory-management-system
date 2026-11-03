@@ -2,6 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchAll } from '../lib/fetchAll'
 import { formatMMK, todayYangon, type Agent } from '../lib/types'
+import {
+  Card,
+  CardTitle,
+  EmptyState,
+  Field,
+  LoadingState,
+  PageHeader,
+  PrimaryButton,
+  SecondaryButton,
+  StatCard,
+  inputCls,
+} from '../components/ui'
 
 // Row shapes read by this page (defined locally, like the other pages).
 interface EntryLite {
@@ -530,125 +542,118 @@ export default function ReportsPage() {
   ]
   const maxCat = Math.max(1, ...report.byCategory.map((c) => c.total))
   const maxTrendSales = Math.max(1, ...trend.map((t) => t.sales))
-  const inputCls = 'mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900'
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-bold">အစီရင်ခံစာများ</h1>
-      <p className="text-sm opacity-80">
+    <div className="space-y-4 lg:space-y-6">
+      <PageHeader
+        title="အစီရင်ခံစာများ"
+        subtitle="ကာလအလိုက် ရောင်းအား၊ စရိတ်၊ လစာနှင့် အမြတ် ကြည့်ရန်"
+      />
+      <p className="text-sm text-stone-500 dark:text-neutral-400">
         ရွေးထားတဲ့ ကာလအတွင်း ရောင်းအား၊ ကောက်ခံမှု၊ စရိတ်၊ လစာ နဲ့ အမြတ်ကို ဒီနေရာမှာ
         ကြည့်နိုင်ပါတယ်။
       </p>
 
-      <div className="space-y-2 rounded-2xl border p-4 print:hidden">
-        <div className="grid grid-cols-2 gap-2">
-          <label className="text-sm">
-            ရက်စ မှ
+      <Card className="space-y-3 print:hidden">
+        <div className="grid grid-cols-2 gap-2.5">
+          <Field label="ရက်စ မှ">
             <input
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
               className={inputCls}
             />
-          </label>
-          <label className="text-sm">
-            ရက်စ အထိ
+          </Field>
+          <Field label="ရက်စ အထိ">
             <input
               type="date"
               value={to}
               onChange={(e) => setTo(e.target.value)}
               className={inputCls}
             />
-          </label>
+          </Field>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setApplied({ from, to })}
-            className="flex-1 rounded-xl bg-teal-700 py-2.5 font-semibold text-white"
-          >
+          <PrimaryButton onClick={() => setApplied({ from, to })} className="flex-1">
             အစီရင်ခံစာ ကြည့်ရန်
-          </button>
-          <button
+          </PrimaryButton>
+          <SecondaryButton
             onClick={exportExcel}
             disabled={exporting || loading || !hasData}
-            className="rounded-xl bg-neutral-200 px-4 py-2.5 text-sm font-semibold disabled:opacity-50 dark:bg-neutral-800"
           >
             Excel ထုတ်ရန်
-          </button>
-          <button
-            onClick={() => window.print()}
-            className="rounded-xl bg-neutral-200 px-4 py-2.5 text-sm font-semibold dark:bg-neutral-800"
-          >
-            ပုံနှိပ်ရန်
-          </button>
+          </SecondaryButton>
+          <SecondaryButton onClick={() => window.print()}>ပုံနှိပ်ရန်</SecondaryButton>
         </div>
-      </div>
+      </Card>
 
       {msg && <p className="text-sm text-red-600">{msg}</p>}
 
       {loading ? (
-        <p>ခဏစောင့်ပါ…</p>
+        <LoadingState />
       ) : !hasData ? (
-        <p className="rounded-2xl border p-4 text-sm opacity-70">
-          ဒီကာလအတွင်း စာရင်း မရှိသေးပါ — ကာလ ပြောင်းပြီး ပြန်ကြည့်ပါ။
-        </p>
+        <EmptyState text="ဒီကာလအတွင်း စာရင်း မရှိသေးပါ — ကာလ ပြောင်းပြီး ပြန်ကြည့်ပါ။" />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 lg:grid-cols-5">
             {cards.map((c) =>
               c.highlight ? (
                 <div
                   key={c.label}
-                  className={`col-span-2 rounded-2xl p-4 text-white ${
-                    c.value < 0 ? 'bg-red-700' : 'bg-teal-700'
+                  className={`col-span-2 rounded-2xl p-4 text-white shadow-card md:col-span-3 lg:col-span-1 ${
+                    c.value < 0 ? 'bg-red-700' : 'bg-brand-700'
                   }`}
                 >
                   <div className="text-sm opacity-90">{c.label}</div>
-                  <div className="text-xl font-bold">{formatMMK(c.value)}</div>
+                  <div className="mt-1 text-xl font-bold tabular-nums">{formatMMK(c.value)}</div>
                 </div>
               ) : (
-                <div key={c.label} className="rounded-2xl border p-3">
-                  <div className="text-sm opacity-70">{c.label}</div>
-                  <div className="font-bold">{formatMMK(c.value)}</div>
-                </div>
+                <StatCard
+                  key={c.label}
+                  label={c.label}
+                  value={formatMMK(c.value)}
+                  tone={c.label === 'ကြွေးကျန်' && c.value > 0 ? 'danger' : 'default'}
+                />
               ),
             )}
           </div>
 
-          <section className="space-y-2 rounded-2xl border p-4">
-            <div className="font-semibold">စရိတ် အမျိုးအစားအလိုက်</div>
+          <Card className="space-y-2.5">
+            <CardTitle>စရိတ် အမျိုးအစားအလိုက်</CardTitle>
             {report.byCategory.map((c) => (
               <div key={c.name} className="text-sm">
                 <div className="flex items-center justify-between gap-2">
                   <span>{c.name}</span>
-                  <span className="font-medium">{formatMMK(c.total)}</span>
+                  <span className="font-medium tabular-nums">{formatMMK(c.total)}</span>
                 </div>
-                <div className="mt-1 h-2 rounded-full bg-neutral-200 dark:bg-neutral-800">
+                <div className="mt-1 h-2 rounded-full bg-stone-200 dark:bg-neutral-800">
                   <div
-                    className="h-2 rounded-full bg-teal-700"
+                    className="h-2 rounded-full bg-brand-600"
                     style={{ width: `${Math.round((c.total / maxCat) * 100)}%` }}
                   />
                 </div>
               </div>
             ))}
             {report.byCategory.length === 0 && (
-              <p className="text-sm opacity-70">ဒီကာလအတွင်း အသုံးစရိတ် မရှိပါ</p>
+              <p className="text-sm text-stone-500 dark:text-neutral-400">ဒီကာလအတွင်း အသုံးစရိတ် မရှိပါ</p>
             )}
-          </section>
+          </Card>
 
-          <section className="space-y-2 rounded-2xl border p-4">
-            <div className="font-semibold">ကြွေး သက်တမ်း (ကြွေးကျန် ခွဲခြားချက်)</div>
-            <div className="grid grid-cols-3 gap-2 text-center text-sm">
+          <Card className="space-y-3">
+            <CardTitle>ကြွေး သက်တမ်း (ကြွေးကျန် ခွဲခြားချက်)</CardTitle>
+            <div className="grid grid-cols-3 gap-2.5">
               {(Object.keys(BUCKET_LABELS) as Bucket[]).map((b) => (
-                <div key={b} className="rounded-xl bg-neutral-50 p-2 dark:bg-neutral-900">
-                  <div className="opacity-70">{BUCKET_LABELS[b]}</div>
-                  <div className="font-bold">{formatMMK(report.aging[b])}</div>
-                </div>
+                <StatCard
+                  key={b}
+                  label={BUCKET_LABELS[b]}
+                  value={formatMMK(report.aging[b])}
+                  tone={b === 'd60p' && report.aging[b] > 0 ? 'danger' : 'default'}
+                />
               ))}
             </div>
             <button
               onClick={() => setShowAgingDetail((v) => !v)}
-              className="text-sm text-teal-700 print:hidden"
+              className="inline-flex min-h-[44px] items-center text-sm font-medium text-brand-700 print:hidden dark:text-brand-300"
             >
               {showAgingDetail ? 'အသေးစိတ် ပိတ်ရန်' : 'အသေးစိတ် ကြည့်ရန်'}
             </button>
@@ -656,25 +661,25 @@ export default function ReportsPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b text-left">
-                      <th className="py-1 pr-2">ကိုယ်စားလှယ်</th>
-                      <th className="py-1 pr-2">ရက်စွဲ</th>
-                      <th className="py-1 pr-2 text-right">ရက်</th>
-                      <th className="py-1 text-right">ပမာဏ</th>
+                    <tr className="border-b border-stone-200 text-left text-stone-500 dark:border-neutral-800 dark:text-neutral-400">
+                      <th className="py-2 pr-2 font-medium">ကိုယ်စားလှယ်</th>
+                      <th className="py-2 pr-2 font-medium">ရက်စွဲ</th>
+                      <th className="py-2 pr-2 text-right font-medium">ရက်</th>
+                      <th className="py-2 text-right font-medium">ပမာဏ</th>
                     </tr>
                   </thead>
                   <tbody>
                     {report.agingRows.map((r, i) => (
-                      <tr key={i} className="border-b last:border-0">
-                        <td className="py-1 pr-2">{r.agent}</td>
-                        <td className="py-1 pr-2">{r.date}</td>
-                        <td className="py-1 pr-2 text-right">{r.days}</td>
-                        <td className="py-1 text-right">{formatMMK(r.amount)}</td>
+                      <tr key={i} className="border-b border-stone-100 last:border-0 dark:border-neutral-800/70">
+                        <td className="py-2 pr-2">{r.agent}</td>
+                        <td className="py-2 pr-2">{r.date}</td>
+                        <td className="py-2 pr-2 text-right tabular-nums">{r.days}</td>
+                        <td className="py-2 text-right tabular-nums">{formatMMK(r.amount)}</td>
                       </tr>
                     ))}
                     {report.agingRows.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="py-2 opacity-70">
+                        <td colSpan={4} className="py-2 text-stone-500 dark:text-neutral-400">
                           ကြွေးကျန် မရှိပါ
                         </td>
                       </tr>
@@ -683,51 +688,51 @@ export default function ReportsPage() {
                 </table>
               </div>
             )}
-          </section>
+          </Card>
 
-          <section className="space-y-2 rounded-2xl border p-4">
-            <div className="font-semibold">ကိုယ်စားလှယ်အလိုက် အကျဉ်းချုပ်</div>
+          <Card className="space-y-3">
+            <CardTitle>ကိုယ်စားလှယ်အလိုက် အကျဉ်းချုပ်</CardTitle>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-sm">
                 <thead>
-                  <tr className="border-b text-left">
-                    <th className="py-1 pr-2">အမည်</th>
-                    <th className="py-1 pr-2 text-right">ရောင်းရငွေ</th>
-                    <th className="py-1 pr-2 text-right">ကောက်ခံရငွေ</th>
-                    <th className="py-1 pr-2 text-right">လျော်ကြေး</th>
-                    <th className="py-1 pr-2 text-right">ကြွေးကျန်</th>
-                    <th className="py-1 pr-2 text-right">လက်ထဲ ဘူး</th>
-                    <th className="py-1 text-right">အပေါင်</th>
+                  <tr className="border-b border-stone-200 text-left text-stone-500 dark:border-neutral-800 dark:text-neutral-400">
+                    <th className="py-2 pr-2 font-medium">အမည်</th>
+                    <th className="py-2 pr-2 text-right font-medium">ရောင်းရငွေ</th>
+                    <th className="py-2 pr-2 text-right font-medium">ကောက်ခံရငွေ</th>
+                    <th className="py-2 pr-2 text-right font-medium">လျော်ကြေး</th>
+                    <th className="py-2 pr-2 text-right font-medium">ကြွေးကျန်</th>
+                    <th className="py-2 pr-2 text-right font-medium">လက်ထဲ ဘူး</th>
+                    <th className="py-2 text-right font-medium">အပေါင်</th>
                   </tr>
                 </thead>
                 <tbody>
                   {report.perAgent.map((a) => (
-                    <tr key={a.id} className="border-b last:border-0">
-                      <td className="py-1 pr-2">
+                    <tr key={a.id} className="border-b border-stone-100 last:border-0 dark:border-neutral-800/70">
+                      <td className="py-2 pr-2 font-medium">
                         {a.name}
                         {a.deleted ? (
                           <span className="ml-1 text-xs text-red-600">(ဖျက်ပြီး)</span>
                         ) : a.closed ? (
-                          <span className="ml-1 text-xs opacity-60">(ပိတ်ပြီး)</span>
+                          <span className="ml-1 text-xs text-stone-400 dark:text-neutral-500">(ပိတ်ပြီး)</span>
                         ) : null}
                       </td>
-                      <td className="py-1 pr-2 text-right">{formatMMK(a.sales)}</td>
-                      <td className="py-1 pr-2 text-right">{formatMMK(a.collected)}</td>
-                      <td className="py-1 pr-2 text-right">{formatMMK(a.writeOff)}</td>
+                      <td className="py-2 pr-2 text-right tabular-nums">{formatMMK(a.sales)}</td>
+                      <td className="py-2 pr-2 text-right tabular-nums">{formatMMK(a.collected)}</td>
+                      <td className="py-2 pr-2 text-right tabular-nums">{formatMMK(a.writeOff)}</td>
                       <td
-                        className={`py-1 pr-2 text-right font-semibold ${
-                          a.receivable > 0 ? 'text-red-600' : ''
+                        className={`py-2 pr-2 text-right font-semibold tabular-nums ${
+                          a.receivable > 0 ? 'text-red-600 dark:text-red-400' : ''
                         }`}
                       >
                         {formatMMK(a.receivable)}
                       </td>
-                      <td className="py-1 pr-2 text-right">{a.bottles}</td>
-                      <td className="py-1 text-right">{formatMMK(a.deposit)}</td>
+                      <td className="py-2 pr-2 text-right tabular-nums">{a.bottles}</td>
+                      <td className="py-2 text-right tabular-nums">{formatMMK(a.deposit)}</td>
                     </tr>
                   ))}
                   {report.perAgent.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="py-2 opacity-70">
+                      <td colSpan={7} className="py-2 text-stone-500 dark:text-neutral-400">
                         ကိုယ်စားလှယ် မရှိသေးပါ
                       </td>
                     </tr>
@@ -735,54 +740,54 @@ export default function ReportsPage() {
                 </tbody>
               </table>
             </div>
-          </section>
+          </Card>
 
-          <section className="space-y-3 rounded-2xl border p-4">
-            <div className="font-semibold">လအလိုက် အရောင်း နှင့် အမြတ် (၁၂ လ)</div>
+          <Card className="space-y-3">
+            <CardTitle>လအလိုက် အရောင်း နှင့် အမြတ် (၁၂ လ)</CardTitle>
             <div className="flex h-32 items-end gap-1">
               {trend.map((t) => (
                 <div key={t.month} className="flex flex-1 flex-col items-center gap-1">
                   <div className="flex h-24 w-full items-end justify-center gap-0.5">
                     <div
-                      className="w-2/5 rounded-t bg-teal-600"
+                      className="w-2/5 rounded-t bg-brand-600"
                       style={{ height: `${Math.max(2, Math.round((t.sales / maxTrendSales) * 100))}%` }}
                       title={`အရောင်း ${formatMMK(t.sales)}`}
                     />
                     <div
-                      className={`w-2/5 rounded-t ${t.profit < 0 ? 'bg-red-500' : 'bg-emerald-500'}`}
+                      className={`w-2/5 rounded-t ${t.profit < 0 ? 'bg-red-500' : 'bg-brand-300'}`}
                       style={{
                         height: `${Math.max(2, Math.round((Math.abs(t.profit) / maxTrendSales) * 100))}%`,
                       }}
                       title={`အမြတ် ${formatMMK(t.profit)}`}
                     />
                   </div>
-                  <div className="text-[10px] opacity-70">{t.month.slice(5)}</div>
+                  <div className="text-[10px] text-stone-500 dark:text-neutral-400">{t.month.slice(5)}</div>
                 </div>
               ))}
             </div>
-            <div className="flex gap-4 text-xs opacity-80">
+            <div className="flex gap-4 text-xs text-stone-500 dark:text-neutral-400">
               <span>■ အရောင်း (အစိမ်း)</span>
               <span>■ အမြတ် (အစိမ်းဖျော့ / အနှုတ်ဆို အနီ)</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b text-left">
-                    <th className="py-1 pr-2">လ</th>
-                    <th className="py-1 pr-2 text-right">ရောင်းရငွေ</th>
-                    <th className="py-1 pr-2 text-right">ကုန်ကျစရိတ်</th>
-                    <th className="py-1 text-right">အမြတ်</th>
+                  <tr className="border-b border-stone-200 text-left text-stone-500 dark:border-neutral-800 dark:text-neutral-400">
+                    <th className="py-2 pr-2 font-medium">လ</th>
+                    <th className="py-2 pr-2 text-right font-medium">ရောင်းရငွေ</th>
+                    <th className="py-2 pr-2 text-right font-medium">ကုန်ကျစရိတ်</th>
+                    <th className="py-2 text-right font-medium">အမြတ်</th>
                   </tr>
                 </thead>
                 <tbody>
                   {trend.map((t) => (
-                    <tr key={t.month} className="border-b last:border-0">
-                      <td className="py-1 pr-2">{t.month}</td>
-                      <td className="py-1 pr-2 text-right">{formatMMK(t.sales)}</td>
-                      <td className="py-1 pr-2 text-right">{formatMMK(t.costs)}</td>
+                    <tr key={t.month} className="border-b border-stone-100 last:border-0 dark:border-neutral-800/70">
+                      <td className="py-2 pr-2">{t.month}</td>
+                      <td className="py-2 pr-2 text-right tabular-nums">{formatMMK(t.sales)}</td>
+                      <td className="py-2 pr-2 text-right tabular-nums">{formatMMK(t.costs)}</td>
                       <td
-                        className={`py-1 text-right font-medium ${
-                          t.profit < 0 ? 'text-red-600' : ''
+                        className={`py-2 text-right font-medium tabular-nums ${
+                          t.profit < 0 ? 'text-red-600 dark:text-red-400' : ''
                         }`}
                       >
                         {formatMMK(t.profit)}
@@ -792,7 +797,7 @@ export default function ReportsPage() {
                 </tbody>
               </table>
             </div>
-          </section>
+          </Card>
         </>
       )}
     </div>

@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import {
+  Card,
+  EmptyState,
+  LoadingState,
+  PageHeader,
+  PrimaryButton,
+  SecondaryButton,
+  cardCls,
+  inputCls,
+} from '../components/ui'
 
 interface Dispute {
   id: string
@@ -15,6 +25,12 @@ const STATUS_LABELS: Record<Dispute['status'], string> = {
   open: 'ဖွင့်ထားဆဲ',
   replied: 'ပြန်ဖြေပြီး',
   closed: 'ပိတ်ပြီး',
+}
+
+const STATUS_CHIP_CLS: Record<Dispute['status'], string> = {
+  open: 'bg-accent-100 text-accent-800 dark:bg-amber-950/40 dark:text-amber-200',
+  replied: 'bg-brand-100 text-brand-800 dark:bg-brand-950/50 dark:text-brand-200',
+  closed: 'bg-stone-100 text-stone-500 dark:bg-neutral-800 dark:text-neutral-400',
 }
 
 export default function DisputesPage() {
@@ -85,73 +101,89 @@ export default function DisputesPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-bold">အငြင်းပွားမှုများ</h1>
+    <div className="space-y-4 lg:space-y-6">
+      <PageHeader
+        title="အငြင်းပွားမှုများ"
+        subtitle="ပြဿနာ တင်ပြချက်များ စစ်ဆေး ပြန်ဖြေရန်"
+      />
 
       {isAgent && (
-        <form onSubmit={onCreate} className="space-y-2 rounded-2xl border p-4">
-          <div className="font-semibold">ပြဿနာ တင်ပြရန်</div>
-          <textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            required
-            rows={3}
-            placeholder="ဖြစ်ပျက်ခဲ့တာကို ရှင်းပြပါ"
-            className="w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
-          />
-          {msg && <p className="text-sm text-red-600">{msg}</p>}
-          <button className="w-full rounded-xl bg-teal-700 py-2.5 font-semibold text-white">
-            တင်ပြရန်
-          </button>
-        </form>
+        <Card className="space-y-3">
+          <form onSubmit={onCreate} className="space-y-3">
+            <h2 className="text-base font-semibold">ပြဿနာ တင်ပြရန်</h2>
+            <textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              required
+              rows={3}
+              placeholder="ဖြစ်ပျက်ခဲ့တာကို ရှင်းပြပါ"
+              className={inputCls}
+            />
+            {msg && (
+              <p className="text-sm text-red-600" role="alert">
+                {msg}
+              </p>
+            )}
+            <PrimaryButton type="submit" className="w-full">
+              တင်ပြရန်
+            </PrimaryButton>
+          </form>
+        </Card>
       )}
 
       {loading ? (
-        <p>ခဏစောင့်ပါ…</p>
+        <LoadingState />
+      ) : rows.length === 0 ? (
+        <EmptyState text="မရှိသေးပါ" />
       ) : (
-        <ul className="divide-y rounded-2xl border">
+        <ul className="space-y-3 lg:grid lg:grid-cols-2 lg:items-start lg:gap-3 lg:space-y-0">
           {rows.map((d) => (
-            <li key={d.id} className="p-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium">
-                  {agentNames[d.agent_id] ? `${agentNames[d.agent_id]} · ` : ''}
-                  {STATUS_LABELS[d.status]}
-                </span>
-                <span className="text-xs opacity-60">
-                  {new Date(d.created_at).toLocaleString('my-MM')}
+            <li key={d.id} className={`${cardCls} p-3.5 lg:p-4`}>
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-semibold">{agentNames[d.agent_id] ?? ''}</span>
+                <span className="flex shrink-0 flex-col items-end gap-1">
+                  <span
+                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_CHIP_CLS[d.status]}`}
+                  >
+                    {STATUS_LABELS[d.status]}
+                  </span>
+                  <span className="text-xs text-stone-500 dark:text-neutral-400">
+                    {new Date(d.created_at).toLocaleString('my-MM')}
+                  </span>
                 </span>
               </div>
-              <p className="mt-1 text-sm">{d.message}</p>
-              {d.reply && <p className="mt-1 rounded-lg bg-neutral-100 p-2 text-sm dark:bg-neutral-800">ပြန်ဖြေ: {d.reply}</p>}
+              <p className="mt-1.5 text-sm">{d.message}</p>
+              {d.reply && (
+                <p className="mt-2 rounded-xl bg-stone-100 p-3 text-sm dark:bg-neutral-800">
+                  ပြန်ဖြေ: {d.reply}
+                </p>
+              )}
               {canManage && d.status !== 'closed' && (
-                <div className="mt-2 space-y-2">
+                <div className="mt-3 space-y-2.5">
                   <textarea
                     value={replyById[d.id] ?? ''}
                     onChange={(e) => setReplyById((s) => ({ ...s, [d.id]: e.target.value }))}
                     rows={2}
                     placeholder="ပြန်ဖြေရန်"
-                    className="w-full rounded-xl border px-3 py-2 text-sm dark:bg-neutral-900"
+                    className={inputCls}
                   />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => onReply(d)}
-                      className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white"
-                    >
+                  <div className="flex flex-wrap gap-2">
+                    <PrimaryButton size="sm" onClick={() => onReply(d)}>
                       ပြန်ဖြေရန်
-                    </button>
-                    <button
-                      onClick={() => onClose(d)}
-                      className="rounded-lg border px-3 py-1.5 text-sm"
-                    >
+                    </PrimaryButton>
+                    <SecondaryButton size="sm" onClick={() => onClose(d)}>
                       ပိတ်ရန်
-                    </button>
+                    </SecondaryButton>
                   </div>
-                  {msg && <p className="text-sm text-red-600">{msg}</p>}
+                  {msg && (
+                    <p className="text-sm text-red-600" role="alert">
+                      {msg}
+                    </p>
+                  )}
                 </div>
               )}
             </li>
           ))}
-          {rows.length === 0 && <li className="p-3 text-sm opacity-70">မရှိသေးပါ</li>}
         </ul>
       )}
     </div>

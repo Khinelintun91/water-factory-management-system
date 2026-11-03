@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { AuditLogRow } from '../lib/types'
+import {
+  EmptyState,
+  LoadingState,
+  PageHeader,
+  SecondaryButton,
+  cardCls,
+} from '../components/ui'
 
 const ACTION_LABELS: Record<AuditLogRow['action'], string> = {
   insert: 'အသစ်ထည့်',
@@ -42,39 +49,41 @@ export default function HistoryPage() {
   }, [load])
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-bold">ပြောင်းလဲမှုမှတ်တမ်း</h1>
-      <p className="text-sm opacity-75">
+    <div className="space-y-4 lg:space-y-6">
+      <PageHeader title="ပြောင်းလဲမှုမှတ်တမ်း" subtitle="မည်သူ ဘာပြောင်းခဲ့လဲ ပြန်ကြည့်ရန်" />
+      <p className="text-sm text-stone-500 dark:text-neutral-400">
         မှတ်တမ်းအားလုံးကို ပြင်ဆင်/ဖျက်ချ၍ မရပါ (ပိုင်ရှင် အပါအဝင်)။ မှားယွင်းမှု ဖြစ်ခဲ့ရင် ဒီမှတ်တမ်းက
         မူလ အချက်အလက်ကို ပြန်ဆယ်ရန် သုံးနိုင်ပါတယ်။
       </p>
 
       {loading ? (
-        <p>ခဏစောင့်ပါ…</p>
+        <LoadingState />
+      ) : rows.length === 0 ? (
+        <EmptyState text="မှတ်တမ် မရှိသေးပါ" />
       ) : (
-        <ul className="divide-y rounded-2xl border">
+        <ul className={`${cardCls} divide-y divide-stone-100 overflow-hidden dark:divide-neutral-800/70`}>
           {rows.map((r) => (
-            <li key={r.id} className="p-3">
+            <li key={r.id} className="px-3.5">
               <button
-                className="flex w-full items-center justify-between gap-2 text-left"
+                className="flex min-h-[52px] w-full items-center justify-between gap-2 py-2 text-left"
                 onClick={() => setOpenId(openId === r.id ? null : r.id)}
               >
                 <span className="font-medium">
                   {r.table_name} · {ACTION_LABELS[r.action]}
                 </span>
-                <span className="text-xs opacity-60">
+                <span className="shrink-0 text-xs text-stone-500 dark:text-neutral-400">
                   {new Date(r.created_at).toLocaleString('my-MM')}
                 </span>
               </button>
               {openId === r.id && (
-                <div className="mt-2 space-y-2 text-xs">
+                <div className="space-y-2 pb-3.5 text-xs">
                   {r.old_data && (
-                    <pre className="overflow-x-auto rounded-lg bg-red-50 p-2 dark:bg-red-950/40">
+                    <pre className="overflow-x-auto rounded-lg bg-red-50 p-2.5 dark:bg-red-950/40">
                       အရင်: {JSON.stringify(r.old_data, null, 1)}
                     </pre>
                   )}
                   {r.new_data && (
-                    <pre className="overflow-x-auto rounded-lg bg-emerald-50 p-2 dark:bg-emerald-950/40">
+                    <pre className="overflow-x-auto rounded-lg bg-brand-50 p-2.5 dark:bg-brand-950/40">
                       အသစ်: {JSON.stringify(r.new_data, null, 1)}
                     </pre>
                   )}
@@ -82,13 +91,12 @@ export default function HistoryPage() {
               )}
             </li>
           ))}
-          {rows.length === 0 && <li className="p-3 text-sm opacity-70">မှတ်တမ် မရှိသေးပါ</li>}
         </ul>
       )}
       {hasMore && (
-        <button onClick={loadMore} className="w-full rounded-xl border py-2.5 text-sm">
+        <SecondaryButton onClick={loadMore} className="w-full">
           နောက်ထပ် ၁၀၀ ကြည့်ရန်
-        </button>
+        </SecondaryButton>
       )}
     </div>
   )

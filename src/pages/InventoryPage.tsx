@@ -1,6 +1,21 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { isTodayYangon } from '../lib/types'
+import {
+  Banner,
+  Card,
+  CardTitle,
+  DangerButton,
+  EmptyState,
+  Field,
+  LoadingState,
+  PageHeader,
+  PrimaryButton,
+  SecondaryButton,
+  StatCard,
+  cardCls,
+  inputCls,
+} from '../components/ui'
 
 // inventory_movements shape (migration 0001 + kinds extended in 0006).
 // move_date is defaulted to the Yangon today by the database and an insert
@@ -135,6 +150,41 @@ export default function InventoryPage() {
     await load()
   }
 
+  // --- Row pieces shared by the card list (phone/tablet) and the table
+  // (desktop), following EntriesPage's pattern. ------------------------------
+
+  function rowButtons(r: StockMove) {
+    if (!isTodayYangon(r.created_at) || confirmId === r.id) {
+      return null
+    }
+    return (
+      <button
+        onClick={() => setConfirmId(r.id)}
+        className="inline-flex min-h-[40px] items-center rounded-lg bg-red-50 px-3.5 font-medium text-red-600 transition active:scale-[0.98] dark:bg-red-950/40 dark:text-red-400"
+      >
+        ဖျက်ရန်
+      </button>
+    )
+  }
+
+  function rowPanel(r: StockMove) {
+    if (!isTodayYangon(r.created_at) || confirmId !== r.id) {
+      return null
+    }
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50/60 p-3 dark:border-red-900 dark:bg-red-950/20">
+        <div className="flex flex-wrap gap-2">
+          <DangerButton size="sm" onClick={() => onDelete(r)}>
+            သေချာပါတယ်, ဖျက်မည်
+          </DangerButton>
+          <SecondaryButton size="sm" onClick={() => setConfirmId(null)}>
+            မဖျက်တော့ပါ
+          </SecondaryButton>
+        </div>
+      </div>
+    )
+  }
+
   const statCards: { label: string; value: number; danger?: boolean }[] = [
     { label: 'စက်ရုံထဲ အပြည့်', value: stock.full, danger: stock.full < 0 },
     { label: 'အခွံ', value: stock.empty, danger: stock.empty < 0 },
@@ -142,119 +192,172 @@ export default function InventoryPage() {
     { label: 'စုစုပေါင်း ပုလင်း', value: stock.total },
   ]
 
-  return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-bold">ပုလင်း စာရင်း</h1>
+  const thCls = 'px-3 py-3 font-medium'
+  const tdCls = 'px-3 py-3 tabular-nums'
 
-      {msg && <p className="text-sm text-red-600">{msg}</p>}
+  return (
+    <div className="space-y-4 lg:space-y-6">
+      <PageHeader
+        title="ပုလင်း စာရင်း"
+        subtitle="အပြည့်၊ အခွံနှင့် ကိုယ်စားလှယ်များထံ ပုလင်း အရေအတွက် ကြည့်ရန်"
+      />
+
+      {msg && (
+        <p className="text-sm text-red-600" role="alert">
+          {msg}
+        </p>
+      )}
 
       {loading ? (
-        <p>ခဏစောင့်ပါ…</p>
+        <LoadingState />
       ) : (
         <>
           {(stock.full < 0 || stock.empty < 0) && (
-            <p className="rounded-xl border border-red-400 bg-red-50 p-3 text-sm font-semibold text-red-700 dark:bg-neutral-900">
+            <Banner tone="red">
               သတိပေးချက်: ပုလင်း စာရင်း အနှုတ် ဖြစ်နေပါတယ် — မှတ်တမ်းများ ပြန်စစ်ဆေးရန်
               လိုပါတယ်
-            </p>
+            </Banner>
           )}
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4 lg:gap-3">
             {statCards.map((c) => (
-              <div key={c.label} className="rounded-2xl border p-3">
-                <div className="text-sm opacity-70">{c.label}</div>
-                <div className={`text-lg font-bold ${c.danger ? 'text-red-600' : ''}`}>
-                  {fmtQty(c.value)}
-                </div>
-              </div>
+              <StatCard
+                key={c.label}
+                label={c.label}
+                value={fmtQty(c.value)}
+                tone={c.danger ? 'danger' : c.label === 'စုစုပေါင်း ပုလင်း' ? 'brand' : 'default'}
+              />
             ))}
           </div>
-          <div className="rounded-2xl border p-4 text-sm">
-            <div className="font-semibold">အသေးစိတ် တွက်ချက်မှု</div>
-            <div className="mt-1 space-y-0.5 opacity-80">
-              <div>ထုတ်လုပ်ပြီး: {fmtQty(stock.produced)}</div>
-              <div>ဝယ်ယူပြီး: {fmtQty(stock.purchased)}</div>
-              <div>ပျက်စီး: {fmtQty(stock.damaged)}</div>
-              <div>ကိုယ်စားလှယ်များထံ ပို့ပြီး: {fmtQty(stock.out)}</div>
-              <div>ပြန်အပ်ပြီး အခွံ: {fmtQty(stock.inn)}</div>
+          <Card className="space-y-1 text-sm">
+            <CardTitle>အသေးစိတ် တွက်ချက်မှု</CardTitle>
+            <div className="flex items-baseline justify-between gap-3 py-0.5">
+              <span className="text-stone-500 dark:text-neutral-400">ထုတ်လုပ်ပြီး:</span>
+              <span className="font-medium tabular-nums">{fmtQty(stock.produced)}</span>
             </div>
-          </div>
+            <div className="flex items-baseline justify-between gap-3 py-0.5">
+              <span className="text-stone-500 dark:text-neutral-400">ဝယ်ယူပြီး:</span>
+              <span className="font-medium tabular-nums">{fmtQty(stock.purchased)}</span>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 py-0.5">
+              <span className="text-stone-500 dark:text-neutral-400">ပျက်စီး:</span>
+              <span className="font-medium tabular-nums">{fmtQty(stock.damaged)}</span>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 py-0.5">
+              <span className="text-stone-500 dark:text-neutral-400">ကိုယ်စားလှယ်များထံ ပို့ပြီး:</span>
+              <span className="font-medium tabular-nums">{fmtQty(stock.out)}</span>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 py-0.5">
+              <span className="text-stone-500 dark:text-neutral-400">ပြန်အပ်ပြီး အခွံ:</span>
+              <span className="font-medium tabular-nums">{fmtQty(stock.inn)}</span>
+            </div>
+          </Card>
         </>
       )}
 
-      <form onSubmit={onAdd} className="space-y-2 rounded-2xl border p-4">
-        <div className="font-semibold">ပုလင်း ရွှေ့ပြောင်းမှု အသစ် (ယနေ့)</div>
-        <p className="text-sm opacity-70">
+      <form onSubmit={onAdd} className={`${cardCls} space-y-3 p-4 lg:p-5`}>
+        <div className="text-base font-semibold">ပုလင်း ရွှေ့ပြောင်းမှု အသစ် (ယနေ့)</div>
+        <p className="text-sm text-stone-500 dark:text-neutral-400">
           ဝယ်ယူ = ဗူးအလွတ် ဝယ်ထည့်ခြင်း · ထုတ်လုပ် = ဗူးအလွတ်ကို ရေဖြည့်ပြီး အပြည့် ပြောင်းခြင်း ·
           ပျက်စီး = သုံးမရတော့သော ဗူးများ
         </p>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="text-sm">
-            အမျိုးအစား
+        <div className="grid grid-cols-2 gap-2.5">
+          <Field label="အမျိုးအစား">
             <select
               value={kind}
               onChange={(e) => setKind(e.target.value)}
-              className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+              className={inputCls}
             >
               <option value="produce">ထုတ်လုပ်</option>
               <option value="purchase">ဝယ်ယူ</option>
               <option value="damage">ပျက်စီး</option>
             </select>
-          </label>
-          <label className="text-sm">
-            ပုလင်း အရေအတွက်
+          </Field>
+          <Field label="ပုလင်း အရေအတွက်">
             <input
               value={bottles}
               onChange={(e) => setBottles(e.target.value.replace(/\D/g, ''))}
               inputMode="numeric"
               required
-              className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+              className={inputCls}
             />
-          </label>
+          </Field>
         </div>
         <input
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="မှတ်ချက် (ရှိလျှင်)"
-          className="w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+          className={inputCls}
         />
-        <button disabled={busy} className="w-full rounded-xl bg-teal-700 py-2.5 font-semibold text-white disabled:opacity-50">
-          သိမ်းရန်
-        </button>
+        <div className="max-md:sticky max-md:bottom-[calc(70px_+_env(safe-area-inset-bottom))] max-md:z-10 max-md:-mx-4 max-md:border-t max-md:border-stone-200/90 max-md:bg-white/95 max-md:px-4 max-md:py-2.5 max-md:backdrop-blur dark:max-md:border-neutral-800 dark:max-md:bg-neutral-900/95">
+          <PrimaryButton type="submit" disabled={busy} className="w-full">
+            သိမ်းရန်
+          </PrimaryButton>
+        </div>
       </form>
 
-      {loading ? null : (
-        <ul className="divide-y rounded-2xl border">
-          {latestMoves.map((m) => (
-            <li key={m.id} className="p-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="font-medium">{KIND_LABELS[m.kind] ?? m.kind}</div>
-                <div className="text-sm font-semibold">{fmtQty(m.bottles)}</div>
-              </div>
-              <div className="text-sm opacity-75">
-                {m.move_date}
-                {m.notes ? ` · ${m.notes}` : ''}
-              </div>
-              {isTodayYangon(m.created_at) &&
-                (confirmId === m.id ? (
-                  <span className="mt-1 flex gap-3 text-sm">
-                    <button onClick={() => onDelete(m)} className="font-semibold text-red-600">
-                      သေချာပါတယ်, ဖျက်မည်
-                    </button>
-                    <button onClick={() => setConfirmId(null)} className="opacity-70">
-                      မဖျက်တော့ပါ
-                    </button>
-                  </span>
-                ) : (
-                  <button onClick={() => setConfirmId(m.id)} className="mt-1 text-sm text-red-600">
-                    ဖျက်ရန်
-                  </button>
-                ))}
-            </li>
-          ))}
-          {latestMoves.length === 0 && (
-            <li className="p-3 text-sm opacity-70">ရွှေ့ပြောင်းမှု မှတ်တမ် မရှိသေးပါ</li>
-          )}
-        </ul>
+      {loading ? null : latestMoves.length === 0 ? (
+        <EmptyState text="ရွှေ့ပြောင်းမှု မှတ်တမ် မရှိသေးပါ" />
+      ) : (
+        <>
+          {/* Phone / tablet: one card per record. */}
+          <ul className="space-y-3 lg:hidden">
+            {latestMoves.map((m) => (
+              <li key={m.id} className={`${cardCls} p-3.5`}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-semibold">{KIND_LABELS[m.kind] ?? m.kind}</div>
+                  <div className="font-bold tabular-nums">{fmtQty(m.bottles)}</div>
+                </div>
+                <div className="mt-0.5 text-sm text-stone-500 dark:text-neutral-400">
+                  {m.move_date}
+                  {m.notes ? ` · ${m.notes}` : ''}
+                </div>
+                <div className="mt-2.5 empty:hidden">{rowButtons(m)}</div>
+                <div className="mt-2.5 empty:hidden">{rowPanel(m)}</div>
+              </li>
+            ))}
+          </ul>
+
+          {/* Desktop: table. */}
+          <div className={`${cardCls} hidden overflow-x-auto lg:block`}>
+            <table className="w-full min-w-[720px] text-sm">
+              <thead>
+                <tr className="border-b border-stone-200 bg-stone-50/80 text-left text-stone-500 dark:border-neutral-800 dark:bg-neutral-800/50 dark:text-neutral-400">
+                  <th className={`${thCls} pl-4`}>အမျိုးအစား</th>
+                  <th className={thCls}>ရက်စွဲ</th>
+                  <th className={`${thCls} text-right`}>ပုလင်း အရေအတွက်</th>
+                  <th className={`${thCls} pr-4`}>
+                    <span className="sr-only">လုပ်ဆောင်ချက်</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {latestMoves.map((m) => {
+                  const panel = rowPanel(m)
+                  return (
+                    <Fragment key={m.id}>
+                      <tr className="border-b border-stone-100 align-top last:border-0 dark:border-neutral-800/70">
+                        <td className="px-3 py-3 pl-4">
+                          <div className="font-medium">{KIND_LABELS[m.kind] ?? m.kind}</div>
+                          {m.notes && <div className="text-xs opacity-60">{m.notes}</div>}
+                        </td>
+                        <td className={`${tdCls} whitespace-nowrap`}>{m.move_date}</td>
+                        <td className={`${tdCls} text-right font-semibold`}>{fmtQty(m.bottles)}</td>
+                        <td className="px-3 py-2 pr-4">{rowButtons(m)}</td>
+                      </tr>
+                      {panel && (
+                        <tr className="border-b border-stone-100 last:border-0 dark:border-neutral-800/70">
+                          <td colSpan={4} className="px-4 pb-3">
+                            {panel}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   )

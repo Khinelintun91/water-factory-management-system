@@ -3,6 +3,15 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { applyStoredTheme, applyTheme, getStoredTheme, type ThemeChoice } from '../lib/theme'
 import { setLang as setAppLang } from '../lib/i18n'
+import {
+  Card,
+  CardTitle,
+  Field,
+  LoadingState,
+  PageHeader,
+  PrimaryButton,
+  inputCls,
+} from '../components/ui'
 
 // Settings page: factory info (owner), per-user notification prefs,
 // phone-push status, per-device theme and language. Factory values live
@@ -14,11 +23,6 @@ interface AppSettingRow {
   key: string
   value: unknown
 }
-
-const inputCls = 'w-full rounded-xl border px-3 py-2 dark:bg-neutral-900'
-const cardCls = 'space-y-3 rounded-2xl border p-4'
-const saveBtnCls =
-  'rounded-xl bg-teal-700 px-4 py-2 font-semibold text-white disabled:opacity-50'
 
 function asString(v: unknown): string {
   return typeof v === 'string' ? v : v == null ? '' : String(v)
@@ -164,97 +168,95 @@ export default function SettingsPage() {
     setAppLang(next === 'en' ? 'en' : 'my')
   }
 
-  if (loading) return <p>ခဏစောင့်ပါ…</p>
+  if (loading) return <LoadingState />
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-bold">ဆက်တင်များ</h1>
+    <div className="space-y-4 lg:space-y-6">
+      <PageHeader
+        title="ဆက်တင်များ"
+        subtitle="စက်ရုံ အချက်အလက်၊ အသိပေးချက်နှင့် အသွင်အပြင် ဆက်တင်များ"
+      />
 
       {isOwner && (
-        <section className={cardCls}>
-          <h2 className="font-semibold">စက်ရုံ အချက်အလက်</h2>
-          <label className="block text-sm">
-            စက်ရုံ အမည်
+        <Card className="space-y-3">
+          <CardTitle>စက်ရုံ အချက်အလက်</CardTitle>
+          <Field label="စက်ရုံ အမည်">
             <input
               value={factoryName}
               onChange={(e) => setFactoryName(e.target.value)}
-              className={`mt-1 ${inputCls}`}
+              className={inputCls}
             />
-          </label>
-          <label className="block text-sm">
-            ဖုန်းနံပါတ်
+          </Field>
+          <Field label="ဖုန်းနံပါတ်">
             <input
               value={factoryPhone}
               onChange={(e) => setFactoryPhone(e.target.value)}
               inputMode="tel"
-              className={`mt-1 ${inputCls}`}
+              className={inputCls}
             />
-          </label>
-          <label className="block text-sm">
-            လိပ်စာ
+          </Field>
+          <Field label="လိပ်စာ">
             <input
               value={factoryAddress}
               onChange={(e) => setFactoryAddress(e.target.value)}
-              className={`mt-1 ${inputCls}`}
+              className={inputCls}
             />
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="text-sm">
-              ပုံမှန် ရေဈေး (၁ လုံး, ကျပ်)
+          </Field>
+          <div className="grid grid-cols-2 gap-2.5">
+            <Field label="ပုံမှန် ရေဈေး (၁ လုံး, ကျပ်)">
               <input
                 value={defaultPrice}
                 onChange={(e) => setDefaultPrice(e.target.value.replace(/\D/g, ''))}
                 inputMode="numeric"
-                className={`mt-1 ${inputCls}`}
+                className={inputCls}
               />
-            </label>
-            <label className="text-sm">
-              ပုံမှန် အပေါင် (၁ လုံး, ကျပ်)
+            </Field>
+            <Field label="ပုံမှန် အပေါင် (၁ လုံး, ကျပ်)">
               <input
                 value={defaultDeposit}
                 onChange={(e) => setDefaultDeposit(e.target.value.replace(/\D/g, ''))}
                 inputMode="numeric"
-                className={`mt-1 ${inputCls}`}
+                className={inputCls}
               />
-            </label>
+            </Field>
           </div>
-          <label className="block text-sm">
-            Dashboard အလိုအလျောက် ပြန်ဖွင့် (စက္ကန့်, အနည်းဆုံး ၅)
+          <Field label="Dashboard အလိုအလျောက် ပြန်ဖွင့် (စက္ကန့်, အနည်းဆုံး ၅)">
             <input
               value={refreshSeconds}
               onChange={(e) => setRefreshSeconds(e.target.value.replace(/\D/g, ''))}
               inputMode="numeric"
-              className={`mt-1 ${inputCls}`}
+              className={inputCls}
             />
-          </label>
+          </Field>
           {factoryMsg && (
-            <p className={`text-sm ${factoryErr ? 'text-red-600' : 'text-teal-700 dark:text-teal-400'}`}>
+            <p className={`text-sm ${factoryErr ? 'text-red-600' : 'text-brand-700 dark:text-brand-400'}`}>
               {factoryMsg}
             </p>
           )}
-          <button onClick={saveFactory} disabled={factoryBusy} className={saveBtnCls}>
+          <PrimaryButton onClick={saveFactory} disabled={factoryBusy}>
             သိမ်းမည်
-          </button>
-        </section>
+          </PrimaryButton>
+        </Card>
       )}
 
-      <section className={cardCls}>
-        <h2 className="font-semibold">အသိပေးချက် ဆက်တင်</h2>
-        <label className="block text-sm">
-          အသိပေးမည့် ပုံစံ
+      <Card className="space-y-3">
+        <CardTitle>အသိပေးချက် ဆက်တင်</CardTitle>
+        <Field label="အသိပေးမည့် ပုံစံ">
           <select
             value={mode}
             onChange={(e) => setMode(e.target.value as 'all' | 'important')}
-            className={`mt-1 ${inputCls}`}
+            className={inputCls}
           >
             <option value="all">အားလုံး</option>
             <option value="important">အရေးကြီးတာပဲ</option>
           </select>
-        </label>
-        <div className="flex items-center justify-between gap-3">
+        </Field>
+        <div className="flex min-h-[44px] items-center justify-between gap-3">
           <span className="text-sm">
             ညဘက် အသံတိတ်
-            <span className="block text-xs opacity-60">၂၂:၀၀–၀၆:၀၀ အတွင်း ပုံမှန် အသိပေးချက်များ မပို့ပါ</span>
+            <span className="block text-xs text-stone-500 dark:text-neutral-400">
+              ၂၂:၀၀–၀၆:၀၀ အတွင်း ပုံမှန် အသိပေးချက်များ မပို့ပါ
+            </span>
           </span>
           <button
             type="button"
@@ -263,7 +265,7 @@ export default function SettingsPage() {
             aria-label="ညဘက် အသံတိတ်"
             onClick={() => setQuietNight((q) => !q)}
             className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
-              quietNight ? 'bg-teal-700' : 'bg-neutral-300 dark:bg-neutral-700'
+              quietNight ? 'bg-brand-700' : 'bg-stone-300 dark:bg-neutral-700'
             }`}
           >
             <span
@@ -274,29 +276,29 @@ export default function SettingsPage() {
           </button>
         </div>
         {prefsMsg && (
-          <p className={`text-sm ${prefsErr ? 'text-red-600' : 'text-teal-700 dark:text-teal-400'}`}>
+          <p className={`text-sm ${prefsErr ? 'text-red-600' : 'text-brand-700 dark:text-brand-400'}`}>
             {prefsMsg}
           </p>
         )}
-        <button onClick={savePrefs} disabled={prefsBusy} className={saveBtnCls}>
+        <PrimaryButton onClick={savePrefs} disabled={prefsBusy}>
           သိမ်းမည်
-        </button>
-      </section>
+        </PrimaryButton>
+      </Card>
 
-      <section className={cardCls}>
-        <h2 className="font-semibold">ဖုန်း အသိပေးချက် (Push)</h2>
-        <p className="text-sm opacity-80">
+      <Card className="space-y-3">
+        <CardTitle>ဖုန်း အသိပေးချက် (Push)</CardTitle>
+        <p className="text-sm text-stone-600 dark:text-neutral-300">
           ဖုန်း push အသိပေးချက် မဖွင့်ရသေးပါ — စီမံသူ ဆက်တင် ကျန်ပါသေးတယ်။
           ဖွင့်ပြီးပါက ရေပို့/ငွေကောက် မှတ်တမ်းများ ဖုန်းပေါ် တန်း ရောက်ပါမယ်။
         </p>
-        <p className="text-sm opacity-80">
+        <p className="text-sm text-stone-600 dark:text-neutral-300">
           ဒီအကောင့်အတွက် မှတ်ပုံတင်ထားသော စက်:{' '}
           {tokenCount == null ? '…' : `${tokenCount} လုံး`}
         </p>
-      </section>
+      </Card>
 
-      <section className={cardCls}>
-        <h2 className="font-semibold">အသွင်အပြင်</h2>
+      <Card className="space-y-3">
+        <CardTitle>အသွင်အပြင်</CardTitle>
         <div className="flex gap-2">
           {(
             [
@@ -309,21 +311,21 @@ export default function SettingsPage() {
               key={o.value}
               type="button"
               onClick={() => chooseTheme(o.value)}
-              className={`flex-1 rounded-xl px-3 py-2 text-sm ${
+              className={`min-h-[44px] flex-1 rounded-xl px-3 py-2 text-sm transition active:scale-[0.98] ${
                 theme === o.value
-                  ? 'bg-teal-700 font-semibold text-white'
-                  : 'bg-neutral-100 dark:bg-neutral-800'
+                  ? 'bg-brand-700 font-semibold text-white shadow-sm'
+                  : 'bg-stone-100 dark:bg-neutral-800'
               }`}
             >
               {o.label}
             </button>
           ))}
         </div>
-        <p className="text-xs opacity-60">ဒီစက်မှာသာ သက်ရောက်ပါတယ်</p>
-      </section>
+        <p className="text-xs text-stone-500 dark:text-neutral-400">ဒီစက်မှာသာ သက်ရောက်ပါတယ်</p>
+      </Card>
 
-      <section className={cardCls}>
-        <h2 className="font-semibold">ဘာသာစကား</h2>
+      <Card className="space-y-3">
+        <CardTitle>ဘာသာစကား</CardTitle>
         <div className="flex gap-2">
           {[
             { value: 'my', label: 'မြန်မာ' },
@@ -333,10 +335,10 @@ export default function SettingsPage() {
               key={o.value}
               type="button"
               onClick={() => chooseLang(o.value)}
-              className={`flex-1 rounded-xl px-3 py-2 text-sm ${
+              className={`min-h-[44px] flex-1 rounded-xl px-3 py-2 text-sm transition active:scale-[0.98] ${
                 lang === o.value
-                  ? 'bg-teal-700 font-semibold text-white'
-                  : 'bg-neutral-100 dark:bg-neutral-800'
+                  ? 'bg-brand-700 font-semibold text-white shadow-sm'
+                  : 'bg-stone-100 dark:bg-neutral-800'
               }`}
             >
               {o.label}
@@ -344,12 +346,12 @@ export default function SettingsPage() {
           ))}
         </div>
         {lang === 'en' && (
-          <p className="text-sm opacity-80">
+          <p className="text-sm text-stone-600 dark:text-neutral-300">
             English mode is on — interface labels are shown in English. Names
             and notes you entered stay as written.
           </p>
         )}
-      </section>
+      </Card>
     </div>
   )
 }

@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { ROLE_LABELS, type Agent, type Profile, type Role } from '../lib/types'
+import {
+  Card,
+  CardTitle,
+  LoadingState,
+  PageHeader,
+  PrimaryButton,
+  SecondaryButton,
+  cardCls,
+  inputCls,
+} from '../components/ui'
 
 export default function UsersPage() {
   const [rows, setRows] = useState<Profile[]>([])
@@ -95,99 +105,100 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-bold">အသုံးပြုသူများ</h1>
+    <div className="space-y-4 lg:space-y-6">
+      <PageHeader
+        title="အသုံးပြုသူများ"
+        subtitle="အကောင့်အသစ် ဆောက်ရန်နှင့် အခန်းကဏ္ဍများ စီမံရန်"
+      />
 
-      <form onSubmit={onCreate} className="space-y-2 rounded-2xl border p-4">
-        <div className="font-semibold">အကောင့်အသစ် ဆောက်ရန်</div>
-        <div className="grid grid-cols-2 gap-2">
-          <input
-            value={username}
-            onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_.-]/g, ''))}
-            required
-            placeholder="အသုံးပြုသူအမည် (a-z, 0-9)"
-            className="rounded-xl border px-3 py-2 dark:bg-neutral-900"
-          />
-          <input
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 12))}
-            required
-            inputMode="numeric"
-            placeholder="PIN (ဂဏန်း ၆ လုံး+)"
-            className="rounded-xl border px-3 py-2 dark:bg-neutral-900"
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value as Role)}
-            className="rounded-xl border px-3 py-2 dark:bg-neutral-900"
-          >
-            {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
-              <option key={r} value={r}>
-                {ROLE_LABELS[r]}
-              </option>
-            ))}
-          </select>
-          {role === 'agent' && (
-            <select
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
+      <Card>
+        <form onSubmit={onCreate} className="space-y-3">
+          <CardTitle>အကောင့်အသစ် ဆောက်ရန်</CardTitle>
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_.-]/g, ''))}
               required
-              className="rounded-xl border px-3 py-2 dark:bg-neutral-900"
+              placeholder="အသုံးပြုသူအမည် (a-z, 0-9)"
+              className={inputCls}
+            />
+            <input
+              value={pin}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 12))}
+              required
+              inputMode="numeric"
+              placeholder="PIN (ဂဏန်း ၆ လုံး+)"
+              className={inputCls}
+            />
+          </div>
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value as Role)}
+              className={inputCls}
             >
-              <option value="">agent ရွေးပါ</option>
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
+              {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
+                <option key={r} value={r}>
+                  {ROLE_LABELS[r]}
                 </option>
               ))}
             </select>
-          )}
-        </div>
-        {msg && <p className="text-sm text-red-600">{msg}</p>}
-        <button
-          disabled={busy}
-          className="w-full rounded-xl bg-teal-700 py-2.5 font-semibold text-white disabled:opacity-60"
-        >
-          {busy ? 'ဆောက်နေပါတယ်…' : 'ဆောက်ရန်'}
-        </button>
-      </form>
+            {role === 'agent' && (
+              <select
+                value={agentId}
+                onChange={(e) => setAgentId(e.target.value)}
+                required
+                className={inputCls}
+              >
+                <option value="">agent ရွေးပါ</option>
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          {msg && <p className="text-sm text-red-600">{msg}</p>}
+          <PrimaryButton type="submit" disabled={busy} className="w-full">
+            {busy ? 'ဆောက်နေပါတယ်…' : 'ဆောက်ရန်'}
+          </PrimaryButton>
+        </form>
+      </Card>
 
       {loading ? (
-        <p>ခဏစောင့်ပါ…</p>
+        <LoadingState />
       ) : (
-        <ul className="divide-y rounded-2xl border">
+        <ul className={`${cardCls} divide-y divide-stone-100 overflow-hidden dark:divide-neutral-800/70`}>
           {rows.map((p) => {
             const held = new Set<Role>([p.role, ...(extras[p.id] ?? [])])
             const grantable = (Object.keys(ROLE_LABELS) as Role[]).filter((r) => !held.has(r))
             return (
-              <li key={p.id} className="p-3">
+              <li key={p.id} className="p-3.5">
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <div className="font-medium">
                       {p.username}
                       {!p.active && <span className="ml-2 text-xs text-red-500">ပိတ်ထားသည်</span>}
                     </div>
-                    <div className="text-sm opacity-75">{ROLE_LABELS[p.role]} (အဓိက)</div>
+                    <div className="text-sm text-stone-500 dark:text-neutral-400">
+                      {ROLE_LABELS[p.role]} (အဓိက)
+                    </div>
                   </div>
-                  <button
-                    onClick={() => toggleActive(p)}
-                    className="shrink-0 rounded-lg border px-2.5 py-1.5 text-sm"
-                  >
+                  <SecondaryButton size="sm" onClick={() => toggleActive(p)} className="shrink-0">
                     {p.active ? 'ပိတ်' : 'ဖွင့်'}
-                  </button>
+                  </SecondaryButton>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   {(extras[p.id] ?? []).map((r) => (
                     <span
                       key={r}
-                      className="inline-flex items-center gap-1 rounded-full bg-teal-700/10 px-2 py-0.5 text-xs"
+                      className="inline-flex min-h-[32px] items-center gap-1 rounded-full bg-brand-100 px-2.5 py-0.5 text-xs font-medium text-brand-800 dark:bg-brand-950 dark:text-brand-200"
                     >
                       {ROLE_LABELS[r]}
                       <button
                         onClick={() => revokeRole(p, r)}
-                        className="font-bold text-red-600"
+                        className="flex h-6 w-6 items-center justify-center rounded-full font-bold text-red-600"
                         aria-label={`${ROLE_LABELS[r]} ဖယ်ရန်`}
                       >
                         ×
@@ -201,7 +212,7 @@ export default function UsersPage() {
                         if (e.target.value) void grantRole(p, e.target.value as Role)
                         e.target.value = ''
                       }}
-                      className="rounded-full border px-2 py-0.5 text-xs dark:bg-neutral-900"
+                      className="min-h-[36px] rounded-full border border-stone-300 bg-white px-2.5 py-0.5 text-xs shadow-sm outline-none focus:border-brand-500 dark:border-neutral-700 dark:bg-neutral-900"
                     >
                       <option value="">+ အခန်းကဏ္ဍ ထည့်ရန်</option>
                       {grantable.map((r) => (
@@ -215,7 +226,9 @@ export default function UsersPage() {
               </li>
             )
           })}
-          {rows.length === 0 && <li className="p-3 text-sm opacity-70">မရှိသေးပါ</li>}
+          {rows.length === 0 && (
+            <li className="p-3.5 text-sm text-stone-500 dark:text-neutral-400">မရှိသေးပါ</li>
+          )}
         </ul>
       )}
     </div>

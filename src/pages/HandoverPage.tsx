@@ -2,6 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { formatMMK, todayYangon, type Role } from '../lib/types'
+import {
+  Card,
+  EmptyState,
+  Field,
+  LoadingState,
+  PageHeader,
+  PrimaryButton,
+  StatCard,
+  inputCls,
+} from '../components/ui'
 
 // Cash handover (old ops.ts rule): what an employee should hand over for a
 // day = delivery cash they collected (daily_entries.amount_collected where
@@ -166,7 +176,7 @@ export default function HandoverPage() {
   function diffBadge(diff: number) {
     if (diff === 0)
       return (
-        <span className="rounded-full bg-teal-100 px-2.5 py-1 text-xs font-semibold text-teal-800 dark:bg-teal-900 dark:text-teal-200">
+        <span className="rounded-full bg-brand-100 px-2.5 py-1 text-xs font-semibold text-brand-800 dark:bg-brand-950 dark:text-brand-200">
           ကိုက်ညီပါတယ်
         </span>
       )
@@ -177,54 +187,45 @@ export default function HandoverPage() {
         </span>
       )
     return (
-      <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+      <span className="rounded-full bg-accent-100 px-2.5 py-1 text-xs font-semibold text-accent-800 dark:bg-amber-900 dark:text-amber-200">
         ပိုနေပါတယ် {formatMMK(diff)}
       </span>
     )
   }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-bold">ငွေလွှဲအပ်ခြင်း</h1>
-      <p className="text-sm opacity-80">
+    <div className="space-y-4 lg:space-y-6">
+      <PageHeader
+        title="ငွေလွှဲအပ်ခြင်း"
+        subtitle="မျှော်မှန်းငွေနှင့် လက်ခံရငွေ အမှန် တိုက်စစ်ရန်"
+      />
+      <p className="text-sm text-stone-500 dark:text-neutral-400">
         မျှော်မှန်းငွေ = ထိုနေ့ ဝန်ထမ်း ကောက်ခံခဲ့သော ပို့ချိန်ငွေ + ကြွေးကောက်ငွေ။ လက်ခံရငွေ
         အမှန်ကို ရိုက်ထည့်ပြီး သိမ်းပါ။
       </p>
 
-      <label className="block text-sm">
-        ရက်စွဲ
+      <Field label="ရက်စွဲ" className="max-w-xs">
         <input
           type="date"
           value={date}
           onChange={(e) => setDate(e.target.value)}
-          className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+          className={inputCls}
         />
-      </label>
+      </Field>
 
       {msg && <p className="text-sm text-red-600">{msg}</p>}
 
       {loading ? (
-        <p>ခဏစောင့်ပါ…</p>
+        <LoadingState />
       ) : (
         <>
-          <section className="rounded-2xl border p-4">
-            <div className="grid grid-cols-3 gap-2 text-center text-sm">
-              <div>
-                <div className="opacity-70">မျှော်မှန်း စုစုပေါင်း</div>
-                <div className="mt-1 font-bold">{formatMMK(totals.exp)}</div>
-              </div>
-              <div>
-                <div className="opacity-70">လက်ခံ စုစုပေါင်း</div>
-                <div className="mt-1 font-bold">{formatMMK(totals.rec)}</div>
-              </div>
-              <div>
-                <div className="opacity-70">ကွာခြားချက်</div>
-                <div className="mt-1">{diffBadge(totals.diff)}</div>
-              </div>
-            </div>
-          </section>
+          <div className="grid grid-cols-3 gap-2.5">
+            <StatCard label="မျှော်မှန်း စုစုပေါင်း" value={formatMMK(totals.exp)} />
+            <StatCard label="လက်ခံ စုစုပေါင်း" value={formatMMK(totals.rec)} />
+            <StatCard label="ကွာခြားချက်" value={diffBadge(totals.diff)} />
+          </div>
 
-          <div className="space-y-3">
+          <div className="space-y-3 lg:grid lg:grid-cols-2 lg:items-start lg:gap-4 lg:space-y-0">
             {employees.map((emp) => {
               const exp = expected.get(emp.id) ?? 0
               const receivedVal = Number(receivedIn[emp.id] ?? '')
@@ -232,56 +233,57 @@ export default function HandoverPage() {
               const savedRow = saved.get(emp.id)
               const expectedChanged = savedRow !== undefined && Number(savedRow.expected) !== exp
               return (
-                <section key={emp.id} className="rounded-2xl border p-4">
+                <Card key={emp.id}>
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-semibold">{emp.username}</div>
                     {diffBadge(diff)}
                   </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                  <div className="mt-3 grid grid-cols-2 items-end gap-2.5">
                     <div>
-                      <span className="opacity-70">မျှော်မှန်းငွေ</span>
-                      <div className="font-medium">{formatMMK(exp)}</div>
+                      <span className="text-sm text-stone-500 dark:text-neutral-400">မျှော်မှန်းငွေ</span>
+                      <div className="mt-1 font-semibold tabular-nums">{formatMMK(exp)}</div>
                     </div>
-                    <label>
-                      <span className="opacity-70">လက်ခံရငွေ (ကျပ်)</span>
+                    <Field label="လက်ခံရငွေ (ကျပ်)">
                       <input
                         type="number"
                         inputMode="numeric"
                         min={0}
                         value={receivedIn[emp.id] ?? ''}
                         onChange={(e) => setReceivedIn((m) => ({ ...m, [emp.id]: e.target.value }))}
-                        className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+                        className={inputCls}
                         placeholder="0"
                       />
-                    </label>
+                    </Field>
                   </div>
                   <input
                     type="text"
                     value={noteIn[emp.id] ?? ''}
                     onChange={(e) => setNoteIn((m) => ({ ...m, [emp.id]: e.target.value }))}
-                    className="mt-2 w-full rounded-xl border px-3 py-2 text-sm dark:bg-neutral-900"
+                    className={`${inputCls} mt-2.5`}
                     placeholder="မှတ်ချက် (ရှိလျှင်)"
                   />
                   {expectedChanged && (
-                    <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+                    <p className="mt-2 text-sm font-medium text-accent-700 dark:text-amber-300">
                       ⚠️ သိမ်းထားစဉ် မျှော်မှန်းငွေ {formatMMK(Number(savedRow.expected))} — ယခု
                       မှတ်တမ်းများ ပြောင်းလဲ၍ {formatMMK(exp)} ဖြစ်သွားပါပြီ
                     </p>
                   )}
                   <div className="mt-3 flex items-center gap-3">
-                    <button
-                      onClick={() => onSave(emp)}
-                      disabled={savingId === emp.id}
-                      className="rounded-xl bg-teal-700 px-4 py-2 font-semibold text-white disabled:opacity-60"
-                    >
+                    <PrimaryButton onClick={() => onSave(emp)} disabled={savingId === emp.id}>
                       {savingId === emp.id ? 'သိမ်းနေပါတယ်…' : savedRow ? 'ပြန်သိမ်းရန်' : 'သိမ်းရန်'}
-                    </button>
-                    {rowMsg[emp.id] && <span className="text-sm opacity-80">{rowMsg[emp.id]}</span>}
+                    </PrimaryButton>
+                    {rowMsg[emp.id] && (
+                      <span className="text-sm text-stone-500 dark:text-neutral-400">{rowMsg[emp.id]}</span>
+                    )}
                   </div>
-                </section>
+                </Card>
               )
             })}
-            {employees.length === 0 && <p className="text-sm opacity-70">ဝန်ထမ်း မရှိသေးပါ</p>}
+            {employees.length === 0 && (
+              <div className="lg:col-span-2">
+                <EmptyState text="ဝန်ထမ်း မရှိသေးပါ" />
+              </div>
+            )}
           </div>
         </>
       )}
