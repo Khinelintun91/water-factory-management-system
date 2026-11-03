@@ -108,6 +108,59 @@ export interface AgentPayment {
   updated_at: string
 }
 
+export interface SalarySetting {
+  user_id: string
+  monthly_salary: number
+  updated_at: string
+}
+
+export interface Advance {
+  id: string
+  user_id: string
+  advance_date: string
+  amount: number
+  /** 0 = one-shot deduction; > 0 = fixed amount deducted per month. */
+  installment: number
+  note: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface Bonus {
+  id: string
+  user_id: string
+  /** 'YYYY-MM' */
+  month: string
+  amount: number
+  note: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PayrollRun {
+  id: string
+  user_id: string
+  /** 'YYYY-MM' */
+  month: string
+  base: number
+  bonus: number
+  deduction: number
+  net: number
+  created_by: string | null
+  created_at: string
+}
+
+export interface AdvanceRepayment {
+  id: string
+  advance_id: string
+  /** 'YYYY-MM' — the payroll month the repayment was deducted in. */
+  month: string
+  amount: number
+  created_at: string
+}
+
 export interface AuditLogRow {
   id: number
   table_name: string

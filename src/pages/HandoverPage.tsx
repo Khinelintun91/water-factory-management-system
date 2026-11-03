@@ -1,0 +1,290 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
+import { formatMMK, todayYangon, type Role } from '../lib/types'
+
+// Cash handover (old ops.ts rule): what an employee should hand over for a
+// day = delivery cash they collected (daily_entries.amount_collected where
+// they are created_by) + later debt collections they took (agent_payments
+// where they are created_by). The received amount is typed in by OM and the
+// difference is badged match / short / over.
+
+interface HandoverRow {
+  id: string
+  handover_date: string
+  employee_id: string
+  expected: number
+  received: number
+  note: string | null
+  received_by: string | null
+}
+
+interface EmployeeLite {
+  id: string
+  username: string
+}
+
+const STAFF_ROLES: Role[] = ['staff', 'manager', 'co_owner']
+
+/** Paginated fetch past the 1,000-row cap, for one day's rows. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchDay<T>(table: string, columns: string, dateCol: string, date: string, extra?: (q: any) => any): Promise<T[]> {
+  const pageSize = 1000
+  const out: T[] = []
+  for (let from = 0; ; from += pageSize) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q: any = supabase.from(table).select(columns).eq(dateCol, date).order('created_at', { ascending: true })
+    if (extra) q = extra(q)
+    const { data, error } = await q.range(from, from + pageSize - 1)
+    if (error) throw new Error(error.message)
+    const page = (data ?? []) as T[]
+    out.push(...page)
+    if (page.length < pageSize) break
+  }
+  return out
+}
+
+export default function HandoverPage() {
+  const { profile } = useAuth()
+  const [date, setDate] = useState(todayYangon())
+  const [employees, setEmployees] = useState<EmployeeLite[]>([])
+  const [expected, setExpected] = useState<Map<string, number>>(new Map())
+  const [saved, setSaved] = useState<Map<string, HandoverRow>>(new Map())
+  const [receivedIn, setReceivedIn] = useState<Record<string, string>>({})
+  const [noteIn, setNoteIn] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [savingId, setSavingId] = useState<string | null>(null)
+  const [rowMsg, setRowMsg] = useState<Record<string, string>>({})
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setMsg(null)
+    try {
+      const [{ data: profs, error: pErr }, { data: roleRows, error: rErr }] = await Promise.all([
+        supabase.from('profiles').select('id, username, role, active').eq('active', true).order('username'),
+        supabase.from('user_roles').select('profile_id, role'),
+      ])
+      if (pErr) throw new Error(pErr.message)
+      if (rErr) throw new Error(rErr.message)
+      const extra = new Map<string, Role[]>()
+      for (const r of (roleRows ?? []) as { profile_id: string; role: Role }[]) {
+        extra.set(r.profile_id, [...(extra.get(r.profile_id) ?? []), r.role])
+      }
+      const emps: EmployeeLite[] = ((profs ?? []) as { id: string; username: string; role: Role }[])
+        .filter((p) => [p.role, ...(extra.get(p.id) ?? [])].some((r) => STAFF_ROLES.includes(r)))
+        .map((p) => ({ id: p.id, username: p.username }))
+      setEmployees(emps)
+
+      const [entryRows, paymentRows, handoverRows] = await Promise.all([
+        fetchDay<{ created_by: string | null; amount_collected: number }>(
+          'daily_entries',
+          'created_by, amount_collected',
+          'entry_date',
+          date,
+        ),
+        fetchDay<{ created_by: string | null; amount: number }>(
+          'agent_payments',
+          'created_by, amount',
+          'payment_date',
+          date,
+        ),
+        fetchDay<HandoverRow>(
+          'cash_handovers',
+          'id, handover_date, employee_id, expected, received, note, received_by',
+          'handover_date',
+          date,
+        ),
+      ])
+
+      const exp = new Map<string, number>()
+      for (const e of entryRows) {
+        if (!e.created_by) continue
+        exp.set(e.created_by, (exp.get(e.created_by) ?? 0) + Number(e.amount_collected))
+      }
+      for (const p of paymentRows) {
+        if (!p.created_by) continue
+        exp.set(p.created_by, (exp.get(p.created_by) ?? 0) + Number(p.amount))
+      }
+      setExpected(exp)
+
+      const savedMap = new Map(handoverRows.map((h) => [h.employee_id, h]))
+      setSaved(savedMap)
+      setReceivedIn(Object.fromEntries(handoverRows.map((h) => [h.employee_id, String(h.received)])))
+      setNoteIn(Object.fromEntries(handoverRows.map((h) => [h.employee_id, h.note ?? ''])))
+      setRowMsg({})
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : String(err))
+    }
+    setLoading(false)
+  }, [date])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  async function onSave(emp: EmployeeLite) {
+    if (!profile) return
+    const received = Number(receivedIn[emp.id] ?? '')
+    if (!Number.isFinite(received) || received < 0) {
+      setRowMsg((m) => ({ ...m, [emp.id]: 'လက်ခံရငွေ မှန်ကန်စွာ ထည့်ပါ' }))
+      return
+    }
+    setSavingId(emp.id)
+    setRowMsg((m) => ({ ...m, [emp.id]: '' }))
+    const { error } = await supabase.from('cash_handovers').upsert(
+      {
+        handover_date: date,
+        employee_id: emp.id,
+        expected: expected.get(emp.id) ?? 0,
+        received,
+        note: noteIn[emp.id]?.trim() ? noteIn[emp.id].trim() : null,
+        received_by: profile.id,
+      },
+      { onConflict: 'handover_date,employee_id' },
+    )
+    setSavingId(null)
+    if (error) {
+      setRowMsg((m) => ({ ...m, [emp.id]: error.message }))
+      return
+    }
+    setRowMsg((m) => ({ ...m, [emp.id]: 'သိမ်းပြီးပါပြီ ✓' }))
+    await load()
+  }
+
+  const totals = useMemo(() => {
+    let exp = 0
+    let rec = 0
+    for (const e of employees) {
+      exp += expected.get(e.id) ?? 0
+      const v = Number(receivedIn[e.id] ?? '')
+      if (Number.isFinite(v)) rec += v
+    }
+    return { exp, rec, diff: rec - exp }
+  }, [employees, expected, receivedIn])
+
+  function diffBadge(diff: number) {
+    if (diff === 0)
+      return (
+        <span className="rounded-full bg-teal-100 px-2.5 py-1 text-xs font-semibold text-teal-800 dark:bg-teal-900 dark:text-teal-200">
+          ကိုက်ညီပါတယ်
+        </span>
+      )
+    if (diff < 0)
+      return (
+        <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700 dark:bg-red-950 dark:text-red-300">
+          လိုနေပါတယ် {formatMMK(-diff)}
+        </span>
+      )
+    return (
+      <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+        ပိုနေပါတယ် {formatMMK(diff)}
+      </span>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <h1 className="text-lg font-bold">ငွေလွှဲအပ်ခြင်း</h1>
+      <p className="text-sm opacity-80">
+        မျှော်မှန်းငွေ = ထိုနေ့ ဝန်ထမ်း ကောက်ခံခဲ့သော ပို့ချိန်ငွေ + ကြွေးကောက်ငွေ။ လက်ခံရငွေ
+        အမှန်ကို ရိုက်ထည့်ပြီး သိမ်းပါ။
+      </p>
+
+      <label className="block text-sm">
+        ရက်စွဲ
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+        />
+      </label>
+
+      {msg && <p className="text-sm text-red-600">{msg}</p>}
+
+      {loading ? (
+        <p>ခဏစောင့်ပါ…</p>
+      ) : (
+        <>
+          <section className="rounded-2xl border p-4">
+            <div className="grid grid-cols-3 gap-2 text-center text-sm">
+              <div>
+                <div className="opacity-70">မျှော်မှန်း စုစုပေါင်း</div>
+                <div className="mt-1 font-bold">{formatMMK(totals.exp)}</div>
+              </div>
+              <div>
+                <div className="opacity-70">လက်ခံ စုစုပေါင်း</div>
+                <div className="mt-1 font-bold">{formatMMK(totals.rec)}</div>
+              </div>
+              <div>
+                <div className="opacity-70">ကွာခြားချက်</div>
+                <div className="mt-1">{diffBadge(totals.diff)}</div>
+              </div>
+            </div>
+          </section>
+
+          <div className="space-y-3">
+            {employees.map((emp) => {
+              const exp = expected.get(emp.id) ?? 0
+              const receivedVal = Number(receivedIn[emp.id] ?? '')
+              const diff = Number.isFinite(receivedVal) ? receivedVal - exp : 0
+              const savedRow = saved.get(emp.id)
+              const expectedChanged = savedRow !== undefined && Number(savedRow.expected) !== exp
+              return (
+                <section key={emp.id} className="rounded-2xl border p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-semibold">{emp.username}</div>
+                    {diffBadge(diff)}
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="opacity-70">မျှော်မှန်းငွေ</span>
+                      <div className="font-medium">{formatMMK(exp)}</div>
+                    </div>
+                    <label>
+                      <span className="opacity-70">လက်ခံရငွေ (ကျပ်)</span>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        value={receivedIn[emp.id] ?? ''}
+                        onChange={(e) => setReceivedIn((m) => ({ ...m, [emp.id]: e.target.value }))}
+                        className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
+                        placeholder="0"
+                      />
+                    </label>
+                  </div>
+                  <input
+                    type="text"
+                    value={noteIn[emp.id] ?? ''}
+                    onChange={(e) => setNoteIn((m) => ({ ...m, [emp.id]: e.target.value }))}
+                    className="mt-2 w-full rounded-xl border px-3 py-2 text-sm dark:bg-neutral-900"
+                    placeholder="မှတ်ချက် (ရှိလျှင်)"
+                  />
+                  {expectedChanged && (
+                    <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+                      ⚠️ သိမ်းထားစဉ် မျှော်မှန်းငွေ {formatMMK(Number(savedRow.expected))} — ယခု
+                      မှတ်တမ်းများ ပြောင်းလဲ၍ {formatMMK(exp)} ဖြစ်သွားပါပြီ
+                    </p>
+                  )}
+                  <div className="mt-3 flex items-center gap-3">
+                    <button
+                      onClick={() => onSave(emp)}
+                      disabled={savingId === emp.id}
+                      className="rounded-xl bg-teal-700 px-4 py-2 font-semibold text-white disabled:opacity-60"
+                    >
+                      {savingId === emp.id ? 'သိမ်းနေပါတယ်…' : savedRow ? 'ပြန်သိမ်းရန်' : 'သိမ်းရန်'}
+                    </button>
+                    {rowMsg[emp.id] && <span className="text-sm opacity-80">{rowMsg[emp.id]}</span>}
+                  </div>
+                </section>
+              )
+            })}
+            {employees.length === 0 && <p className="text-sm opacity-70">ဝန်ထမ်း မရှိသေးပါ</p>}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}

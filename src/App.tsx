@@ -17,6 +17,10 @@ import HistoryPage from './pages/HistoryPage'
 import UsersPage from './pages/UsersPage'
 import MyPage from './pages/MyPage'
 import DisputesPage from './pages/DisputesPage'
+import PayrollPage from './pages/PayrollPage'
+import ReportsPage from './pages/ReportsPage'
+import HandoverPage from './pages/HandoverPage'
+import DataQualityPage from './pages/DataQualityPage'
 
 function useFactoryName(): string {
   const [name, setName] = useState('ရေသန့်စက်ရုံ')
@@ -42,6 +46,10 @@ const NAV: { to: string; label: string; roles: string[] }[] = [
   { to: '/collections', label: 'ကောက်ခံမှုနှင့် ကြွေးစာရင်း', roles: ['owner', 'manager'] },
   { to: '/inventory', label: 'ပုလင်း စာရင်း', roles: ['owner', 'manager'] },
   { to: '/expenses', label: 'အသုံးစရိတ်များ', roles: ['owner', 'manager'] },
+  { to: '/payroll', label: 'လစာ', roles: ['owner', 'manager'] },
+  { to: '/reports', label: 'အစီရင်ခံစာ', roles: ['owner', 'manager'] },
+  { to: '/handover', label: 'ငွေလွှဲအပ်', roles: ['owner', 'manager'] },
+  { to: '/data-quality', label: 'Data စစ်ဆေးမှု', roles: ['owner', 'manager'] },
   { to: '/history', label: 'ပြောင်းလဲမှုမှတ်တမ်း', roles: ['owner', 'manager'] },
   { to: '/disputes', label: 'အငြင်းပွားမှုများ', roles: ['owner', 'manager', 'agent'] },
   { to: '/users', label: 'အသုံးပြုသူများ', roles: ['owner'] },
@@ -184,6 +192,38 @@ export default function App() {
             element={
               <Guard roles={['owner', 'manager']}>
                 <ExpensesPage />
+              </Guard>
+            }
+          />
+          <Route
+            path="/payroll"
+            element={
+              <Guard roles={['owner', 'manager']}>
+                <PayrollPage />
+              </Guard>
+            }
+          />
+          <Route
+            path="/reports"
+            element={
+              <Guard roles={['owner', 'manager']}>
+                <ReportsPage />
+              </Guard>
+            }
+          />
+          <Route
+            path="/handover"
+            element={
+              <Guard roles={['owner', 'manager']}>
+                <HandoverPage />
+              </Guard>
+            }
+          />
+          <Route
+            path="/data-quality"
+            element={
+              <Guard roles={['owner', 'manager']}>
+                <DataQualityPage />
               </Guard>
             }
           />
