@@ -40,6 +40,7 @@ export default function AgentsPage() {
   const [rows, setRows] = useState<AgentRow[]>([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
+  const [okMsg, setOkMsg] = useState<string | null>(null)
 
   // Add-agent form
   const [name, setName] = useState('')
@@ -104,6 +105,7 @@ export default function AgentsPage() {
   async function onAdd(e: FormEvent) {
     e.preventDefault()
     setMsg(null)
+    setOkMsg(null)
     const { data, error } = await supabase
       .from('agents')
       .insert({
@@ -122,11 +124,17 @@ export default function AgentsPage() {
       return
     }
     const newId = (data as { id: string }).id
+    // Partial failures (phone / opening deposit) report themselves via the
+    // red msg area; only a fully clean create gets the success message.
+    let hadIssue = false
     if (phone.trim()) {
       const { error: cErr } = await supabase
         .from('agent_contacts')
         .insert({ agent_id: newId, phone: phone.trim() })
-      if (cErr) setMsg(`Agent ဆောက်ပြီးပါပြီ၊ ဖုန်းနံပါတ် သိမ်း၍ မရပါ: ${cErr.message}`)
+      if (cErr) {
+        hadIssue = true
+        setMsg(`Agent ဆောက်ပြီးပါပြီ၊ ဖုန်းနံပါတ် သိမ်း၍ မရပါ: ${cErr.message}`)
+      }
     }
     // Optional opening deposit goes straight into the deposits ledger.
     const depBottles = Number(initDepBottles) || 0
@@ -140,7 +148,17 @@ export default function AgentsPage() {
         amount: depBottles * depPrice,
         note: 'အစအပေါင်',
       })
-      if (dErr) setMsg(`Agent ဆောက်ပြီးပါပြီ၊ အစအပေါင် သိမ်း၍ မရပါ: ${dErr.message}`)
+      if (dErr) {
+        hadIssue = true
+        setMsg(`Agent ဆောက်ပြီးပါပြီ၊ အစအပေါင် သိမ်း၍ မရပါ: ${dErr.message}`)
+      }
+    }
+    if (!hadIssue) {
+      let text = `‘${name.trim()}’ ကို ဆောက်ပြီးပါပြီ`
+      if (depBottles > 0) {
+        text += ` — အပေါင် ${depBottles.toLocaleString('en-US')} ဗူး ထည့်ပြီးပါပြီ`
+      }
+      setOkMsg(text)
     }
     setName('')
     setCode('')
@@ -157,6 +175,7 @@ export default function AgentsPage() {
 
   async function toggleActive(a: AgentRow) {
     setMsg(null)
+    setOkMsg(null)
     const { error } = await supabase.from('agents').update({ active: !a.active }).eq('id', a.id)
     if (error) setMsg(error.message)
     await load()
@@ -164,6 +183,7 @@ export default function AgentsPage() {
 
   async function saveField(a: AgentRow, field: EditableField, value: number) {
     setMsg(null)
+    setOkMsg(null)
     const { error } = await supabase
       .from('agents')
       .update({ [field]: value })
@@ -255,6 +275,7 @@ export default function AgentsPage() {
       <h1 className="text-lg font-bold">ကိုယ်စားလှယ်များ</h1>
 
       {msg && <p className="text-sm text-red-600">{msg}</p>}
+      {okMsg && <p className="text-sm font-medium text-teal-700 dark:text-teal-400">{okMsg}</p>}
 
       {canManage && (
         <form onSubmit={onAdd} className="space-y-2 rounded-2xl border p-4">

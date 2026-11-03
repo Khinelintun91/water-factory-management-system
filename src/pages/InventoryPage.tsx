@@ -183,6 +183,10 @@ export default function InventoryPage() {
 
       <form onSubmit={onAdd} className="space-y-2 rounded-2xl border p-4">
         <div className="font-semibold">ပုလင်း ရွှေ့ပြောင်းမှု အသစ် (ယနေ့)</div>
+        <p className="text-sm opacity-70">
+          ဝယ်ယူ = ဗူးအလွတ် ဝယ်ထည့်ခြင်း · ထုတ်လုပ် = ဗူးအလွတ်ကို ရေဖြည့်ပြီး အပြည့် ပြောင်းခြင်း ·
+          ပျက်စီး = သုံးမရတော့သော ဗူးများ
+        </p>
         <div className="grid grid-cols-2 gap-2">
           <label className="text-sm">
             အမျိုးအစား

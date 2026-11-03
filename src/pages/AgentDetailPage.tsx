@@ -214,12 +214,15 @@ export default function AgentDetailPage() {
 
   const closed = Boolean(agent.closed_at)
   const statCards: [string, string][] = [
-    ['ကိုင်ထားဘူး', `${stats.held.toLocaleString('en-US')} လုံး`],
+    // A closed agent's bottle position was consumed by the settlement (its
+    // held/returned figures live in the settlement summary below), so the
+    // live held / can-deliver figures no longer apply.
+    ['ကိုင်ထားဘူး', closed ? '0 လုံး' : `${stats.held.toLocaleString('en-US')} လုံး`],
     ['အပေါင်ဘူး', `${stats.depBottles.toLocaleString('en-US')} လုံး (${formatMMK(stats.depAmount)})`],
     ['စုစုပေါင်း ရောင်းရ', formatMMK(stats.sales)],
     ['ကောက်ခံပြီး', formatMMK(stats.collected)],
     ['ရရန်ကျန်', formatMMK(outstanding)],
-    ['ဆက်ပို့နိုင်ဘူး', canDeliver],
+    ['ဆက်ပို့နိုင်ဘူး', closed ? 'စာရင်းပိတ်ပြီး' : canDeliver],
   ]
 
   return (

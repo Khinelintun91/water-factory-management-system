@@ -379,52 +379,67 @@ export default function CloseoutPage() {
         )}
       </section>
 
-      {step2Done && (
-        <>
-          <section className="space-y-2 rounded-2xl border p-4">
-            <div className="font-semibold">အဆင့် ၃ — အပေါင် ပြန်အမ်း</div>
-            <label className="block text-sm">
-              ယနေ့ အပေါင် ပေါက်ဈေး (၁ လုံး)
-              <input
-                value={price}
-                onChange={(e) => setPrice(e.target.value.replace(/\D/g, ''))}
-                inputMode="numeric"
-                className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
-              />
-            </label>
-            <dl className="space-y-1 text-sm">
-              {previewRows.map(([k, v]) => (
-                <div key={k} className="flex items-center justify-between gap-2">
-                  <dt className="opacity-75">{k}</dt>
-                  <dd className="font-medium">{v}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
+      {/* Steps 3–4 stay visible from the start so the user can see the whole
+          flow; they render locked (dimmed, disabled) until the debt in
+          step 2 is cleared, then unlock live on the next load. */}
+      <section
+        className={`space-y-2 rounded-2xl border p-4 ${step2Done ? '' : 'opacity-50'}`}
+      >
+        <div className="font-semibold">အဆင့် ၃ — အပေါင် ပြန်အမ်း</div>
+        {!step2Done && (
+          <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
+            🔒 ကြွေး အရင် ရှင်းပြီးမှ ဒီ အဆင့် ဖွင့်ပါမယ်
+          </p>
+        )}
+        <label className="block text-sm">
+          ယနေ့ အပေါင် ပေါက်ဈေး (၁ လုံး)
+          <input
+            value={price}
+            onChange={(e) => setPrice(e.target.value.replace(/\D/g, ''))}
+            inputMode="numeric"
+            disabled={!step2Done}
+            className="mt-1 w-full rounded-xl border px-3 py-2 disabled:cursor-not-allowed dark:bg-neutral-900"
+          />
+        </label>
+        <dl className="space-y-1 text-sm">
+          {previewRows.map(([k, v]) => (
+            <div key={k} className="flex items-center justify-between gap-2">
+              <dt className="opacity-75">{k}</dt>
+              <dd className="font-medium">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
 
-          <section className="space-y-2 rounded-2xl border p-4">
-            <div className="font-semibold">အဆင့် ၄ — အတည်ပြု</div>
-            <input
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="မှတ်ချက် (ရှိလျှင်)"
-              className="w-full rounded-xl border px-3 py-2 dark:bg-neutral-900"
-            />
-            <button
-              onClick={onFinalize}
-              disabled={!canFinalize || busy}
-              className="w-full rounded-xl bg-teal-700 py-2.5 font-semibold text-white disabled:opacity-50"
-            >
-              {busy ? 'ပိတ်နေပါတယ်…' : 'စာရင်းပိတ် အတည်ပြုရန်'}
-            </button>
-            <p className="text-xs opacity-60">
-              အတည်ပြုလိုက်ရင် ကိုယ်စားလှယ်ကို ပိတ်ပြီး စာရင်းပိတ် မှတ်တမ်း သိမ်းပါမယ်။ ဈေးကွာ
-              ရှိရင် (ဈေးကွာ ၀ ထက် များရင်) အသုံးစရိတ်ထဲမှာ «ဗူးအပေါင် ဈေးကွာ» မှတ်တမ်း
-              အလိုအလျောက် ထည့်ပေးပါမယ်။
-            </p>
-          </section>
-        </>
-      )}
+      <section
+        className={`space-y-2 rounded-2xl border p-4 ${step2Done ? '' : 'opacity-50'}`}
+      >
+        <div className="font-semibold">အဆင့် ၄ — အတည်ပြု</div>
+        {!step2Done && (
+          <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
+            🔒 ကြွေး အရင် ရှင်းပြီးမှ ဒီ အဆင့် ဖွင့်ပါမယ်
+          </p>
+        )}
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="မှတ်ချက် (ရှိလျှင်)"
+          disabled={!step2Done}
+          className="w-full rounded-xl border px-3 py-2 disabled:cursor-not-allowed dark:bg-neutral-900"
+        />
+        <button
+          onClick={onFinalize}
+          disabled={!canFinalize || busy}
+          className="w-full rounded-xl bg-teal-700 py-2.5 font-semibold text-white disabled:opacity-50"
+        >
+          {busy ? 'ပိတ်နေပါတယ်…' : 'စာရင်းပိတ် အတည်ပြုရန်'}
+        </button>
+        <p className="text-xs opacity-60">
+          အတည်ပြုလိုက်ရင် ကိုယ်စားလှယ်ကို ပိတ်ပြီး စာရင်းပိတ် မှတ်တမ်း သိမ်းပါမယ်။ ဈေးကွာ
+          ရှိရင် (ဈေးကွာ ၀ ထက် များရင်) အသုံးစရိတ်ထဲမှာ «ဗူးအပေါင် ဈေးကွာ» မှတ်တမ်း
+          အလိုအလျောက် ထည့်ပေးပါမယ်။
+        </p>
+      </section>
     </div>
   )
 }

@@ -242,10 +242,6 @@ export default function HomePage() {
 
   return (
     <div className="space-y-4">
-      {role === 'owner' && <BackupCard />}
-      {(role === 'owner' || role === 'manager') && <MonthLockCard />}
-      {profile && <PinChangeCard />}
-
       <section className="rounded-2xl border p-4">
         <h2 className="font-semibold">ယနေ့ အခြေအနေ</h2>
         <p className="mt-1 text-sm opacity-80">
@@ -274,6 +270,10 @@ export default function HomePage() {
           </Link>
         </section>
       )}
+
+      {role === 'owner' && <BackupCard />}
+      {(role === 'owner' || role === 'manager') && <MonthLockCard />}
+      {profile && <PinChangeCard />}
     </div>
   )
 }
