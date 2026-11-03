@@ -1,0 +1,11 @@
+{
+  // Cloudflare Workers static-assets hosting for this Vite SPA.
+  // `npm run build` produces dist/; wrangler deploy serves it with an
+  // SPA fallback so client-side routes work on direct loads.
+  "name": "water-factory-management-system",
+  "compatibility_date": "2026-11-03",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}
