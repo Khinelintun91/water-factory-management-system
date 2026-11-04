@@ -432,17 +432,17 @@ export default function CollectionsPage() {
               // nothing ever covers the open card's content.
               const prevOpen = idx > 0 && openId === visibleAgents[idx - 1]?.id
               const stacked = !open && idx > 0 && !prevOpen
-              const inset = stacked ? Math.min(idx * 5, 30) : 0
+              const inset = stacked ? Math.min(idx * 4, 20) : 0
               const depthTint = open ? 0 : Math.max(0, 0.16 - idx * 0.02)
               return (
                 <div
                   key={a.id}
                   style={{
-                    marginTop: idx === 0 ? 0 : stacked ? -30 : 12,
+                    marginTop: idx === 0 ? 0 : stacked ? -8 : 12,
                     marginLeft: inset,
                     marginRight: inset,
                   }}
-                  className={`${cardCls} relative p-4 lg:p-5 transition-all duration-300 ease-out motion-reduce:transition-none ${stacked ? 'shadow-[0_-8px_18px_rgba(0,0,0,0.35)]' : ''} ${open ? '' : 'pb-8 lg:pb-9'}`}
+                  className={`${cardCls} relative transition-all duration-300 ease-out motion-reduce:transition-none ${stacked ? 'shadow-[0_-8px_18px_rgba(0,0,0,0.35)]' : ''} ${open ? 'p-4 lg:p-5' : 'px-4 pb-2.5 pt-2.5 lg:px-5'}`}
                 >
                   {depthTint > 0 && (
                     <div
