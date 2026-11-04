@@ -414,8 +414,8 @@ export default function CollectionsPage() {
         <LoadingState />
       ) : (
         <>
-          <div className="space-y-3">
-            {visibleAgents.map((a) => {
+          <div>
+            {visibleAgents.map((a, idx) => {
               const t = totals.get(a.id) ?? {
                 sales: 0,
                 cash: 0,
@@ -425,8 +425,24 @@ export default function CollectionsPage() {
               }
               const expanded = expandedId === a.id
               const open = openId === a.id
+              // Collapsed cards form a deck: each tucks under the card above
+              // (negative top margin) and steps inward on both sides, so the
+              // pile slopes down like stairs. An open card leaves the deck at
+              // full width, and the card below an open one does not tuck, so
+              // nothing ever covers the open card's content.
+              const prevOpen = idx > 0 && openId === visibleAgents[idx - 1]?.id
+              const stacked = !open && idx > 0 && !prevOpen
+              const inset = stacked ? Math.min(idx * 4, 24) : 0
               return (
-                <div key={a.id} className={`${cardCls} p-4 lg:p-5`}>
+                <div
+                  key={a.id}
+                  style={{
+                    marginTop: idx === 0 ? 0 : stacked ? -14 : 12,
+                    marginLeft: inset,
+                    marginRight: inset,
+                  }}
+                  className={`${cardCls} p-4 lg:p-5 transition-all duration-300 ease-out motion-reduce:transition-none ${stacked ? 'shadow-lg' : ''}`}
+                >
                   <button
                     type="button"
                     onClick={() => setOpenId(open ? null : a.id)}
