@@ -106,6 +106,11 @@ export default function EntriesPage() {
   const [oldDebt, setOldDebt] = useState('')
   const [notes, setNotes] = useState('')
   const [confirming, setConfirming] = useState(false)
+  // Owner-only backdating: only the owner sees a date field and may file an
+  // entry for a past day (the DB insert guard carries the same exception).
+  // Every other role's entries are always dated today, exactly as before.
+  const isOwner = profile?.role === 'owner'
+  const [entryDate, setEntryDate] = useState(todayYangon())
 
   // Offline queue (lib/offlineQueue): entries saved while unreachable.
   const [queued, setQueued] = useState(() => queueCount())
@@ -256,7 +261,7 @@ export default function EntriesPage() {
     setMsg(null)
     // unit_price and amount are computed by the server — do not send them.
     const payload: EntryInsert = {
-      entry_date: todayYangon(),
+      entry_date: isOwner ? entryDate || todayYangon() : todayYangon(),
       agent_id: agentId,
       delivered_qty: qty,
       returned_qty: Number(returned) || 0,
@@ -328,6 +333,7 @@ export default function EntriesPage() {
     setCash('')
     setOldDebt('')
     setNotes('')
+    setEntryDate(todayYangon())
     setConfirming(false)
     await load()
     if (partialMsg) setMsg(partialMsg)
@@ -346,6 +352,7 @@ export default function EntriesPage() {
     setCash('')
     setOldDebt('')
     setNotes('')
+    setEntryDate(todayYangon())
     setConfirming(false)
     setQueued(queueCount())
     setMsg(
@@ -578,7 +585,21 @@ export default function EntriesPage() {
 
       {canWrite && (
         <form onSubmit={onAdd} className={`${cardCls} space-y-3 p-4 lg:p-5`}>
-          <div className="text-base font-semibold">ယနေ့ မှတ်တမ်အသစ်</div>
+          <div className="text-base font-semibold">{isOwner ? 'မှတ်တမ်အသစ်' : 'ယနေ့ မှတ်တမ်အသစ်'}</div>
+          {isOwner && (
+            <Field label="ရက်စွဲ">
+              <input
+                type="date"
+                value={entryDate}
+                max={todayYangon()}
+                onChange={(e) => {
+                  setEntryDate(e.target.value)
+                  setConfirming(false)
+                }}
+                className={inputCls}
+              />
+            </Field>
+          )}
           <Field label="ကိုယ်စားလှယ်">
             <select
               value={agentId}
@@ -685,6 +706,12 @@ export default function EntriesPage() {
             <div className="space-y-1.5 rounded-2xl border-2 border-accent-400 bg-accent-50 p-4 text-sm dark:border-accent-700 dark:bg-amber-950/30">
               <div className="text-base font-bold">သိမ်းမည့် အချက်အလက် စစ်ဆေးပါ</div>
               <dl className="space-y-1">
+                {isOwner && (
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="opacity-70">ရက်စွဲ</dt>
+                    <dd className="font-medium tabular-nums">{entryDate}</dd>
+                  </div>
+                )}
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="opacity-70">ကိုယ်စားလှယ်</dt>
                   <dd className="font-semibold">{selectedAgent.name}</dd>

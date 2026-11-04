@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { fetchAll } from '../lib/fetchAll'
 import { downloadCsv, toCsv } from '../lib/exports'
@@ -34,6 +35,10 @@ interface Category {
 const AUTO_CATEGORY = 'ဗူးအပေါင် ဈေးကွာ'
 
 export default function ExpensesPage() {
+  const { profile } = useAuth()
+  // Owner-only backdating: only the owner sees a date field; every other
+  // role's expenses are dated today, exactly as before.
+  const isOwner = profile?.role === 'owner'
   const [rows, setRows] = useState<ExpenseRow[]>([])
   const [cats, setCats] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
@@ -45,6 +50,7 @@ export default function ExpensesPage() {
   const [amount, setAmount] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [notes, setNotes] = useState('')
+  const [expDate, setExpDate] = useState(todayYangon())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -103,7 +109,7 @@ export default function ExpensesPage() {
     setBusy(true)
     setMsg(null)
     const { error } = await supabase.from('expenses').insert({
-      expense_date: todayYangon(),
+      expense_date: isOwner ? expDate || todayYangon() : todayYangon(),
       category_id: categoryId || null,
       title: title.trim(),
       amount: Number(amount) || 0,
@@ -117,6 +123,7 @@ export default function ExpensesPage() {
     setTitle('')
     setAmount('')
     setNotes('')
+    setExpDate(todayYangon())
     await load()
     setBusy(false)
   }
@@ -184,6 +191,17 @@ export default function ExpensesPage() {
 
       <form onSubmit={onAdd} className={`${cardCls} space-y-3 p-4 lg:p-5`}>
         <div className="text-base font-semibold">အသုံးစရိတ်အသစ်</div>
+        {isOwner && (
+          <Field label="ရက်စွဲ">
+            <input
+              type="date"
+              value={expDate}
+              max={todayYangon()}
+              onChange={(e) => setExpDate(e.target.value)}
+              className={inputCls}
+            />
+          </Field>
+        )}
         <Field label="အကြောင်းအရာ">
           <input
             value={title}

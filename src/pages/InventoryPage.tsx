@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
-import { isTodayYangon } from '../lib/types'
+import { isTodayYangon, todayYangon } from '../lib/types'
 import {
   Banner,
   Card,
@@ -19,7 +20,8 @@ import {
 
 // inventory_movements shape (migration 0001 + kinds extended in 0006).
 // move_date is defaulted to the Yangon today by the database and an insert
-// guard requires it to be today, so the form never sends a date.
+// guard requires it to be today — except for the owner, who may backdate;
+// only the owner's form sends an explicit move_date.
 interface StockMove {
   id: string
   move_date: string
@@ -64,6 +66,7 @@ async function fetchAll<T>(table: string, columns: string): Promise<T[]> {
 }
 
 export default function InventoryPage() {
+  const { profile } = useAuth()
   const [moves, setMoves] = useState<StockMove[]>([])
   const [entryQty, setEntryQty] = useState<EntryQty[]>([])
   const [loading, setLoading] = useState(true)
@@ -74,6 +77,10 @@ export default function InventoryPage() {
   const [kind, setKind] = useState('produce')
   const [bottles, setBottles] = useState('')
   const [note, setNote] = useState('')
+  // Owner-only backdating: only the owner sees a date field and sends an
+  // explicit move_date; everyone else omits it and the DB defaults today.
+  const isOwner = profile?.role === 'owner'
+  const [moveDate, setMoveDate] = useState(todayYangon())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -142,8 +149,10 @@ export default function InventoryPage() {
     }
     setBusy(true)
     setMsg(null)
-    // No move_date: the database defaults it to today (and requires today).
+    // No move_date for non-owners: the database defaults it to today (and
+    // the insert guard requires today). The owner may send a past date.
     const { error } = await supabase.from('inventory_movements').insert({
+      ...(isOwner ? { move_date: moveDate || todayYangon() } : {}),
       kind,
       bottles: qty,
       notes: note.trim() || null,
@@ -155,6 +164,7 @@ export default function InventoryPage() {
     }
     setBottles('')
     setNote('')
+    setMoveDate(todayYangon())
     await load()
     setBusy(false)
   }
@@ -277,13 +287,24 @@ export default function InventoryPage() {
       )}
 
       <form onSubmit={onAdd} className={`${cardCls} space-y-3 p-4 lg:p-5`}>
-        <div className="text-base font-semibold">ဗူး ရွှေ့ပြောင်းမှု အသစ် (ယနေ့)</div>
+        <div className="text-base font-semibold">{isOwner ? 'ဗူး ရွှေ့ပြောင်းမှု အသစ်' : 'ဗူး ရွှေ့ပြောင်းမှု အသစ် (ယနေ့)'}</div>
         <p className="text-sm text-stone-500 dark:text-neutral-400">
           ဝယ်ယူ = ဗူးအလွတ် ဝယ်ထည့်ခြင်း · ထုတ်လုပ် = ဗူးအလွတ်ကို ရေဖြည့်ပြီး အပြည့် ပြောင်းခြင်း ·
           ပျက်စီး = သုံးမရတော့သော ဗူးများ · စာရင်းညှိ = လက်ကျန် ပြန်စစ်ပြီး ကွာဟချက်ကို ညှိခြင်း
           (အနှုတ် ဂဏန်း ရိုက်နိုင်သည်)
         </p>
         <div className="grid grid-cols-2 gap-2.5">
+          {isOwner && (
+            <Field label="ရက်စွဲ">
+              <input
+                type="date"
+                value={moveDate}
+                max={todayYangon()}
+                onChange={(e) => setMoveDate(e.target.value)}
+                className={inputCls}
+              />
+            </Field>
+          )}
           <Field label="အမျိုးအစား">
             <select
               value={kind}

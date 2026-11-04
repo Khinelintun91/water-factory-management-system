@@ -406,6 +406,8 @@ export default function AgentDetailPage() {
                   type="date"
                   value={depDate}
                   onChange={(e) => setDepDate(e.target.value)}
+                  max={todayYangon()}
+                  disabled={!isOwner}
                   required
                   className={inputCls}
                 />

@@ -71,6 +71,10 @@ export default function PaymentsPage() {
   const [method, setMethod] = useState('cash')
   const [kind, setKind] = useState<PaymentKind>('regular')
   const [notes, setNotes] = useState('')
+  // Owner-only backdating (same exception as EntriesPage): only the owner
+  // sees a date field; every other role's payments are dated today.
+  const isOwner = profile?.role === 'owner'
+  const [payDate, setPayDate] = useState(todayYangon())
 
   const agentName = useMemo(() => {
     const m = new Map(agents.map((a) => [a.id, a.name]))
@@ -107,7 +111,7 @@ export default function PaymentsPage() {
       return
     }
     const { error } = await supabase.from('agent_payments').insert({
-      payment_date: todayYangon(),
+      payment_date: isOwner ? payDate || todayYangon() : todayYangon(),
       agent_id: agentId,
       amount: Number(amount) || 0,
       method,
@@ -123,6 +127,7 @@ export default function PaymentsPage() {
     setAmount('')
     setKind('regular')
     setNotes('')
+    setPayDate(todayYangon())
     await load()
     setBusy(false)
   }
@@ -329,6 +334,17 @@ export default function PaymentsPage() {
       {canWrite && (
         <form onSubmit={onAdd} className={`${cardCls} space-y-3 p-4 lg:p-5`}>
           <div className="text-base font-semibold">ကောက်ခံမှုအသစ်</div>
+          {isOwner && (
+            <Field label="ရက်စွဲ">
+              <input
+                type="date"
+                value={payDate}
+                max={todayYangon()}
+                onChange={(e) => setPayDate(e.target.value)}
+                className={inputCls}
+              />
+            </Field>
+          )}
           <Field label="ကိုယ်စားလှယ်">
             <select
               value={agentId}
