@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { historyCsv } from '../lib/exports'
 import { todayYangon, type AuditLogRow } from '../lib/types'
+import { fmtDateTime12 } from '../lib/types'
 import {
   EmptyState,
   LoadingState,
@@ -54,7 +55,7 @@ export default function HistoryPage() {
   function onExportCsv() {
     historyCsv(
       rows.map((r) => ({
-        အချိန်: new Date(r.created_at).toLocaleString('my-MM'),
+        အချိန်: fmtDateTime12(r.created_at),
         ဇယား: r.table_name,
         လုပ်ဆောင်ချက်: ACTION_LABELS[r.action],
         'မှတ်တမ်း ID': r.row_id,
@@ -101,7 +102,7 @@ export default function HistoryPage() {
                   {r.table_name} · {ACTION_LABELS[r.action]}
                 </span>
                 <span className="shrink-0 text-xs text-stone-500 dark:text-neutral-400">
-                  {new Date(r.created_at).toLocaleString('my-MM')}
+                  {fmtDateTime12(r.created_at)}
                 </span>
               </button>
               {openId === r.id && (

@@ -9,6 +9,7 @@ import {
   type Profile,
   type Role,
 } from '../lib/types'
+import { fmtDateTime12 } from '../lib/types'
 import {
   Card,
   CardTitle,
@@ -328,7 +329,7 @@ export default function UsersPage() {
               {loginLogs.map((r) => (
                 <li key={r.id} className="flex items-center gap-2 py-2 text-sm">
                   <span className="shrink-0 text-xs text-stone-500 dark:text-neutral-400">
-                    {new Date(r.created_at).toLocaleString('my-MM')}
+                    {fmtDateTime12(r.created_at)}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{r.username}</span>

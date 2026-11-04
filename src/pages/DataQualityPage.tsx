@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { fetchAll } from '../lib/fetchAll'
 import { dataQualityCsv } from '../lib/exports'
-import { todayYangon } from '../lib/types'
+import { fmtDateTime12, todayYangon } from '../lib/types'
 import {
   Card,
   LoadingState,
@@ -117,13 +117,15 @@ function loadReviewed(): Set<string> {
 /** Where to go to fix an issue, best effort by table/kind. */
 function fixPath(i: DqIssue): string {
   if (i.table === 'disputes' || i.kind === 'dispute') return '/disputes'
+  // Debt issues carry table 'agents' but are fixed from the Collections
+  // ledger — the kind check must come before the agents-table branch.
+  if (i.kind === 'debt') return '/collections'
   if (i.table === 'app_settings') return '/'
   if (i.table === 'payroll_runs') return '/payroll'
   if (i.table === 'agent_payments') return '/payments'
   if (i.table === 'daily_entries') return '/entries'
   if (i.table === 'expenses') return '/expenses'
   if (i.table === 'agents' || i.table === 'agent_deposits') return '/agents'
-  if (i.kind === 'debt') return '/collections'
   return '/entries'
 }
 
@@ -180,7 +182,7 @@ export default function DataQualityPage() {
       for (const i of found) i.locked = lockedMonths.has(i.date.slice(0, 7))
       setIssues(found)
       setCounts(scanned)
-      setCheckedAt(new Date().toLocaleString('my-MM'))
+      setCheckedAt(fmtDateTime12(new Date()))
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err))
     }

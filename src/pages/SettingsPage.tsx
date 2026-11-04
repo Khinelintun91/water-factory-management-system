@@ -268,7 +268,7 @@ export default function SettingsPage() {
             />
           </Field>
           <div className="grid grid-cols-2 gap-2.5">
-            <Field label="ပုံမှန် ရေဈေး (၁ လုံး, ကျပ်)">
+            <Field label="ပုံမှန် ရေဈေး (၁ ဗူး, ကျပ်)">
               <input
                 value={defaultPrice}
                 onChange={(e) => setDefaultPrice(e.target.value.replace(/\D/g, ''))}
@@ -276,7 +276,7 @@ export default function SettingsPage() {
                 className={inputCls}
               />
             </Field>
-            <Field label="ပုံမှန် အပေါင် (၁ လုံး, ကျပ်)">
+            <Field label="ပုံမှန် အပေါင် (၁ ဗူး, ကျပ်)">
               <input
                 value={defaultDeposit}
                 onChange={(e) => setDefaultDeposit(e.target.value.replace(/\D/g, ''))}

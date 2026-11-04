@@ -5,6 +5,7 @@ import { supabase, usernameToEmail } from '../lib/supabase'
 import { exportBackup, getLastBackupAt, isBackupOverdue } from '../lib/backup'
 import { dailySummaryCsv, monthlyBackupCsv, monthlyBackupXlsx } from '../lib/exports'
 import { formatMMK, personName, todayYangon } from '../lib/types'
+import { fmtDateTime12 } from '../lib/types'
 import { NavIcon } from '../components/icons'
 import {
   Card,
@@ -66,7 +67,7 @@ function BackupCard() {
     <Card tone={overdue ? 'amber' : 'default'}>
       <CardTitle>ဒေတာ Backup</CardTitle>
       <p className="mt-1 text-sm opacity-80">
-        နောက်ဆုံး backup: {last ? new Date(last).toLocaleString('my-MM') : 'တစ်ခါမှ မလုပ်ရသေးပါ'}
+        နောက်ဆုံး backup: {last ? fmtDateTime12(last) : 'တစ်ခါမှ မလုပ်ရသေးပါ'}
       </p>
       {overdue && (
         <p className="mt-1 text-sm font-medium text-amber-700 dark:text-amber-300">

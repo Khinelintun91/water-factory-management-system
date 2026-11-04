@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { fmtDateTime12 } from '../lib/types'
 import {
   Card,
   EmptyState,
@@ -161,7 +162,7 @@ export default function DisputesPage() {
                     {STATUS_LABELS[d.status]}
                   </span>
                   <span className="text-xs text-stone-500 dark:text-neutral-400">
-                    {new Date(d.created_at).toLocaleString('my-MM')}
+                    {fmtDateTime12(d.created_at)}
                   </span>
                 </span>
               </div>

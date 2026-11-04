@@ -339,7 +339,7 @@ export default function AgentsPage() {
         <div className="mt-3 grid grid-cols-3 gap-2">
           <div className="rounded-xl bg-stone-50 p-2.5 dark:bg-neutral-800/70">
             <div className={miniLabel}>ကိုင်ထားဘူး</div>
-            <div className={miniValue}>{a.held.toLocaleString('en-US')} လုံး</div>
+            <div className={miniValue}>{a.held.toLocaleString('en-US')} ဗူး</div>
           </div>
           <div className="rounded-xl bg-stone-50 p-2.5 dark:bg-neutral-800/70">
             <div className={miniLabel}>ရရန်ကျန်</div>
@@ -348,14 +348,14 @@ export default function AgentsPage() {
             </div>
           </div>
           <div className="rounded-xl bg-stone-50 p-2.5 dark:bg-neutral-800/70">
-            <div className={miniLabel}>အပေါင်ငွေ/လုံး</div>
+            <div className={miniLabel}>အပေါင်ငွေ/ဗူး</div>
             <div className={miniValue}>{formatMMK(a.deposit_per_bottle)}</div>
           </div>
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-stone-100 pt-3 text-sm dark:border-neutral-800">
           <label className="flex items-center justify-between gap-1">
-            <span className="opacity-75">ဈေးနှုန်း/လုံး</span>
+            <span className="opacity-75">ဈေးနှုန်း/ဗူး</span>
             {canManage && !a.closed_at ? (
               <InlineNumber value={a.default_unit_price} onSave={(v) => saveField(a, 'default_unit_price', v)} />
             ) : (
@@ -363,7 +363,7 @@ export default function AgentsPage() {
             )}
           </label>
           <label className="flex items-center justify-between gap-1">
-            <span className="opacity-75">အပေါင်ငွေ/လုံး</span>
+            <span className="opacity-75">အပေါင်ငွေ/ဗူး</span>
             {canManage && !a.closed_at ? (
               <InlineNumber value={a.deposit_per_bottle} onSave={(v) => saveField(a, 'deposit_per_bottle', v)} />
             ) : (
@@ -375,7 +375,7 @@ export default function AgentsPage() {
             {canManage && !a.closed_at ? (
               <InlineNumber value={a.bottle_limit} onSave={(v) => saveField(a, 'bottle_limit', v)} />
             ) : (
-              <span>{a.bottle_limit > 0 ? `${a.bottle_limit.toLocaleString('en-US')} လုံး` : 'မကန့်သတ်'}</span>
+              <span>{a.bottle_limit > 0 ? `${a.bottle_limit.toLocaleString('en-US')} ဗူး` : 'မကန့်သတ်'}</span>
             )}
           </label>
           <label className="flex items-center justify-between gap-1">
@@ -391,7 +391,7 @@ export default function AgentsPage() {
             {canManage && !a.closed_at ? (
               <InlineNumber value={a.trip_qty} onSave={(v) => saveField(a, 'trip_qty', v)} />
             ) : (
-              <span>{a.trip_qty.toLocaleString('en-US')} လုံး</span>
+              <span>{a.trip_qty.toLocaleString('en-US')} ဗူး</span>
             )}
           </label>
         </div>
@@ -471,7 +471,7 @@ export default function AgentsPage() {
             <input value={address} onChange={(e) => setAddress(e.target.value)} className={inputCls} />
           </Field>
           <div className="grid grid-cols-2 gap-2.5">
-            <Field label="ဗူးတစ်လုံးလျှင် အပေါင်ငွေ (ကျပ်)">
+            <Field label="ဗူးတစ်ဗူးလျှင် အပေါင်ငွေ (ကျပ်)">
               <input
                 value={deposit}
                 onChange={(e) => setDeposit(e.target.value.replace(/\D/g, ''))}
@@ -479,7 +479,7 @@ export default function AgentsPage() {
                 className={inputCls}
               />
             </Field>
-            <Field label="ဗူးတစ်လုံး ရောင်းဈေး (ကျပ်)">
+            <Field label="ဗူးတစ်ဗူး ရောင်းဈေး (ကျပ်)">
               <input
                 value={unitPrice}
                 onChange={(e) => setUnitPrice(e.target.value.replace(/\D/g, ''))}
@@ -495,7 +495,7 @@ export default function AgentsPage() {
                 className={inputCls}
               />
             </Field>
-            <Field label="ဗူး ကန့်သတ်ချက် (လုံး၊ 0 = မကန့်သတ်)">
+            <Field label="ဗူး ကန့်သတ်ချက် (ဗူး၊ 0 = မကန့်သတ်)">
               <input
                 value={bottleLimit}
                 onChange={(e) => setBottleLimit(e.target.value.replace(/\D/g, ''))}
@@ -521,7 +521,7 @@ export default function AgentsPage() {
                 className={inputCls}
               />
             </Field>
-            <Field label="အပေါင် ဈေးနှုန်း (၁ လုံး)">
+            <Field label="အပေါင် ဈေးနှုန်း (၁ ဗူး)">
               <input
                 value={initDepPrice}
                 onChange={(e) => setInitDepPrice(e.target.value.replace(/\D/g, ''))}

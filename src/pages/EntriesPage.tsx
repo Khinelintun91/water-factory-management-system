@@ -654,7 +654,7 @@ export default function EntriesPage() {
                 className={inputCls}
               />
             </Field>
-            <Field label="ဈေးနှုန်း (၁ လုံး)">
+            <Field label="ဈေးနှုန်း (၁ ဗူး)">
               <div className="flex min-h-[48px] items-center rounded-xl border border-stone-200 bg-stone-50 px-3.5 font-medium tabular-nums dark:border-neutral-800 dark:bg-neutral-800/60">
                 {selectedAgent ? formatMMK(price) : '—'}
               </div>
@@ -718,14 +718,14 @@ export default function EntriesPage() {
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="opacity-70">ပို့သည့် ဗူး</dt>
-                  <dd className="font-medium tabular-nums">{qty} လုံး</dd>
+                  <dd className="font-medium tabular-nums">{qty} ဗူး</dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="opacity-70">ပြန်အပ်သည့် ဗူး</dt>
-                  <dd className="font-medium tabular-nums">{Number(returned) || 0} လုံး</dd>
+                  <dd className="font-medium tabular-nums">{Number(returned) || 0} ဗူး</dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
-                  <dt className="opacity-70">ဈေးနှုန်း (၁ လုံး)</dt>
+                  <dt className="opacity-70">ဈေးနှုန်း (၁ ဗူး)</dt>
                   <dd className="font-medium tabular-nums">{formatMMK(price)}</dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
@@ -814,7 +814,7 @@ export default function EntriesPage() {
                 </div>
                 <div className="mt-0.5 text-sm text-stone-500 dark:text-neutral-400">
                   {r.entry_date} · ပို့ {r.delivered_qty} · ပြန် {r.returned_qty} ·{' '}
-                  {formatMMK(r.unit_price)}/လုံး
+                  {formatMMK(r.unit_price)}/ဗူး
                   {r.notes ? ` · ${r.notes}` : ''}
                 </div>
                 <div className="text-sm text-stone-500 dark:text-neutral-400">
@@ -844,7 +844,7 @@ export default function EntriesPage() {
                   <th className={thCls}>ရက်စွဲ</th>
                   <th className={`${thCls} text-right`}>ပို့သည့် ဗူး</th>
                   <th className={`${thCls} text-right`}>ပြန်အပ်သည့် ဗူး</th>
-                  <th className={`${thCls} text-right`}>ဈေးနှုန်း (၁ လုံး)</th>
+                  <th className={`${thCls} text-right`}>ဈေးနှုန်း (၁ ဗူး)</th>
                   <th className={`${thCls} text-right`}>ပေးရန် စုစုပေါင်း</th>
                   <th className={`${thCls} text-right`}>လက်ခံရရှိငွေ (ကျပ်)</th>
                   <th className={`${thCls} text-right`}>ကျန်ပေးရန်</th>

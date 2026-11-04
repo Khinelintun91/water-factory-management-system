@@ -37,10 +37,10 @@ type PaymentFull = AgentPayment & { kind: 'regular' | 'old_debt' | null }
 export function SettlementSummary({ s }: { s: AgentSettlement }) {
   const rows: [string, string][] = [
     ['စာရင်းပိတ်ရက်', s.settle_date],
-    ['ကိုင်ထားဘူး', `${s.held_bottles.toLocaleString('en-US')} လုံး`],
-    ['ပြန်အပ်ဘူး', `${s.returned_bottles.toLocaleString('en-US')} လုံး`],
-    ['ပျောက်ဘူး', `${s.missing_bottles.toLocaleString('en-US')} လုံး`],
-    ['ယနေ့ ပေါက်ဈေး', `${formatMMK(s.current_price)}/လုံး`],
+    ['ကိုင်ထားဘူး', `${s.held_bottles.toLocaleString('en-US')} ဗူး`],
+    ['ပြန်အပ်ဘူး', `${s.returned_bottles.toLocaleString('en-US')} ဗူး`],
+    ['ပျောက်ဘူး', `${s.missing_bottles.toLocaleString('en-US')} ဗူး`],
+    ['ယနေ့ ပေါက်ဈေး', `${formatMMK(s.current_price)}/ဗူး`],
     ['မူလ အပေါင် စုစုပေါင်း', formatMMK(s.deposit_original)],
     ['ပြန်အမ်းငွေ', formatMMK(s.refund_amount)],
     ['ဈေးကွာ', `${formatMMK(s.price_diff)} (${PRICE_DIFF_KIND_LABELS[s.price_diff_kind]})`],
@@ -168,10 +168,10 @@ export default function AgentDetailPage() {
     const { held, depBottles } = stats
     if (agent.deposit_per_bottle > 0) {
       const cap = agent.bottle_limit > 0 ? Math.min(agent.bottle_limit, depBottles) : depBottles
-      return `${Math.max(0, cap - held).toLocaleString('en-US')} လုံး`
+      return `${Math.max(0, cap - held).toLocaleString('en-US')} ဗူး`
     }
     if (agent.bottle_limit > 0) {
-      return `${Math.max(0, agent.bottle_limit - held).toLocaleString('en-US')} လုံး`
+      return `${Math.max(0, agent.bottle_limit - held).toLocaleString('en-US')} ဗူး`
     }
     return '—'
   }, [agent, stats])
@@ -241,8 +241,8 @@ export default function AgentDetailPage() {
     // A closed agent's bottle position was consumed by the settlement (its
     // held/returned figures live in the settlement summary below), so the
     // live held / can-deliver figures no longer apply.
-    { label: 'ကိုင်ထားဘူး', value: closed ? '0 လုံး' : `${stats.held.toLocaleString('en-US')} လုံး` },
-    { label: 'အပေါင်ဘူး', value: `${stats.depBottles.toLocaleString('en-US')} လုံး (${formatMMK(stats.depAmount)})` },
+    { label: 'ကိုင်ထားဘူး', value: closed ? '0 ဗူး' : `${stats.held.toLocaleString('en-US')} ဗူး` },
+    { label: 'အပေါင်ဘူး', value: `${stats.depBottles.toLocaleString('en-US')} ဗူး (${formatMMK(stats.depAmount)})` },
     { label: 'စုစုပေါင်း ရောင်းရ', value: formatMMK(stats.sales) },
     { label: 'ကောက်ခံပြီး', value: formatMMK(stats.collected) },
     { label: 'ရရန်ကျန်', value: formatMMK(outstanding), tone: outstanding > 0 ? 'danger' : undefined },
@@ -283,14 +283,14 @@ export default function AgentDetailPage() {
           <div>ဖုန်း: {phone ?? '—'}</div>
           {agent.address && <div>လိပ်စာ: {agent.address}</div>}
           <div>
-            ဈေးနှုန်း: {formatMMK(agent.default_unit_price)}/လုံး · အပေါင်:{' '}
-            {formatMMK(agent.deposit_per_bottle)}/လုံး
+            ဈေးနှုန်း: {formatMMK(agent.default_unit_price)}/ဗူး · အပေါင်:{' '}
+            {formatMMK(agent.deposit_per_bottle)}/ဗူး
           </div>
           <div>
-            ဘူး ကန့်သတ်: {agent.bottle_limit > 0 ? `${agent.bottle_limit.toLocaleString('en-US')} လုံး` : 'မကန့်သတ်'} ·
+            ဘူး ကန့်သတ်: {agent.bottle_limit > 0 ? `${agent.bottle_limit.toLocaleString('en-US')} ဗူး` : 'မကန့်သတ်'} ·
             ကြွေး ကန့်သတ်: {agent.credit_limit > 0 ? formatMMK(agent.credit_limit) : 'မကန့်သတ်'}
           </div>
-          <div>တစ်ခါပို့ ဘူးအရေအတွက်: {(agent.trip_qty ?? 0).toLocaleString('en-US')} လုံး</div>
+          <div>တစ်ခါပို့ ဘူးအရေအတွက်: {(agent.trip_qty ?? 0).toLocaleString('en-US')} ဗူး</div>
           {agent.notes && <div>မှတ်ချက်: {agent.notes}</div>}
           <div>
             အခြေအနေ:{' '}
@@ -388,7 +388,7 @@ export default function AgentDetailPage() {
             <li key={d.id} className="py-2 text-sm">
               <div className="flex items-center justify-between gap-2">
                 <span>
-                  {d.deposit_date} · {d.bottles.toLocaleString('en-US')} လုံး ×{' '}
+                  {d.deposit_date} · {d.bottles.toLocaleString('en-US')} ဗူး ×{' '}
                   {formatMMK(d.price_per_bottle)}
                 </span>
                 <span className="font-semibold tabular-nums">{formatMMK(d.amount)}</span>
@@ -421,7 +421,7 @@ export default function AgentDetailPage() {
                   className={inputCls}
                 />
               </Field>
-              <Field label="ဈေးနှုန်း/လုံး">
+              <Field label="ဈေးနှုန်း/ဗူး">
                 <input
                   value={depPrice}
                   onChange={(e) => setDepPrice(e.target.value.replace(/\D/g, ''))}

@@ -341,8 +341,8 @@ export default function CloseoutPage() {
   ]
 
   const previewRows: [string, string][] = [
-    ['အပေါင်ဘူး စုစုပေါင်း', `${depBottles.toLocaleString('en-US')} လုံး (ပျမ်းမျှ ${formatMMK(Math.round(preview.avg))}/လုံး)`],
-    ['ပျောက်ဘူး', `${preview.missing.toLocaleString('en-US')} လုံး`],
+    ['အပေါင်ဘူး စုစုပေါင်း', `${depBottles.toLocaleString('en-US')} ဗူး (ပျမ်းမျှ ${formatMMK(Math.round(preview.avg))}/ဗူး)`],
+    ['ပျောက်ဘူး', `${preview.missing.toLocaleString('en-US')} ဗူး`],
     ['မူလတန်ဖိုးဖြင့် ပြန်အမ်း', formatMMK(Math.round(preview.origRet))],
     ['ယနေ့ဈေးဖြင့် ပြန်အမ်း', formatMMK(Math.round(preview.currRet))],
     ['ပြန်အမ်းငွေ (ပိုများရာ)', formatMMK(preview.refund)],
@@ -381,7 +381,7 @@ export default function CloseoutPage() {
         <StepHeading num="၁" title="အဆင့် ၁ — ဘူးရေတွက်" />
         <div className="rounded-xl bg-brand-50 px-3.5 py-2.5 text-sm dark:bg-brand-950/40">
           ကိုင်ထားဘူး:{' '}
-          <span className="font-bold tabular-nums">{held.toLocaleString('en-US')} လုံး</span>
+          <span className="font-bold tabular-nums">{held.toLocaleString('en-US')} ဗူး</span>
         </div>
         <Field label={`ပြန်အပ်ဘူး (၀ မှ ${held.toLocaleString('en-US')} အတွင်း)`}>
           <input
@@ -395,7 +395,7 @@ export default function CloseoutPage() {
           <p className="text-sm text-red-600">ပြန်အပ်ဘူး အရေအတွက် မမှန်ပါ</p>
         )}
         <p className="text-sm text-stone-500 dark:text-neutral-400">
-          ပျောက်ဘူး: {preview.missing.toLocaleString('en-US')} လုံး
+          ပျောက်ဘူး: {preview.missing.toLocaleString('en-US')} ဗူး
         </p>
       </Card>
 
@@ -501,7 +501,7 @@ export default function CloseoutPage() {
             🔒 ကြွေး အရင် ရှင်းပြီးမှ ဒီ အဆင့် ဖွင့်ပါမယ်
           </p>
         )}
-        <Field label="ယနေ့ အပေါင် ပေါက်ဈေး (၁ လုံး)">
+        <Field label="ယနေ့ အပေါင် ပေါက်ဈေး (၁ ဗူး)">
           <input
             value={price}
             onChange={(e) => setPrice(e.target.value.replace(/\D/g, ''))}

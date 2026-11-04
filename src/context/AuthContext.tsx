@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import type { Session } from '@supabase/supabase-js'
 import { isConfigured, supabase, usernameToEmail } from '../lib/supabase'
 import type { Profile } from '../lib/types'
+import { fmtTime12 } from '../lib/types'
 
 interface AuthState {
   loading: boolean
@@ -35,11 +36,7 @@ async function logAttempt(username: string, success: boolean) {
 }
 
 function lockedMessage(lockedUntil: string): string {
-  const when = new Date(lockedUntil).toLocaleTimeString('en-GB', {
-    timeZone: 'Asia/Yangon',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  const when = fmtTime12(lockedUntil)
   return `PIN မှားတာ များလွန်းလို့ ဒီအကောင့် ယာယီ ပိတ်ထားပါတယ် — ${when} အထိ စောင့်ပြီး ပြန်ဝင်ပါ`
 }
 

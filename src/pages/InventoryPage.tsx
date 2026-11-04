@@ -45,7 +45,7 @@ const KIND_LABELS: Record<string, string> = {
   adjust: 'စာရင်းညှိ',
 }
 
-const fmtQty = (n: number) => `${n.toLocaleString('en-US')} လုံး`
+const fmtQty = (n: number) => `${n.toLocaleString('en-US')} ဗူး`
 
 /** Fetch a whole table in created_at order, paging past the 1,000-row cap. */
 async function fetchAll<T>(table: string, columns: string): Promise<T[]> {
