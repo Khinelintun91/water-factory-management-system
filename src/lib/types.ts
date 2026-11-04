@@ -1,5 +1,3 @@
-import { getLang } from './i18n'
-
 export type Role = 'owner' | 'co_owner' | 'manager' | 'staff' | 'agent'
 
 export interface Profile {
@@ -194,15 +192,6 @@ export function formatMMK(n: number): string {
   return `${n.toLocaleString('en-US')} ကျပ်`
 }
 
-/** Burmese daypart word for a Yangon hour (mirrors NotificationBell). */
-function daypartMy(hour: number): string {
-  if (hour < 5) return 'ည'
-  if (hour < 12) return 'မနက်'
-  if (hour < 16) return 'နေ့လယ်'
-  if (hour < 19) return 'ညနေ'
-  return 'ည'
-}
-
 function yangonParts(d: Date) {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Yangon',
@@ -224,19 +213,18 @@ function yangonParts(d: Date) {
 }
 
 /**
- * 12-hour clock ONLY — the user cannot read 24h format (instruction
- * 2026-11-04: every time shown in the app must be 12-hour).
- * Burmese: "ညနေ 5:27" · English: "5:27 PM". Always Asia/Yangon.
+ * 12-hour clock with AM/PM ONLY — the user cannot read 24h format and
+ * does not want Burmese daypart words either (instructions 2026-11-04).
+ * "9:27 AM" / "5:27 PM", always Asia/Yangon.
  */
 export function fmtTime12(iso: string | Date): string {
   const d = typeof iso === 'string' ? new Date(iso) : iso
   const p = yangonParts(d)
   const h12 = p.hour % 12 === 0 ? 12 : p.hour % 12
-  if (getLang() === 'en') return `${h12}:${p.minute} ${p.hour < 12 ? 'AM' : 'PM'}`
-  return `${daypartMy(p.hour)} ${h12}:${p.minute}`
+  return `${h12}:${p.minute} ${p.hour < 12 ? 'AM' : 'PM'}`
 }
 
-/** "4/11/2026 · ညနေ 5:27" (English: "4/11/2026 · 5:27 PM"). */
+/** "4/11/2026 · 5:27 PM". */
 export function fmtDateTime12(iso: string | Date): string {
   const d = typeof iso === 'string' ? new Date(iso) : iso
   const p = yangonParts(d)

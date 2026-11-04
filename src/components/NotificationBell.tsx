@@ -33,15 +33,7 @@ function yangonYmd(d: Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Yangon' }).format(d)
 }
 
-function daypart(hour: number): string {
-  if (hour < 5) return 'ည'
-  if (hour < 12) return 'မနက်'
-  if (hour < 16) return 'နေ့လယ်'
-  if (hour < 19) return 'ညနေ'
-  return 'ည'
-}
-
-/** Short Burmese relative/absolute time, always in Asia/Yangon terms. */
+/** Short relative/absolute time, 12-hour AM/PM, always Asia/Yangon. */
 function formatWhen(iso: string): string {
   const then = new Date(iso)
   const diffMin = Math.floor((Date.now() - then.getTime()) / 60000)
@@ -57,7 +49,7 @@ function formatWhen(iso: string): string {
   const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0)
   const minute = parts.find((p) => p.type === 'minute')?.value ?? '00'
   const h12 = hour % 12 === 0 ? 12 : hour % 12
-  const time = `${daypart(hour)} ${h12}:${minute}`
+  const time = `${h12}:${minute} ${hour < 12 ? 'AM' : 'PM'}`
 
   const dayGap = Math.round(
     (Date.parse(`${yangonYmd(new Date())}T00:00:00Z`) -
