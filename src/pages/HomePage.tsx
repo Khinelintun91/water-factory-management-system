@@ -77,6 +77,9 @@ function BackupCard() {
       <PrimaryButton onClick={onExport} disabled={busy} className="mt-3 w-full">
         {busy ? 'ထုတ်နေပါတယ်…' : '⬇ Backup ဒေါင်းလုပ်'}
       </PrimaryButton>
+      <p className="mt-2 text-xs opacity-70">
+        မှတ်တမ်း များရင် ထုတ်တာ ၂–၃ မိနစ် ကြာနိုင်ပါတယ် — ပြီးတဲ့ထိ စောင့်ပေးပါ၊ စာမျက်နှာ မပိတ်ပါနဲ့။
+      </p>
       <div className="mt-4 border-t border-stone-200/80 pt-3 dark:border-neutral-800">
         <p className="text-sm font-medium">လစဉ် မှတ်တမ်း ထုတ်ရန် (စာရင်းကိုင် အတွက်)</p>
         <div className="mt-2 flex gap-2">

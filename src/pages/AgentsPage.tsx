@@ -117,7 +117,7 @@ export default function AgentsPage() {
     const { data: agents } = await supabase
       .from('agents')
       .select('*')
-      .order('created_at', { ascending: true })
+      .order('code', { ascending: true })
     // Phone numbers come from agent_contacts. RLS decides who sees them:
     // owner/manager get rows, staff get none — so staff simply see '—'.
     // Bottles-held per agent comes from the agent_held_totals RPC (0021),

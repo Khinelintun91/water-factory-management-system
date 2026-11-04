@@ -31,11 +31,6 @@ interface StockMove {
   created_at: string
 }
 
-interface EntryQty {
-  delivered_qty: number
-  returned_qty: number
-}
-
 const KIND_LABELS: Record<string, string> = {
   produce: 'ထုတ်လုပ်',
   purchase: 'ဝယ်ယူ',
@@ -68,7 +63,14 @@ async function fetchAll<T>(table: string, columns: string): Promise<T[]> {
 export default function InventoryPage() {
   const { profile } = useAuth()
   const [moves, setMoves] = useState<StockMove[]>([])
-  const [entryQty, setEntryQty] = useState<EntryQty[]>([])
+  const [invTotals, setInvTotals] = useState<{
+    produced: number
+    purchased: number
+    damaged: number
+    adjustments: number
+    outQty: number
+    inQty: number
+  } | null>(null)
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -86,12 +88,13 @@ export default function InventoryPage() {
     setLoading(true)
     setMsg(null)
     try {
-      const [mv, eq] = await Promise.all([
+      const [mv, totals] = await Promise.all([
         fetchAll<StockMove>('inventory_movements', 'id, move_date, kind, bottles, notes, created_at'),
-        fetchAll<EntryQty>('daily_entries', 'delivered_qty, returned_qty'),
+        supabase.rpc('inventory_totals'),
       ])
+      if (totals.error) throw new Error(totals.error.message)
       setMoves(mv)
-      setEntryQty(eq)
+      setInvTotals(totals.data as typeof invTotals)
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err))
     }
@@ -111,20 +114,20 @@ export default function InventoryPage() {
   // physically at the factory, so the signed adjust sum is added to `full`
   // (and therefore flows into `total`).
   const stock = useMemo(() => {
-    const sumKind = (k: string) =>
-      moves.filter((m) => m.kind === k).reduce((s, m) => s + m.bottles, 0)
-    const produced = sumKind('produce')
-    const purchased = sumKind('purchase')
-    const damaged = sumKind('damage')
-    const adjustments = sumKind('adjust')
-    const out = entryQty.reduce((s, e) => s + e.delivered_qty, 0)
-    const inn = entryQty.reduce((s, e) => s + e.returned_qty, 0)
+    // Sums come from inventory_totals (migration 0023) — full-table server
+    // aggregates; the page no longer downloads every entry row to add them.
+    const produced = invTotals?.produced ?? 0
+    const purchased = invTotals?.purchased ?? 0
+    const damaged = invTotals?.damaged ?? 0
+    const adjustments = invTotals?.adjustments ?? 0
+    const out = invTotals?.outQty ?? 0
+    const inn = invTotals?.inQty ?? 0
     const full = produced - out + adjustments
     const empty = purchased + inn - produced - damaged
     const withAgents = out - inn
     const total = full + empty + withAgents
     return { produced, purchased, damaged, adjustments, out, inn, full, empty, withAgents, total }
-  }, [moves, entryQty])
+  }, [invTotals])
 
   const latestMoves = useMemo(() => [...moves].reverse().slice(0, 100), [moves])
 

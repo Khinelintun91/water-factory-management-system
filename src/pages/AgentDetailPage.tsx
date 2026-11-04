@@ -72,6 +72,13 @@ export function SettlementSummary({ s }: { s: AgentSettlement }) {
   )
 }
 
+const METHOD_LABELS: Record<string, string> = {
+  cash: 'ငွေသား',
+  kbzpay: 'KBZPay',
+  wavepay: 'WavePay',
+  bank: 'ဘဏ်',
+}
+
 export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { profile } = useAuth()
@@ -96,6 +103,16 @@ export default function AgentDetailPage() {
   const [depPrice, setDepPrice] = useState('')
   const [depNote, setDepNote] = useState('')
 
+  // Full-table per-agent totals from agent_detail_stats (migration 0023).
+  const [serverStats, setServerStats] = useState<{
+    held: number
+    sales: number
+    collectedEntries: number
+    paymentsTotal: number
+    depBottles: number
+    depAmount: number
+  } | null>(null)
+
   // Write-off form
   const [woAmount, setWoAmount] = useState('')
   const [woNote, setWoNote] = useState('')
@@ -103,7 +120,7 @@ export default function AgentDetailPage() {
   const load = useCallback(async () => {
     if (!id) return
     setLoading(true)
-    const [{ data: ag }, { data: ct }, { data: en }, { data: pm }, { data: dp }, { data: wo }, { data: st }, out] =
+    const [{ data: ag }, { data: ct }, { data: en }, { data: pm }, { data: dp }, { data: wo }, { data: st }, out, statsRes] =
       await Promise.all([
         supabase.from('agents').select('*').eq('id', id).maybeSingle(),
         supabase.from('agent_contacts').select('phone').eq('agent_id', id).maybeSingle(),
@@ -112,13 +129,13 @@ export default function AgentDetailPage() {
           .select('*')
           .eq('agent_id', id)
           .order('created_at', { ascending: false })
-          .limit(10000),
+          .limit(50),
         supabase
           .from('agent_payments')
           .select('*')
           .eq('agent_id', id)
           .order('created_at', { ascending: false })
-          .limit(10000),
+          .limit(50),
         supabase
           .from('agent_deposits')
           .select('*')
@@ -133,6 +150,7 @@ export default function AgentDetailPage() {
           .order('created_at', { ascending: false }),
         supabase.from('agent_settlements').select('*').eq('agent_id', id).maybeSingle(),
         supabase.rpc('agent_outstanding', { p_agent: id }),
+        supabase.rpc('agent_detail_stats', { p_agent: id }),
       ])
     const a = (ag as AgentFull | null) ?? null
     setAgent(a)
@@ -144,6 +162,18 @@ export default function AgentDetailPage() {
     setWriteOffs((wo ?? []) as WriteOff[])
     setSettlement((st as AgentSettlement | null) ?? null)
     setOutstanding(typeof out.data === 'number' ? out.data : 0)
+    setServerStats(
+      statsRes.error
+        ? null
+        : (statsRes.data as {
+            held: number
+            sales: number
+            collectedEntries: number
+            paymentsTotal: number
+            depBottles: number
+            depAmount: number
+          }),
+    )
     if (a && depPrice === '') setDepPrice(String(a.deposit_per_bottle || ''))
     setLoading(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -154,6 +184,19 @@ export default function AgentDetailPage() {
   }, [load])
 
   const stats = useMemo(() => {
+    // Totals come from agent_detail_stats (migration 0023): PostgREST caps
+    // client fetches at 1,000 rows, so reducing over fetched rows silently
+    // understates held/sales for agents with long histories. The reduce is
+    // only a fallback if the RPC is unavailable.
+    if (serverStats) {
+      return {
+        held: serverStats.held,
+        sales: serverStats.sales,
+        collected: serverStats.collectedEntries + serverStats.paymentsTotal,
+        depBottles: serverStats.depBottles,
+        depAmount: serverStats.depAmount,
+      }
+    }
     const held = entries.reduce((s, e) => s + e.delivered_qty - e.returned_qty, 0)
     const sales = entries.reduce((s, e) => s + e.amount, 0)
     const cash = entries.reduce((s, e) => s + (e.amount_collected ?? 0), 0)
@@ -161,7 +204,7 @@ export default function AgentDetailPage() {
     const depBottles = deposits.reduce((s, d) => s + d.bottles, 0)
     const depAmount = deposits.reduce((s, d) => s + d.amount, 0)
     return { held, sales, collected: cash + paid, depBottles, depAmount }
-  }, [entries, payments, deposits])
+  }, [serverStats, entries, payments, deposits])
 
   const canDeliver = useMemo(() => {
     if (!agent) return '—'
@@ -349,7 +392,7 @@ export default function AgentDetailPage() {
                 <div className="font-bold tabular-nums">{formatMMK(p.amount)}</div>
               </div>
               <div className={listMetaCls}>
-                {p.method}
+                {METHOD_LABELS[p.method] ?? p.method}
                 {p.notes ? ` · ${p.notes}` : ''}
               </div>
             </li>
@@ -370,7 +413,7 @@ export default function AgentDetailPage() {
                   <div className="font-bold tabular-nums">{formatMMK(p.amount)}</div>
                 </div>
                 <div className={listMetaCls}>
-                  {p.method}
+                  {METHOD_LABELS[p.method] ?? p.method}
                   {p.notes ? ` · ${p.notes}` : ''}
                 </div>
               </li>

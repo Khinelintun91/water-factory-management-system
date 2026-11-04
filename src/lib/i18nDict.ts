@@ -1143,4 +1143,6 @@ export const EN: Record<string, string> = {
   "မှတ်တမ်အသစ်": "New record",
   "ဗူး ရွှေ့ပြောင်းမှု အသစ်": "New bottle movement",
   "စစ်ထုတ်မှု အားလုံး ရှင်းရန်": "Clear all filters",
+  "ဒေတာ စစ်ဆေးမှု": "Data Quality",
+  "မှတ်တမ်း များရင် ထုတ်တာ ၂–၃ မိနစ် ကြာနိုင်ပါတယ် — ပြီးတဲ့ထိ စောင့်ပေးပါ၊ စာမျက်နှာ မပိတ်ပါနဲ့။": "If there are many records it can take 2-3 minutes — please wait until it finishes and do not close the page.",
 };

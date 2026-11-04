@@ -58,7 +58,7 @@ const NAV: { to: string; label: string; roles: string[] }[] = [
   { to: '/payroll', label: 'လစာ', roles: ['owner', 'manager'] },
   { to: '/reports', label: 'အစီရင်ခံစာ', roles: ['owner', 'manager'] },
   { to: '/handover', label: 'ငွေလွှဲအပ်', roles: ['owner', 'manager'] },
-  { to: '/data-quality', label: 'Data စစ်ဆေးမှု', roles: ['owner', 'manager'] },
+  { to: '/data-quality', label: 'ဒေတာ စစ်ဆေးမှု', roles: ['owner', 'manager'] },
   { to: '/history', label: 'ပြောင်းလဲမှုမှတ်တမ်း', roles: ['owner', 'manager'] },
   { to: '/disputes', label: 'အငြင်းပွားမှုများ', roles: ['owner', 'manager', 'agent'] },
   { to: '/users', label: 'အသုံးပြုသူများ', roles: ['owner'] },

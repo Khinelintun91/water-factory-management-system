@@ -173,11 +173,9 @@ export default function CloseoutPage() {
   const load = useCallback(async () => {
     if (!id) return
     setLoading(true)
-    const [{ data: ag }, { data: en }, { data: dp }, { data: pm }, { data: wo }, { data: st }, out] =
+    const [{ data: ag }, { data: pm }, { data: wo }, { data: st }, out, statsRes] =
       await Promise.all([
         supabase.from('agents').select('*').eq('id', id).maybeSingle(),
-        supabase.from('daily_entries').select('delivered_qty, returned_qty').eq('agent_id', id),
-        supabase.from('agent_deposits').select('bottles, amount').eq('agent_id', id),
         supabase
           .from('agent_payments')
           .select('*')
@@ -192,17 +190,23 @@ export default function CloseoutPage() {
           .limit(20),
         supabase.from('agent_settlements').select('*').eq('agent_id', id).maybeSingle(),
         supabase.rpc('agent_outstanding', { p_agent: id }),
+        supabase.rpc('agent_detail_stats', { p_agent: id }),
       ])
     const a = (ag as Agent | null) ?? null
-    const heldNow = ((en ?? []) as { delivered_qty: number; returned_qty: number }[]).reduce(
-      (s, e) => s + e.delivered_qty - e.returned_qty,
-      0,
-    )
-    const dep = (dp ?? []) as { bottles: number; amount: number }[]
+    // Held/deposit totals come from agent_detail_stats (migration 0023) —
+    // full-table server aggregates. Reducing over client-fetched entries
+    // silently capped at 1,000 rows and understated held, which pre-filled
+    // "returned" wrong and would overstate missing bottles at close-out.
+    const sStats = (statsRes.data ?? null) as {
+      held: number
+      depBottles: number
+      depAmount: number
+    } | null
+    const heldNow = sStats?.held ?? 0
     setAgent(a)
     setHeld(heldNow)
-    setDepBottles(dep.reduce((s, d) => s + d.bottles, 0))
-    setDepAmount(dep.reduce((s, d) => s + d.amount, 0))
+    setDepBottles(sStats?.depBottles ?? 0)
+    setDepAmount(sStats?.depAmount ?? 0)
     setPayments((pm ?? []) as AgentPayment[])
     setWriteOffs((wo ?? []) as WriteOff[])
     setExisting((st as AgentSettlement | null) ?? null)
