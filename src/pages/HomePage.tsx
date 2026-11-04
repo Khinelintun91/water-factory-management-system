@@ -15,8 +15,11 @@ import {
   PrimaryButton,
   SecondaryButton,
   StatCard,
+  btnGlassCls,
   btnPrimaryCls,
   btnSecondaryCls,
+  glassBtnSecondaryStyle,
+  glassBtnStyle,
   inputCls,
 } from '../components/ui'
 
@@ -568,11 +571,11 @@ function Dashboard() {
               />
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2.5">
-              <Link to="/entries" className={btnPrimaryCls}>
+              <Link to="/entries" className={btnGlassCls} style={glassBtnStyle}>
                 <NavIcon to="/entries" className="h-5 w-5" />
                 ပို့ဆောင်မှု ထည့်ရန် / ကြည့်ရန်
               </Link>
-              <Link to="/payments" className={btnSecondaryCls}>
+              <Link to="/payments" className={btnGlassCls} style={glassBtnSecondaryStyle}>
                 <NavIcon to="/payments" className="h-5 w-5" />
                 ငွေကောက်ခံမှု
               </Link>
@@ -690,7 +693,7 @@ export default function HomePage() {
         <Card>
           <CardTitle>ကျွန်ုပ်၏ စာရင်း</CardTitle>
           <p className="mt-1 text-sm opacity-80">သင့်ရဲ့ ကိုယ်ပိုင် မှတ်တမ်းများကိုပဲ မြင်ရပါမယ်။</p>
-          <Link to="/my" className={`${btnPrimaryCls} mt-3 w-full`}>
+          <Link to="/my" className={`${btnGlassCls} mt-3 w-full`} style={glassBtnStyle}>
             ကြည့်ရန်
           </Link>
         </Card>

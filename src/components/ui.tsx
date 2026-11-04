@@ -145,6 +145,12 @@ const btnGlassSize = {
   sm: 'min-h-[44px] px-4 py-2 text-sm',
 } as const
 
+// The same glass treatment for <Link> "buttons": pair the class string
+// with the matching fill style.
+export const glassBtnStyle = glassFill
+export const glassBtnSecondaryStyle = glassFillSecondary
+export const btnGlassCls = `${btnBase} ${btnGlassSize.md} ${glassCls}`
+
 export function PrimaryButton({ size = 'md', glass = false, className = '', type = 'button', style, ...props }: BtnProps) {
   if (glass) {
     return (
