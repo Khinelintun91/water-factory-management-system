@@ -141,22 +141,39 @@ interface LedgerSource {
   writeOffs: WriteOffLite[]
 }
 
-// Wallet-style face colours for the agent card stack. The colour is hashed
-// from the agent id, so a card keeps its colour when the list reorders.
-const WALLET_COLORS = [
-  '#0F766E',
-  '#5B21B6',
-  '#C2410C',
-  '#334155',
-  '#1E40AF',
-  '#9F1239',
-  '#166534',
-  '#3730A3',
-]
-function colorIndexFor(id: string): number {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
-  return h % WALLET_COLORS.length
+// Card-face tiers by sales, per the owner's rule and his reference photos:
+// the best-selling agents get a gold face, the middle group a white/silver
+// face, the lowest a black face. (No chip graphic — the owner asked to
+// leave it out.) Text colours flip per tier so names stay readable.
+type FaceTier = 'gold' | 'white' | 'black'
+const FACE_TIERS: Record<
+  FaceTier,
+  { bg: string; text: string; sub: string; faint: string; neg: string; extra: string }
+> = {
+  gold: {
+    bg: 'linear-gradient(135deg, #F9E784 0%, #E3C565 35%, #C9A227 70%, #9A7B1C 100%)',
+    text: 'text-stone-900',
+    sub: 'text-stone-800/75',
+    faint: 'text-stone-800/60',
+    neg: 'text-emerald-800',
+    extra: '',
+  },
+  white: {
+    bg: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F4 55%, #D6D3D1 100%)',
+    text: 'text-stone-900',
+    sub: 'text-stone-600',
+    faint: 'text-stone-500',
+    neg: 'text-emerald-700',
+    extra: 'border border-stone-300',
+  },
+  black: {
+    bg: 'linear-gradient(135deg, #3F3F46 0%, #18181B 60%, #09090B 100%)',
+    text: 'text-white',
+    sub: 'text-white/70',
+    faint: 'text-white/60',
+    neg: 'text-emerald-300',
+    extra: '',
+  },
 }
 
 export default function CollectionsPage() {
@@ -380,6 +397,30 @@ export default function CollectionsPage() {
     })
   }
 
+  // Face tier per agent: rank all agents by lifetime sales and split into
+  // thirds — top gold, middle white, bottom black.
+  const tierByAgent = useMemo(() => {
+    const ranked = [...agents].sort(
+      (x, y) => (totals.get(y.id)?.sales ?? 0) - (totals.get(x.id)?.sales ?? 0),
+    )
+    const n = ranked.length
+    const m = new Map<string, FaceTier>()
+    ranked.forEach((a, r) => {
+      const sales = totals.get(a.id)?.sales ?? 0
+      m.set(
+        a.id,
+        sales <= 0
+          ? 'black'
+          : r < Math.ceil(n / 3)
+            ? 'gold'
+            : r < Math.ceil((2 * n) / 3)
+              ? 'white'
+              : 'black',
+      )
+    })
+    return m
+  }, [agents, totals])
+
   const expandedLedger = useMemo(
     () => (expandedId ? buildLedger(expandedId) : []),
     // buildLedger reads only the per-agent ledger cache + expandedId.
@@ -451,7 +492,7 @@ export default function CollectionsPage() {
               // over that body.
               const prevOpen = idx > 0 && openId === visibleAgents[idx - 1]?.id
               const stacked = !open && idx > 0 && !prevOpen
-              const faceColor = WALLET_COLORS[colorIndexFor(a.id)]
+              const tier = FACE_TIERS[tierByAgent.get(a.id) ?? 'black']
               return (
                 <div
                   key={a.id}
@@ -462,22 +503,22 @@ export default function CollectionsPage() {
                     type="button"
                     onClick={() => setOpenId(open ? null : a.id)}
                     aria-expanded={open}
-                    style={{ backgroundColor: faceColor }}
-                    className={`relative flex h-[168px] w-full flex-col justify-between p-4 text-left text-white shadow-[0_-8px_18px_rgba(0,0,0,0.35)] lg:h-[184px] ${open ? 'rounded-t-2xl' : 'rounded-2xl'}`}
+                    style={{ background: tier.bg }}
+                    className={`relative flex h-[168px] w-full flex-col justify-between p-4 text-left shadow-[0_-8px_18px_rgba(0,0,0,0.35)] lg:h-[184px] ${tier.text} ${tier.extra} ${open ? 'rounded-t-2xl' : 'rounded-2xl'}`}
                   >
                     <span className="flex items-start justify-between gap-2">
                       <span className="min-w-0 font-semibold">
                         {a.name}
                         {a.code && (
-                          <span className="ml-2 text-xs font-normal text-white/70">{a.code}</span>
+                          <span className={`ml-2 text-xs font-normal ${tier.sub}`}>{a.code}</span>
                         )}
                         {!a.active && (
-                          <span className="ml-2 text-xs text-white/70">(ပိတ်ထားသည်)</span>
+                          <span className={`ml-2 text-xs ${tier.sub}`}>(ပိတ်ထားသည်)</span>
                         )}
                       </span>
                       <span className="flex shrink-0 items-center gap-1.5">
                         <span
-                          className={`font-bold tabular-nums ${t.outstanding < 0 ? 'text-emerald-200' : ''}`}
+                          className={`font-bold tabular-nums ${t.outstanding < 0 ? tier.neg : ''}`}
                         >
                           {formatMMK(t.outstanding)}
                         </span>
@@ -496,22 +537,22 @@ export default function CollectionsPage() {
                       </span>
                     </span>
                     <span className="block">
-                      <span className="block text-xs text-white/75">ကျန်ကြွေ</span>
+                      <span className={`block text-xs ${tier.faint}`}>ကျန်ကြွေ</span>
                       <span className="block text-[28px] font-bold leading-tight tabular-nums">
                         {formatMMK(t.outstanding)}
                       </span>
-                      <span className="mt-0.5 block text-xs text-white/85">
+                      <span className={`mt-0.5 block text-xs ${tier.sub}`}>
                         ရောင်းအား {formatMMK(t.sales)} · ကောက်ခံပြီး{' '}
                         {formatMMK(t.cash + t.payments)}
                       </span>
                     </span>
                     <span
                       aria-hidden="true"
-                      className="pointer-events-none absolute bottom-4 right-4 opacity-25"
+                      className={`pointer-events-none absolute bottom-4 right-4 opacity-25 ${tier.text}`}
                     >
                       <svg width="52" height="36" viewBox="0 0 52 36" fill="none">
-                        <circle cx="18" cy="18" r="15" stroke="white" strokeWidth="2" />
-                        <circle cx="34" cy="18" r="15" stroke="white" strokeWidth="2" />
+                        <circle cx="18" cy="18" r="15" stroke="currentColor" strokeWidth="2" />
+                        <circle cx="34" cy="18" r="15" stroke="currentColor" strokeWidth="2" />
                       </svg>
                     </span>
                   </button>
