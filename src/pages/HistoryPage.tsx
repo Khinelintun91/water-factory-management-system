@@ -52,6 +52,8 @@ export default function HistoryPage() {
 
   // Export the rows currently loaded (including any "load more" pages) —
   // same shaping pattern as the Data-Quality page's CSV export.
+  const [okMsg, setOkMsg] = useState<string | null>(null)
+
   function onExportCsv() {
     historyCsv(
       rows.map((r) => ({
@@ -64,6 +66,7 @@ export default function HistoryPage() {
       })),
       `history-${todayYangon()}.csv`,
     )
+    setOkMsg('CSV ဖိုင် ဒေါင်းလုပ် လုပ်ပြီးပါပြီ')
   }
 
   return (
@@ -85,6 +88,9 @@ export default function HistoryPage() {
         မှတ်တမ်းအားလုံးကို ပြင်ဆင်/ဖျက်ချ၍ မရပါ (ပိုင်ရှင် အပါအဝင်)။ မှားယွင်းမှု ဖြစ်ခဲ့ရင် ဒီမှတ်တမ်းက
         မူလ အချက်အလက်ကို ပြန်ဆယ်ရန် သုံးနိုင်ပါတယ်။
       </p>
+      {okMsg && (
+        <p className="text-sm text-emerald-600 dark:text-emerald-400">{okMsg}</p>
+      )}
 
       {loading ? (
         <LoadingState />

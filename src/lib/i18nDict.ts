@@ -982,7 +982,7 @@ export const EN: Record<string, string> = {
   "အသိပေးမည့် ပုံစံ": "Notification style",
   "အရေးကြီးတာပဲ": "Important only",
   "ညဘက် အသံတိတ်": "Night silent mode",
-  "၂၂:၀၀–၀၆:၀၀ အတွင်း ပုံမှန် အသိပေးချက်များ မပို့ပါ": "Normal notifications are not pushed between 22:00–06:00",
+  "10:00 PM–6:00 AM အတွင်း ပုံမှန် အသိပေးချက်များ မပို့ပါ": "Normal notifications are not pushed between 10:00 PM–6:00 AM",
   "အလိုအလျောက် ပြန်ဖွင့် စက္ကန့် — အနည်းဆုံး ၅ ထည့်ပါ": "Auto-refresh seconds — enter at least 5",
   "Dashboard အလိုအလျောက် ပြန်ဖွင့် (စက္ကန့်, အနည်းဆုံး ၅)": "Dashboard auto-refresh (seconds, min 5)",
   "ပုံမှန် ရေဈေး (၁ ဗူး, ကျပ်)": "Default water price (per bottle, MMK)",
@@ -1149,4 +1149,8 @@ export const EN: Record<string, string> = {
   "မှတ်တမ်း အဟောင်းများ ထပ်ပြမည်": "Show older records",
   "ပိုကောက်ထားသောငွေ ဖြစ်ပါတယ် (အမှား မဟုတ်ပါ)": "This is over-collected money (not an error)",
   "မှတ်တမ်း အားလုံး ဖတ်နေပါတယ် — ၅ နှစ်စာ မို့ ခဏ ကြာနိုင်ပါတယ်…": "Loading all records — five years of data can take a while…",
+  "လ ရွေးပါ": "Select a month",
+  "အကြောင်းပြန်ချက် ရေးပါ": "Write a reply",
+  "Excel ဖိုင် ဒေါင်းလုပ် လုပ်ပြီးပါပြီ": "Excel file downloaded",
+  "CSV ဖိုင် ဒေါင်းလုပ် လုပ်ပြီးပါပြီ": "CSV file downloaded",
 };

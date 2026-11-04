@@ -224,7 +224,10 @@ function MonthLockSection() {
   }, [load])
 
   async function onLock() {
-    if (!month) return
+    if (!month) {
+      setMsg('လ ရွေးပါ')
+      return
+    }
     setMsg(null)
     const { error } = await supabase
       .from('month_locks')
@@ -319,6 +322,7 @@ export default function ReportsPage() {
   const [woMsg, setWoMsg] = useState<string | null>(null)
   const [woOk, setWoOk] = useState<string | null>(null)
   const [woBusy, setWoBusy] = useState(false)
+  const [okMsg, setOkMsg] = useState<string | null>(null)
 
   // Trend controls: rolling window size, or a calendar year.
   const [trendCount, setTrendCount] = useState<6 | 12 | 24>(12)
@@ -648,6 +652,7 @@ export default function ReportsPage() {
     if (exporting) return
     setExporting(true)
     setMsg(null)
+    setOkMsg(null)
     try {
       const XLSX = await import('xlsx')
       const wb = XLSX.utils.book_new()
@@ -697,6 +702,7 @@ export default function ReportsPage() {
         'စရိတ်အမျိုးအစား',
       )
       XLSX.writeFile(wb, `report-${applied.from}-${applied.to}.xlsx`)
+      setOkMsg('Excel ဖိုင် ဒေါင်းလုပ် လုပ်ပြီးပါပြီ')
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err))
     }
@@ -829,6 +835,7 @@ export default function ReportsPage() {
       </Card>
 
       {msg && <p className="text-sm text-red-600">{msg}</p>}
+      {okMsg && <p className="text-sm text-emerald-600 dark:text-emerald-400">{okMsg}</p>}
 
       {loading ? (
         <LoadingState />
@@ -1030,7 +1037,11 @@ export default function ReportsPage() {
               <Field label="ကိုယ်စားလှယ်">
                 <select
                   value={woAgentId}
-                  onChange={(e) => setWoAgentId(e.target.value)}
+                  onChange={(e) => {
+                    setWoAgentId(e.target.value)
+                    setWoMsg(null)
+                    setWoOk(null)
+                  }}
                   className={inputCls}
                 >
                   <option value="">ရွေးပါ</option>

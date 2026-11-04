@@ -44,6 +44,19 @@ export default function DisputesPage() {
   const [agentNames, setAgentNames] = useState<Record<string, string>>({})
   const [message, setMessage] = useState('')
   const [replyById, setReplyById] = useState<Record<string, string>>({})
+  // Feedback belongs to the card it happened on — a single page-level
+  // message echoed inside every card (the old shape) reads as "nothing
+  // happened" to the person looking at one card.
+  const [cardMsg, setCardMsg] = useState<Record<string, string>>({})
+
+  function setCardError(id: string, text: string | null) {
+    setCardMsg((s) => {
+      const next = { ...s }
+      if (text) next[id] = text
+      else delete next[id]
+      return next
+    })
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -86,12 +99,16 @@ export default function DisputesPage() {
 
   async function onReply(d: Dispute) {
     const reply = (replyById[d.id] ?? '').trim()
-    if (!reply) return
+    if (!reply) {
+      setCardError(d.id, 'အကြောင်းပြန်ချက် ရေးပါ')
+      return
+    }
+    setCardError(d.id, null)
     const { error } = await supabase
       .from('disputes')
       .update({ reply, status: 'replied', replied_by: profile?.id ?? null })
       .eq('id', d.id)
-    if (error) setMsg(error.message)
+    if (error) setCardError(d.id, error.message)
     await load()
   }
 
@@ -100,17 +117,17 @@ export default function DisputesPage() {
     // one typed in the box counts — a typed reply is saved with the close.
     const typed = (replyById[d.id] ?? '').trim()
     if (!d.reply && !typed) {
-      setMsg('ပိတ်ရန် အကြောင်းပြန်ချက် စာသား အရင် ရေးပါ')
+      setCardError(d.id, 'ပိတ်ရန် အကြောင်းပြန်ချက် စာသား အရင် ရေးပါ')
       return
     }
-    setMsg(null)
+    setCardError(d.id, null)
     const payload: Record<string, unknown> = { status: 'closed' }
     if (!d.reply) {
       payload.reply = typed
       payload.replied_by = profile?.id ?? null
     }
     const { error } = await supabase.from('disputes').update(payload).eq('id', d.id)
-    if (error) setMsg(error.message)
+    if (error) setCardError(d.id, error.message)
     await load()
   }
 
@@ -189,9 +206,9 @@ export default function DisputesPage() {
                       ပိတ်ရန်
                     </SecondaryButton>
                   </div>
-                  {msg && (
+                  {cardMsg[d.id] && (
                     <p className="text-sm text-red-600" role="alert">
-                      {msg}
+                      {cardMsg[d.id]}
                     </p>
                   )}
                 </div>

@@ -326,7 +326,7 @@ export default function SettingsPage() {
         </Field>
         <ToggleRow
           label="ညဘက် အသံတိတ်"
-          sub="၂၂:၀၀–၀၆:၀၀ အတွင်း ပုံမှန် အသိပေးချက်များ မပို့ပါ"
+          sub="10:00 PM–6:00 AM အတွင်း ပုံမှန် အသိပေးချက်များ မပို့ပါ"
           checked={quietNight}
           onToggle={() => setQuietNight((q) => !q)}
         />

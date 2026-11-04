@@ -118,7 +118,10 @@ function MonthLockCard() {
   }, [load])
 
   async function onLock() {
-    if (!month) return
+    if (!month) {
+      setMsg('လ ရွေးပါ')
+      return
+    }
     setMsg(null)
     const { error } = await supabase
       .from('month_locks')
