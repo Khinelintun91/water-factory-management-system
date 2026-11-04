@@ -155,6 +155,9 @@ export default function CollectionsPage() {
   const [csvBusy, setCsvBusy] = useState(false)
   const [csvMsg, setCsvMsg] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  // Which agent's card body is open. Cards start collapsed to a name row so
+  // the page is a compact stacked list; tapping a name opens its full card.
+  const [openId, setOpenId] = useState<string | null>(null)
 
   // Collections-report filters.
   const [fAgent, setFAgent] = useState('')
@@ -421,21 +424,43 @@ export default function CollectionsPage() {
                 outstanding: 0,
               }
               const expanded = expandedId === a.id
+              const open = openId === a.id
               return (
                 <div key={a.id} className={`${cardCls} p-4 lg:p-5`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setOpenId(open ? null : a.id)}
+                    aria-expanded={open}
+                    className="flex w-full items-center justify-between gap-2 text-left"
+                  >
+                    <span className="font-semibold">
                       {a.name}
                       {!a.active && <span className="ml-2 text-xs opacity-60">(ပိတ်ထားသည်)</span>}
-                    </div>
-                    <button
-                      onClick={() => setExpandedId(expanded ? null : a.id)}
-                      className={detailBtnCls}
+                    </span>
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className={`h-5 w-5 shrink-0 opacity-60 transition-transform ${open ? 'rotate-180' : ''}`}
+                      aria-hidden="true"
                     >
-                      {expanded ? 'ပိတ်ရန်' : 'အသေးစိတ် စာရင်း'}
-                    </button>
-                  </div>
-                  <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm lg:grid-cols-4">
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </button>
+                  {open && (
+                    <>
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          onClick={() => setExpandedId(expanded ? null : a.id)}
+                          className={detailBtnCls}
+                        >
+                          {expanded ? 'ပိတ်ရန်' : 'အသေးစိတ် စာရင်း'}
+                        </button>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm lg:grid-cols-4">
                     <div>
                       <div className="text-xs font-medium text-stone-500 dark:text-neutral-400">
                         စုစုပေါင်း ရောင်းအား
@@ -519,6 +544,8 @@ export default function CollectionsPage() {
                       </ul>
                     </>
                   ) : null}
+                    </>
+                  )}
                 </div>
               )
             })}
