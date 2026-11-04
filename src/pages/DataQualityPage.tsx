@@ -2,9 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { fetchAll } from '../lib/fetchAll'
-import { getLastBackupAt } from '../lib/backup'
 import { dataQualityCsv } from '../lib/exports'
-import { personName, todayYangon } from '../lib/types'
+import { todayYangon } from '../lib/types'
 import {
   Card,
   LoadingState,
@@ -16,14 +15,14 @@ import {
 
 // Data-quality checks, ported from the old app's data-quality.ts
 // (checkDataQuality + checkDebtAndHabits) and its month-lock annotation
-// from data-quality.server.ts. Column mapping: bottles_out ->
-// delivered_qty, empties_in -> returned_qty, agents.price_per_bottle ->
-// agents.default_unit_price, entries.entered_by -> created_by.
-// Additions for this schema (noted in the build report): the entries table
-// stores `amount`, so amount != delivered_qty * unit_price is checked; the
-// agent_name snapshot can be missing; an agent's total balance can go
-// negative; open disputes can age past 7 days; the backup stamp can go
-// stale. Checks run on live data every time the page opens.
+// from data-quality.server.ts. The checks themselves now run SERVER-side
+// in the data_quality_scan() RPC (migration 0022) — at multi-year scale
+// the browser-side scan of every entry/payment took the better part of
+// a minute. The RPC reproduces the checks issue-for-issue (same kinds,
+// severities, texts and order) and returns the finished list plus the
+// scanned-row counts; this page only annotates month-lock state and
+// renders/filters/exports. Checks run on live data every time the page
+// opens.
 
 type Severity = 'high' | 'medium' | 'low'
 type IssueKind =
@@ -49,91 +48,14 @@ interface DqIssue {
   locked?: boolean
 }
 
-interface EntryRow {
-  id: string
-  entry_date: string
-  agent_id: string | null
-  agent_name: string | null
-  delivered_qty: number
-  returned_qty: number
-  unit_price: number
-  amount: number
-  amount_collected: number
-  notes: string | null
-  created_by: string | null
-  created_at: string
-}
-
-interface AgentLite {
-  id: string
-  name: string
-  default_unit_price: number
-  bottle_limit: number
-}
-
-interface DepositRow {
-  id: string
-  agent_id: string | null
-  deposit_date: string
-  agent_name: string | null
-  bottles: number
-  price_per_bottle: number
-  amount: number
-}
-
-interface PayrollLite {
-  id: string
-  month: string
-  user_id: string
-  base: number
-  bonus: number
-  deduction: number
-  net: number
-}
-
-interface ExpenseLite {
-  id: string
-  expense_date: string
-  category_id: string | null
-  title: string
-  amount: number
-}
-
-interface MoneyLite {
-  agent_id: string | null
-  amount: number
-}
-
-/** agent_payments rows as the anomaly check needs them: who collected, when. */
-interface PaymentRow {
-  agent_id: string | null
-  amount: number
-  payment_date: string
-  created_by: string | null
-}
-
-interface DisputeLite {
-  id: string
-  agent_id: string
-  message: string
-  status: string
-  created_at: string
-}
-
-const MAX_DAILY_BOTTLES = 2000
-const n = Number
-const fmt = (x: number) => Math.round(x).toLocaleString('en-US')
-const daysBetween = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 86400e3)
-const shiftDay = (d: string, delta: number) =>
-  new Date(Date.parse(d) + delta * 86400e3).toISOString().slice(0, 10)
-
 /**
- * Full-table paginated load via the shared helper (src/lib/fetchAll.ts) —
- * the same loader Reports/Entries use. The requested order column gets a
- * unique `id` tiebreak (`month` on month_locks is already unique): ordering
- * by `created_at` alone is not a stable page order when many rows share one
- * timestamp (bulk imports), so pages could repeat or skip rows. Errors keep
- * the `<table>: <message>` shape this page has always shown.
+ * Full-table paginated load via the shared helper (src/lib/fetchAll.ts).
+ * Only used for month_locks now (a tiny table) — the scan itself is the
+ * data_quality_scan() RPC. The requested order column gets a unique `id`
+ * tiebreak (`month` on month_locks is already unique): ordering by
+ * `created_at` alone is not a stable page order when many rows share one
+ * timestamp (bulk imports), so pages could repeat or skip rows. Errors
+ * keep the `<table>: <message>` shape this page has always shown.
  */
 async function fetchTable<T>(table: string, columns: string, orderBy = 'created_at'): Promise<T[]> {
   try {
@@ -145,371 +67,6 @@ async function fetchTable<T>(table: string, columns: string, orderBy = 'created_
   } catch (err) {
     throw new Error(`${table}: ${err instanceof Error ? err.message : String(err)}`)
   }
-}
-
-function runChecks(input: {
-  entries: EntryRow[]
-  agents: AgentLite[]
-  deposits: DepositRow[]
-  payroll: PayrollLite[]
-  expenses: ExpenseLite[]
-  payments: PaymentRow[]
-  writeOffs: MoneyLite[]
-  disputes: DisputeLite[]
-  usernameOf: (id: string | null) => string
-  agentNameOf: (id: string | null) => string
-  lastBackupAt: string | null
-  today: string
-}): DqIssue[] {
-  const issues: DqIssue[] = []
-  const agents = new Map(input.agents.map((a) => [a.id, a]))
-  const today = input.today
-
-  // --- Duplicates: same agent, same day, identical numbers ---------------
-  const byKey = new Map<string, EntryRow[]>()
-  for (const e of input.entries) {
-    if (!e.agent_id) continue
-    const k = `${e.agent_id}|${e.entry_date}`
-    const arr = byKey.get(k)
-    if (arr) arr.push(e)
-    else byKey.set(k, [e])
-  }
-  for (const rows of byKey.values()) {
-    if (rows.length < 2) continue
-    const f = rows[0]!
-    const same = rows.every(
-      (r) =>
-        r.delivered_qty === f.delivered_qty &&
-        r.returned_qty === f.returned_qty &&
-        n(r.amount_collected) === n(f.amount_collected),
-    )
-    if (!same) continue
-    for (const r of rows.slice(1)) {
-      issues.push({
-        kind: 'duplicate',
-        severity: 'high',
-        table: 'daily_entries',
-        recordId: r.id,
-        date: r.entry_date,
-        name: r.agent_name ?? input.agentNameOf(r.agent_id),
-        problem: `တစ်ရက်တည်းတွင် မှတ်တမ်း ${rows.length} ခု (ဂဏန်းတူ)`,
-        suggestion: 'ထပ်နေသော မှတ်တမ်းကို ဖျက်ပါ',
-      })
-    }
-  }
-
-  // --- Per-entry checks + running bottle balance --------------------------
-  const sorted = [...input.entries].sort((a, b) => a.entry_date.localeCompare(b.entry_date))
-  const held = new Map<string, number>()
-  for (const e of sorted) {
-    const base = {
-      table: 'daily_entries',
-      recordId: e.id,
-      date: e.entry_date,
-      name: e.agent_name ?? input.agentNameOf(e.agent_id),
-    }
-    if (e.delivered_qty < 0 || e.returned_qty < 0 || n(e.amount_collected) < 0)
-      issues.push({ ...base, kind: 'impossible', severity: 'high', problem: 'အနုတ်ဂဏန်း ပါနေသည်', suggestion: 'ဂဏန်းကို 0 သို့မဟုတ် အမှန်ဖြင့် ပြင်ပါ' })
-    if (e.delivered_qty > MAX_DAILY_BOTTLES)
-      issues.push({ ...base, kind: 'impossible', severity: 'medium', problem: `တစ်ရက် ${fmt(e.delivered_qty)} ဘူး ပို့ — အလွန်များသည်`, suggestion: 'ဂဏန်း ထပ်ရိုက်မိခြင်း ရှိမရှိ စစ်ပါ' })
-    if (e.entry_date > today)
-      issues.push({ ...base, kind: 'impossible', severity: 'medium', problem: 'အနာဂတ်ရက်စွဲ', suggestion: 'ရက်စွဲကို မှန်အောင် ပြင်ပါ' })
-    if (e.delivered_qty === 0 && e.returned_qty === 0 && n(e.amount_collected) === 0 && !e.notes?.trim())
-      issues.push({ ...base, kind: 'impossible', severity: 'low', problem: 'ဂဏန်းအားလုံး 0 — အလွတ်မှတ်တမ်း', suggestion: 'မလိုအပ်ပါက ဖျက်ပါ' })
-    if (Math.abs(n(e.amount) - e.delivered_qty * n(e.unit_price)) > 0.5)
-      issues.push({
-        ...base,
-        kind: 'mismatch',
-        severity: 'high',
-        problem: `ရောင်းငွေ မကိုက် — ${fmt(e.delivered_qty)} × ${fmt(n(e.unit_price))} = ${fmt(e.delivered_qty * n(e.unit_price))} ဖြစ်ရမည် (မှတ်ထား ${fmt(n(e.amount))})`,
-        suggestion: 'မှတ်တမ်းကို စစ်ပြီး ပြင်ပါ',
-      })
-    if (e.agent_id && !e.agent_name?.trim())
-      issues.push({ ...base, kind: 'snapshot', severity: 'medium', problem: 'ကိုယ်စားလှယ် အမည် မှတ်တမ်း (snapshot) ပျောက်နေသည်', suggestion: 'မှတ်တမ်းကို တစ်ခါ ပြန်သိမ်းပါ (အမည် အလိုအလျောက် ပြန်ဝင်မည်)' })
-    if (!e.agent_id) continue
-    const h = (held.get(e.agent_id) ?? 0) + e.delivered_qty - e.returned_qty
-    if (h < 0)
-      issues.push({ ...base, kind: 'impossible', severity: 'high', problem: `ပို့ထားသည်ထက် ဗူးခွံ ပိုပြန်ယူ (လက်ကျန် ${fmt(h)})`, suggestion: 'ပြန်ယူဗူးခွံ အရေအတွက် သို့မဟုတ် ယခင်ပို့ဘူးကို စစ်ပြီး ပြင်ပါ' })
-    held.set(e.agent_id, Math.max(0, h))
-    const a = agents.get(e.agent_id)
-    if (a && a.bottle_limit > 0 && h > a.bottle_limit)
-      issues.push({ ...base, kind: 'impossible', severity: 'medium', problem: `လက်ကျန် ${fmt(h)} ဘူး — ကန့်သတ်ချက် ${fmt(a.bottle_limit)} ကျော်`, suggestion: 'ကန့်သတ်ချက် တိုးပါ သို့မဟုတ် ပို့ဘူးကို စစ်ပါ' })
-    if (a && n(e.unit_price) !== n(a.default_unit_price))
-      issues.push({ ...base, kind: 'mismatch', severity: 'medium', problem: `ယူနစ်ဈေး ${fmt(n(e.unit_price))} ≠ ကိုယ်စားလှယ်ဈေး ${fmt(n(a.default_unit_price))}`, suggestion: 'မှတ်တမ်းကို တစ်ခါ ပြန်သိမ်းပါ (ဈေး အလိုအလျောက် ညှိမည်)' })
-  }
-
-  // --- Deposits ------------------------------------------------------------
-  for (const d of input.deposits) {
-    const expect = n(d.bottles) * n(d.price_per_bottle)
-    if (Math.abs(expect - n(d.amount)) > 0.5)
-      issues.push({
-        kind: 'mismatch',
-        severity: 'high',
-        table: 'agent_deposits',
-        recordId: d.id,
-        date: d.deposit_date,
-        name: d.agent_name ?? input.agentNameOf(d.agent_id),
-        problem: `အပေါင် ${fmt(n(d.bottles))} × ${fmt(n(d.price_per_bottle))} = ${fmt(expect)} ဖြစ်ရမည် (မှတ်ထား ${fmt(n(d.amount))})`,
-        suggestion: `ပမာဏကို ${fmt(expect)} ကျပ် သို့ ပြင်ပါ`,
-      })
-  }
-
-  // --- Payroll ---------------------------------------------------------------
-  for (const p of input.payroll) {
-    const uname = input.usernameOf(p.user_id)
-    const expect = n(p.base) + n(p.bonus) - n(p.deduction)
-    if (Math.abs(expect - n(p.net)) > 0.5)
-      issues.push({
-        kind: 'mismatch',
-        severity: 'high',
-        table: 'payroll_runs',
-        recordId: p.id,
-        date: p.month,
-        name: uname,
-        problem: `လစာ ${fmt(n(p.base))} + ${fmt(n(p.bonus))} − ${fmt(n(p.deduction))} = ${fmt(expect)} (မှတ်ထား ${fmt(n(p.net))})`,
-        suggestion: 'လစာကို ပြန်တွက်ပါ',
-      })
-    if (n(p.net) < 0)
-      issues.push({
-        kind: 'impossible',
-        severity: 'medium',
-        table: 'payroll_runs',
-        recordId: p.id,
-        date: p.month,
-        name: uname,
-        problem: 'အသားတင်လစာ အနုတ်',
-        suggestion: 'advance အရစ်ကျ ပမာဏကို လျှော့ပါ',
-      })
-  }
-
-  // --- Expenses ---------------------------------------------------------------
-  for (const x of input.expenses) {
-    const base = { table: 'expenses', recordId: x.id, date: x.expense_date, name: x.title }
-    if (n(x.amount) <= 0)
-      issues.push({ ...base, kind: 'impossible', severity: 'medium', problem: 'ကုန်ကျငွေ 0 သို့မဟုတ် အနုတ်', suggestion: 'ပမာဏကို ပြင်ပါ သို့မဟုတ် ဖျက်ပါ' })
-    if (x.expense_date > today)
-      issues.push({ ...base, kind: 'impossible', severity: 'medium', problem: 'အနာဂတ်ရက်စွဲ', suggestion: 'ရက်စွဲကို ပြင်ပါ' })
-  }
-
-  // --- Debt aging (FIFO), negative balances, held vs deposit ------------------
-  const credit = new Map<string, number>()
-  for (const p of [...input.payments, ...input.writeOffs])
-    if (p.agent_id) credit.set(p.agent_id, (credit.get(p.agent_id) ?? 0) + n(p.amount))
-  const trips = new Map<string, EntryRow[]>()
-  for (const e of input.entries) {
-    if (!e.agent_id) continue
-    const arr = trips.get(e.agent_id)
-    if (arr) arr.push(e)
-    else trips.set(e.agent_id, [e])
-  }
-  // Deposit bottles per agent, summed once (the per-agent loop below used
-  // to re-filter the whole deposits array for every agent).
-  const depBottlesByAgent = new Map<string, number>()
-  for (const d of input.deposits)
-    if (d.agent_id) depBottlesByAgent.set(d.agent_id, (depBottlesByAgent.get(d.agent_id) ?? 0) + n(d.bottles))
-
-  // Negative total balance per agent (over-collected).
-  const balance = new Map<string, number>()
-  for (const [aid, rows] of trips)
-    balance.set(aid, rows.reduce((s, e) => s + n(e.amount) - n(e.amount_collected), 0))
-  for (const p of input.payments) if (p.agent_id) balance.set(p.agent_id, (balance.get(p.agent_id) ?? 0) - n(p.amount))
-  for (const w of input.writeOffs) if (w.agent_id) balance.set(w.agent_id, (balance.get(w.agent_id) ?? 0) - n(w.amount))
-  for (const [aid, bal] of balance) {
-    if (bal < -0.5)
-      issues.push({
-        kind: 'debt',
-        severity: 'high',
-        table: 'agents',
-        recordId: aid,
-        date: today,
-        name: input.agentNameOf(aid),
-        problem: `ကိုယ်စားလှယ် လက်ကျန် အနုတ် ${fmt(bal)} ကျပ် — ငွေ ပိုကောက်ခံထားသည်`,
-        suggestion: 'ကောက်ခံမှု မှတ်တမ်းများကို စစ်ပါ',
-      })
-  }
-
-  for (const [aid, rows] of trips) {
-    const sortedRows = [...rows].sort((a, b) => a.entry_date.localeCompare(b.entry_date))
-    let pool = credit.get(aid) ?? 0
-    for (const r of sortedRows) {
-      const d = r.delivered_qty * n(r.unit_price) - n(r.amount_collected)
-      if (d < 0) pool -= d
-    }
-    let owed = 0
-    let oldest: EntryRow | null = null
-    for (const r of sortedRows) {
-      const d = r.delivered_qty * n(r.unit_price) - n(r.amount_collected)
-      if (d <= 0) continue
-      const left = d - Math.min(pool, d)
-      pool = Math.max(0, pool - d)
-      if (left > 0.5) {
-        owed += left
-        oldest ??= r
-      }
-    }
-    if (oldest) {
-      const age = daysBetween(oldest.entry_date, today)
-      if (age > 30)
-        issues.push({
-          kind: 'debt',
-          severity: age > 60 ? 'high' : 'medium',
-          table: 'agents',
-          recordId: aid,
-          date: oldest.entry_date,
-          name: oldest.agent_name ?? input.agentNameOf(aid),
-          problem: `ကြွေး ${fmt(owed)} ကျပ် — အဟောင်းဆုံး ${age} ရက် ကြာပြီ`,
-          suggestion:
-            age > 60
-              ? 'ယနေ့ပဲ ဖုန်းဆက်ကောက်ပါ၊ ငွေမရမချင်း ထပ်မပို့ပါနှင့်'
-              : 'ကိုယ်စားလှယ်ကို သတိပေးပြီး ကောက်ခံရန် စီစဉ်ပါ',
-        })
-    }
-    const a = agents.get(aid)
-    const depBottles = depBottlesByAgent.get(aid) ?? 0
-    const h = held.get(aid) ?? 0
-    if (a && depBottles > 0 && h > depBottles)
-      issues.push({
-        kind: 'mismatch',
-        severity: 'medium',
-        table: 'agents',
-        recordId: aid,
-        date: today,
-        name: a.name,
-        problem: `လက်ကျန် ${fmt(h)} ဘူး > အပေါင်ယူထား ${fmt(depBottles)} ဘူး`,
-        suggestion: `ကျန် ${fmt(h - depBottles)} ဘူးအတွက် အပေါင် ထပ်ယူပါ သို့မဟုတ် ဘူးခွံ ပြန်သိမ်းပါ`,
-      })
-  }
-
-  // --- Suspicious habits -------------------------------------------------------
-  for (const e of input.entries) {
-    const base = {
-      table: 'daily_entries',
-      recordId: e.id,
-      date: e.entry_date,
-      name: e.agent_name ?? input.agentNameOf(e.agent_id),
-    }
-    if (e.delivered_qty >= 20 && n(e.amount_collected) === 0)
-      issues.push({ ...base, kind: 'suspicious', severity: 'low', problem: `${fmt(e.delivered_qty)} ဘူး ပို့ပြီး ငွေ 0 လက်ခံ`, suggestion: 'အကြွေးသက်သက်ဟုတ်မဟုတ် ပို့သူဝန်ထမ်းကို မေးပါ' })
-    if (e.created_at) {
-      const hr = new Date(Date.parse(e.created_at) + 6.5 * 3600e3).getUTCHours()
-      if (hr >= 22 || hr < 5) {
-        const entered = input.usernameOf(e.created_by)
-        issues.push({
-          ...base,
-          kind: 'suspicious',
-          severity: 'low',
-          problem: `ညနက် ${String(hr).padStart(2, '0')} နာရီတွင် ထည့်သွင်း${entered ? ` (${entered})` : ''}`,
-          suggestion: 'အချိန်လွန်ထည့်ရသည့် အကြောင်းကို စစ်ပါ',
-        })
-      }
-    }
-  }
-
-  // --- Collection anomalies (the live old app's signature check) -------------
-  // What each collector (agent_payments.created_by) took in, grouped by day.
-  // A day is flagged only against a baseline that exists in the fetched data:
-  // (a) the day reaches 3x the collector's trailing-7-day daily average, or
-  // (b) the day reaches 1.5x the collector's previous-day total — and in
-  // both rules the day's total must be at least 100,000.
-  const ANOMALY_MIN_TOTAL = 100000
-  const byCollector = new Map<string, Map<string, number>>()
-  for (const p of input.payments) {
-    if (!p.created_by || !p.payment_date) continue
-    let daysMap = byCollector.get(p.created_by)
-    if (!daysMap) byCollector.set(p.created_by, (daysMap = new Map()))
-    daysMap.set(p.payment_date, (daysMap.get(p.payment_date) ?? 0) + n(p.amount))
-  }
-  for (const [collectorId, daysMap] of byCollector) {
-    const collector = input.usernameOf(collectorId)
-    if (!collector) continue
-    for (const [date, total] of daysMap) {
-      if (total < ANOMALY_MIN_TOTAL) continue
-      const base = {
-        kind: 'collection_anomaly' as const,
-        severity: 'high' as const,
-        table: 'agent_payments',
-        recordId: collectorId,
-        date,
-        name: collector,
-      }
-      // (a) Trailing-7-day daily average: the 7 calendar days before this
-      // day; days without payments count as 0, but at least one of them
-      // must exist in the fetched data (otherwise no baseline).
-      let windowSum = 0
-      let windowSeen = false
-      for (let k = 1; k <= 7; k++) {
-        const prevTotal = daysMap.get(shiftDay(date, -k))
-        if (prevTotal !== undefined) {
-          windowSeen = true
-          windowSum += prevTotal
-        }
-      }
-      if (windowSeen) {
-        const avg = windowSum / 7
-        if (avg > 0 && total >= 3 * avg)
-          issues.push({
-            ...base,
-            problem: `${collector} သည် ပုံမှန်ထက် ၃ ဆပိုများသော ငွေကို ကောက်ခံခဲ့သည်`,
-            suggestion: `ကောက်ငွေ ${fmt(total)} ကျပ် · ပုံမှန်ငွေ ${fmt(avg)} ကျပ် — ကောက်ခံမှု မှတ်တမ်းများကို စစ်ပါ`,
-          })
-      }
-      // (b) Previous-day total, when that day exists in the fetched data.
-      const prevDayTotal = daysMap.get(shiftDay(date, -1))
-      if (prevDayTotal !== undefined && prevDayTotal > 0 && total >= 1.5 * prevDayTotal)
-        issues.push({
-          ...base,
-          problem: `${collector} ကောက်ခံသောငွေသည် ယမန်နေ့၏ ${Math.round((total / prevDayTotal) * 100)}% ရှိသည်`,
-          suggestion: `ကောက်ငွေ ${fmt(total)} ကျပ် · ယမန်နေ့ငွေ ${fmt(prevDayTotal)} ကျပ် — ကောက်ခံမှု မှတ်တမ်းများကို စစ်ပါ`,
-        })
-    }
-  }
-
-  // --- Disputes left unresolved > 7 days ---------------------------------------
-  for (const d of input.disputes) {
-    if (d.status === 'closed') continue
-    const age = daysBetween(d.created_at.slice(0, 10), today)
-    if (age > 7)
-      issues.push({
-        kind: 'dispute',
-        severity: 'medium',
-        table: 'disputes',
-        recordId: d.id,
-        date: d.created_at.slice(0, 10),
-        name: input.agentNameOf(d.agent_id),
-        problem: `အငြင်းပွားမှု ${age} ရက် ကြာပြီ — မဖြေရှင်းရသေးပါ`,
-        suggestion: 'အငြင်းပွားမှု စာမျက်နှာတွင် ပြန်ဖြေပြီး ပိတ်ပါ',
-      })
-  }
-
-  // --- Backup freshness ----------------------------------------------------------
-  if (!input.lastBackupAt) {
-    issues.push({
-      kind: 'system',
-      severity: 'medium',
-      table: 'app_settings',
-      recordId: 'last_backup_at',
-      date: today,
-      name: 'Backup',
-      problem: 'Backup တစ်ခါမှ မလုပ်ရသေးပါ',
-      suggestion: 'ပင်မ စာမျက်နှာမှ Backup ဒေါင်းလုပ် လုပ်ပါ',
-    })
-  } else {
-    const age = daysBetween(input.lastBackupAt.slice(0, 10), today)
-    if (age > 7)
-      issues.push({
-        kind: 'system',
-        severity: 'medium',
-        table: 'app_settings',
-        recordId: 'last_backup_at',
-        date: input.lastBackupAt.slice(0, 10),
-        name: 'Backup',
-        problem: `နောက်ဆုံး Backup သည် ${age} ရက် ကြာပြီ`,
-        suggestion: 'ပင်မ စာမျက်နှာမှ Backup အသစ် ဒေါင်းလုပ် လုပ်ပါ',
-      })
-  }
-
-  const rank: Record<Severity, number> = { high: 0, medium: 1, low: 2 }
-  return issues.sort((a, b) => rank[a.severity] - rank[b.severity] || b.date.localeCompare(a.date))
 }
 
 const GROUP_TITLES: { kind: IssueKind; title: string }[] = [
@@ -605,47 +162,24 @@ export default function DataQualityPage() {
     setLoading(true)
     setMsg(null)
     try {
-      const [entries, agents, deposits, payroll, expenses, payments, writeOffs, disputes, profiles, locks, lastBackupAt] =
-        await Promise.all([
-          fetchTable<EntryRow>(
-            'daily_entries',
-            'id, entry_date, agent_id, agent_name, delivered_qty, returned_qty, unit_price, amount, amount_collected, notes, created_by, created_at',
-          ),
-          fetchTable<AgentLite>('agents', 'id, name, default_unit_price, bottle_limit', 'name'),
-          fetchTable<DepositRow>('agent_deposits', 'id, agent_id, deposit_date, agent_name, bottles, price_per_bottle, amount'),
-          fetchTable<PayrollLite>('payroll_runs', 'id, month, user_id, base, bonus, deduction, net'),
-          fetchTable<ExpenseLite>('expenses', 'id, expense_date, category_id, title, amount'),
-          fetchTable<PaymentRow>('agent_payments', 'agent_id, amount, payment_date, created_by'),
-          fetchTable<MoneyLite & { writeoff_date: string }>('write_offs', 'agent_id, amount, writeoff_date'),
-          fetchTable<DisputeLite>('disputes', 'id, agent_id, message, status, created_at'),
-          fetchTable<{ id: string; username: string; display_name?: string | null }>(
-            'profiles',
-            'id, username, display_name',
-            'username',
-          ),
-          fetchTable<{ month: string }>('month_locks', 'month', 'month'),
-          getLastBackupAt(),
-        ])
-      const usernames = new Map(profiles.map((p) => [p.id, personName(p)]))
-      const agentNames = new Map(agents.map((a) => [a.id, a.name]))
-      const found = runChecks({
-        entries,
-        agents,
-        deposits,
-        payroll,
-        expenses,
-        payments,
-        writeOffs,
-        disputes,
-        usernameOf: (id) => (id ? usernames.get(id) ?? '' : ''),
-        agentNameOf: (id) => (id ? agentNames.get(id) ?? '—' : '—'),
-        lastBackupAt,
-        today: todayYangon(),
-      })
+      // The scan runs server-side (migration 0022): one RPC returns the
+      // finished issue list — identical kinds/severities/texts/order to
+      // the old client-side runChecks — plus the scanned-row counts.
+      // Only month_locks (a tiny table) is still fetched client-side, to
+      // annotate issues whose month is locked.
+      const [scan, locks] = await Promise.all([
+        supabase.rpc('data_quality_scan'),
+        fetchTable<{ month: string }>('month_locks', 'month', 'month'),
+      ])
+      if (scan.error) throw new Error(scan.error.message)
+      const { issues: found, counts: scanned } = scan.data as {
+        issues: DqIssue[]
+        counts: { entries: number; deposits: number; payroll: number; expenses: number }
+      }
       const lockedMonths = new Set(locks.map((l) => l.month.slice(0, 7)))
       for (const i of found) i.locked = lockedMonths.has(i.date.slice(0, 7))
       setIssues(found)
-      setCounts({ entries: entries.length, deposits: deposits.length, payroll: payroll.length, expenses: expenses.length })
+      setCounts(scanned)
       setCheckedAt(new Date().toLocaleString('my-MM'))
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err))

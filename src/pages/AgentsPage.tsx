@@ -120,21 +120,20 @@ export default function AgentsPage() {
       .order('created_at', { ascending: true })
     // Phone numbers come from agent_contacts. RLS decides who sees them:
     // owner/manager get rows, staff get none — so staff simply see '—'.
-    const [{ data: contacts }, { data: entries }] = await Promise.all([
+    // Bottles-held per agent comes from the agent_held_totals RPC (0021),
+    // which sums delivered − returned server-side; this page previously
+    // downloaded every daily_entries row just for that one number.
+    const [{ data: contacts }, { data: heldRows }] = await Promise.all([
       supabase.from('agent_contacts').select('agent_id, phone'),
-      supabase.from('daily_entries').select('agent_id, delivered_qty, returned_qty'),
+      supabase.rpc('agent_held_totals'),
     ])
     const phoneByAgent = new Map<string, string>()
     for (const c of (contacts ?? []) as { agent_id: string; phone: string }[]) {
       phoneByAgent.set(c.agent_id, c.phone)
     }
     const heldByAgent = new Map<string, number>()
-    for (const e of (entries ?? []) as {
-      agent_id: string
-      delivered_qty: number
-      returned_qty: number
-    }[]) {
-      heldByAgent.set(e.agent_id, (heldByAgent.get(e.agent_id) ?? 0) + e.delivered_qty - e.returned_qty)
+    for (const h of (heldRows ?? []) as { agent_id: string; held: number }[]) {
+      heldByAgent.set(h.agent_id, Number(h.held) || 0)
     }
     // agents.trip_qty arrives with select('*'); it is not on the shared
     // Agent type yet, so widen the row type locally.

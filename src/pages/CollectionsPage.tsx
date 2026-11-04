@@ -76,29 +76,77 @@ interface LedgerLine {
   delta: number
 }
 
-/** Fetch a whole table in created_at order, paging past the 1,000-row cap. */
-async function fetchAll<T>(table: string, columns: string): Promise<T[]> {
-  const pageSize = 1000
-  const out: T[] = []
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await supabase
-      .from(table)
-      .select(columns)
-      .order('created_at', { ascending: true })
-      .range(from, from + pageSize - 1)
+const PAGE_SIZE = 1000
+
+/**
+ * Fetch agent_payments with the report filters applied server-side,
+ * paging past the 1,000-row cap. Ordered newest first, exactly like the
+ * client-side sort this replaces (payment_date, then created_at; id is
+ * only a paging tiebreak).
+ */
+async function fetchPaymentsFiltered(f: {
+  agent: string
+  from: string
+  to: string
+  by: string
+}): Promise<PaymentRow[]> {
+  const out: PaymentRow[] = []
+  for (let start = 0; ; start += PAGE_SIZE) {
+    let q = supabase
+      .from('agent_payments')
+      .select(
+        'id, agent_id, agent_name, payment_date, amount, method, notes, created_by, created_at',
+      )
+      .order('payment_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+    if (f.agent) q = q.eq('agent_id', f.agent)
+    if (f.from) q = q.gte('payment_date', f.from)
+    if (f.to) q = q.lte('payment_date', f.to)
+    if (f.by) q = q.eq('created_by', f.by)
+    const { data, error } = await q.range(start, start + PAGE_SIZE - 1)
     if (error) throw new Error(error.message)
-    const page = (data ?? []) as T[]
+    const page = (data ?? []) as PaymentRow[]
     out.push(...page)
-    if (page.length < pageSize) break
+    if (page.length < PAGE_SIZE) break
   }
   return out
 }
 
+/** Fetch one agent's rows from a table, paging past the 1,000-row cap. */
+async function fetchAgentRows<T>(table: string, columns: string, agentId: string): Promise<T[]> {
+  const out: T[] = []
+  for (let start = 0; ; start += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .eq('agent_id', agentId)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(start, start + PAGE_SIZE - 1)
+    if (error) throw new Error(error.message)
+    const page = (data ?? []) as T[]
+    out.push(...page)
+    if (page.length < PAGE_SIZE) break
+  }
+  return out
+}
+
+/** One agent's raw rows, loaded on demand for the expanded ledger. */
+interface LedgerSource {
+  entries: EntryLite[]
+  payments: PaymentRow[]
+  writeOffs: WriteOffLite[]
+}
+
 export default function CollectionsPage() {
   const [agents, setAgents] = useState<Agent[]>([])
-  const [entries, setEntries] = useState<EntryLite[]>([])
+  // Per-agent all-time totals from the collections_summary RPC (0021).
+  const [totals, setTotals] = useState<Map<string, AgentTotals>>(new Map())
+  // Report-list payments, fetched with the filters applied server-side.
   const [payments, setPayments] = useState<PaymentRow[]>([])
-  const [writeOffs, setWriteOffs] = useState<WriteOffLite[]>([])
+  // Raw rows for the expanded agent's ledger, loaded on demand per agent.
+  const [ledger, setLedger] = useState<Record<string, LedgerSource>>({})
   const [profiles, setProfiles] = useState<Pick<Profile, 'id' | 'username' | 'display_name'>[]>([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
@@ -116,26 +164,37 @@ export default function CollectionsPage() {
     setLoading(true)
     setMsg(null)
     try {
-      const [{ data: ag, error: agErr }, en, pm, wo, { data: pf, error: pfErr }] =
+      const [{ data: ag, error: agErr }, { data: sum, error: sumErr }, { data: pf, error: pfErr }] =
         await Promise.all([
           supabase.from('agents').select('*').order('created_at'),
-          fetchAll<EntryLite>(
-            'daily_entries',
-            'id, agent_id, entry_date, delivered_qty, returned_qty, amount, amount_collected, created_at',
-          ),
-          fetchAll<PaymentRow>(
-            'agent_payments',
-            'id, agent_id, agent_name, payment_date, amount, method, notes, created_by, created_at',
-          ),
-          fetchAll<WriteOffLite>('write_offs', 'id, agent_id, writeoff_date, amount, created_at'),
+          supabase.rpc('collections_summary'),
           supabase.from('profiles').select('id, username, display_name').order('username'),
         ])
       if (agErr) throw new Error(agErr.message)
+      if (sumErr) throw new Error(sumErr.message)
       if (pfErr) throw new Error(pfErr.message)
       setAgents((ag ?? []) as Agent[])
-      setEntries(en)
-      setPayments(pm)
-      setWriteOffs(wo)
+      // The RPC aggregates server-side; its all-time outstanding column
+      // is agent_outstanding() itself, so these cards can never drift
+      // from the per-agent balance used elsewhere.
+      const m = new Map<string, AgentTotals>()
+      for (const r of (sum ?? []) as {
+        agent_id: string
+        sales: number
+        cash: number
+        payments: number
+        write_offs: number
+        outstanding: number
+      }[]) {
+        m.set(r.agent_id, {
+          sales: Number(r.sales) || 0,
+          cash: Number(r.cash) || 0,
+          payments: Number(r.payments) || 0,
+          writeOffs: Number(r.write_offs) || 0,
+          outstanding: Number(r.outstanding) || 0,
+        })
+      }
+      setTotals(m)
       setProfiles((pf ?? []) as Pick<Profile, 'id' | 'username' | 'display_name'>[])
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err))
@@ -146,6 +205,59 @@ export default function CollectionsPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Report list: refetch whenever a filter changes, with the filters in
+  // the query (previously every payment was downloaded and filtered in
+  // the browser).
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const rows = await fetchPaymentsFiltered({ agent: fAgent, from: fFrom, to: fTo, by: fBy })
+        if (!cancelled) setPayments(rows)
+      } catch (err) {
+        if (!cancelled) setMsg(err instanceof Error ? err.message : String(err))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [fAgent, fFrom, fTo, fBy])
+
+  // Expanded ledger: fetch that one agent's rows only, once, on expand.
+  useEffect(() => {
+    if (!expandedId || ledger[expandedId]) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [en, pm, wo] = await Promise.all([
+          fetchAgentRows<EntryLite>(
+            'daily_entries',
+            'id, agent_id, entry_date, delivered_qty, returned_qty, amount, amount_collected, created_at',
+            expandedId,
+          ),
+          fetchAgentRows<PaymentRow>(
+            'agent_payments',
+            'id, agent_id, agent_name, payment_date, amount, method, notes, created_by, created_at',
+            expandedId,
+          ),
+          fetchAgentRows<WriteOffLite>(
+            'write_offs',
+            'id, agent_id, writeoff_date, amount, created_at',
+            expandedId,
+          ),
+        ])
+        if (!cancelled) {
+          setLedger((prev) => ({ ...prev, [expandedId]: { entries: en, payments: pm, writeOffs: wo } }))
+        }
+      } catch (err) {
+        if (!cancelled) setMsg(err instanceof Error ? err.message : String(err))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [expandedId, ledger])
 
   // Daily CSV export, wired the same way as HomePage's button. This page
   // has no single selected date (only report range filters), so the export
@@ -172,47 +284,11 @@ export default function CollectionsPage() {
     return (id: string | null) => (id ? m.get(id) ?? '—' : '—')
   }, [profiles])
 
-  // Per-agent totals by client aggregation — the same formula the
-  // agent_outstanding RPC uses (sales - cash - payments - write-offs), and
-  // the day-by-day ledger below is built from these same rows.
-  const totals = useMemo(() => {
-    const m = new Map<string, AgentTotals>()
-    const blank = (): AgentTotals => ({
-      sales: 0,
-      cash: 0,
-      payments: 0,
-      writeOffs: 0,
-      outstanding: 0,
-    })
-    for (const e of entries) {
-      if (!e.agent_id) continue
-      const t = m.get(e.agent_id) ?? blank()
-      t.sales += e.amount
-      t.cash += e.amount_collected
-      m.set(e.agent_id, t)
-    }
-    for (const p of payments) {
-      if (!p.agent_id) continue
-      const t = m.get(p.agent_id) ?? blank()
-      t.payments += p.amount
-      m.set(p.agent_id, t)
-    }
-    for (const w of writeOffs) {
-      if (!w.agent_id) continue
-      const t = m.get(w.agent_id) ?? blank()
-      t.writeOffs += w.amount
-      m.set(w.agent_id, t)
-    }
-    for (const t of m.values()) {
-      t.outstanding = t.sales - t.cash - t.payments - t.writeOffs
-    }
-    return m
-  }, [entries, payments, writeOffs])
-
   /** Day-by-day ledger lines for one agent, ascending, with running balance. */
   function buildLedger(agentId: string): { line: LedgerLine; balance: number }[] {
+    const src: LedgerSource = ledger[agentId] ?? { entries: [], payments: [], writeOffs: [] }
     const raw: (LedgerLine & { sortKey: string; ord: number })[] = []
-    for (const e of entries) {
+    for (const e of src.entries) {
       if (e.agent_id !== agentId) continue
       raw.push({
         key: `due-${e.id}`,
@@ -235,7 +311,7 @@ export default function CollectionsPage() {
         })
       }
     }
-    for (const p of payments) {
+    for (const p of src.payments) {
       if (p.agent_id !== agentId) continue
       raw.push({
         key: `pay-${p.id}`,
@@ -247,7 +323,7 @@ export default function CollectionsPage() {
         ord: 2,
       })
     }
-    for (const w of writeOffs) {
+    for (const w of src.writeOffs) {
       if (w.agent_id !== agentId) continue
       raw.push({
         key: `wo-${w.id}`,
@@ -274,9 +350,9 @@ export default function CollectionsPage() {
 
   const expandedLedger = useMemo(
     () => (expandedId ? buildLedger(expandedId) : []),
-    // buildLedger reads only the three datasets + expandedId.
+    // buildLedger reads only the per-agent ledger cache + expandedId.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [expandedId, entries, payments, writeOffs],
+    [expandedId, ledger],
   )
 
   const visibleAgents = agents.filter((a) => {
@@ -288,20 +364,9 @@ export default function CollectionsPage() {
     )
   })
 
-  const filteredPayments = useMemo(() => {
-    const list = payments.filter(
-      (p) =>
-        (!fAgent || p.agent_id === fAgent) &&
-        (!fFrom || p.payment_date >= fFrom) &&
-        (!fTo || p.payment_date <= fTo) &&
-        (!fBy || p.created_by === fBy),
-    )
-    return list.sort(
-      (a, b) =>
-        b.payment_date.localeCompare(a.payment_date) ||
-        b.created_at.localeCompare(a.created_at),
-    )
-  }, [payments, fAgent, fFrom, fTo, fBy])
+  // The payments state is already filtered and ordered by the server
+  // query, so the report list reads it directly.
+  const filteredPayments = payments
 
   const reportTotal = filteredPayments.reduce((s, p) => s + p.amount, 0)
 
@@ -390,7 +455,11 @@ export default function CollectionsPage() {
                       {formatMMK(t.outstanding)}
                     </span>
                   </div>
-                  {expanded && (
+                  {expanded && !ledger[a.id] ? (
+                    <div className="mt-3 border-t border-stone-100 pt-3 dark:border-neutral-800">
+                      <LoadingState />
+                    </div>
+                  ) : expanded ? (
                     <ul className="mt-3 divide-y divide-stone-100 border-t border-stone-100 dark:divide-neutral-800 dark:border-neutral-800">
                       {expandedLedger.map(({ line, balance }) => (
                         <li key={line.key} className="flex items-center justify-between gap-2 py-2.5 text-sm">
@@ -418,7 +487,7 @@ export default function CollectionsPage() {
                         </li>
                       )}
                     </ul>
-                  )}
+                  ) : null}
                 </div>
               )
             })}

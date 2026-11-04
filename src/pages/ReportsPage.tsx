@@ -34,15 +34,6 @@ interface EntryLite {
   created_at: string
 }
 
-interface PaymentLite {
-  id: string
-  agent_id: string | null
-  agent_name: string | null
-  payment_date: string
-  amount: number
-  created_by: string | null
-}
-
 interface WriteOffLite {
   id: string
   agent_id: string | null
@@ -58,42 +49,6 @@ interface ProfileLite {
   id: string
   username: string
   display_name: string | null
-}
-
-interface DepositLite {
-  id: string
-  agent_id: string | null
-  agent_name: string | null
-  deposit_date: string
-  amount: number
-}
-
-interface SettlementLite {
-  id: string
-  agent_id: string | null
-  agent_name: string | null
-  settle_date: string
-  forfeiture_income: number
-  net_refund: number
-}
-
-interface ExpenseLite {
-  id: string
-  expense_date: string
-  category_id: string | null
-  amount: number
-}
-
-interface RunLite {
-  id: string
-  month: string
-  base: number
-  bonus: number
-}
-
-interface CategoryLite {
-  id: string
-  name: string
 }
 
 type Bucket = 'd30' | 'd60' | 'd60p'
@@ -143,6 +98,44 @@ interface TrendRow {
   profit: number
 }
 
+interface EmployeePerfRow {
+  id: string
+  bottles: number
+  cash: number
+  debtCollected: number
+  total: number
+}
+
+/**
+ * Shape returned by the report_range RPC (migration 0020), which computes
+ * the whole report server-side. Mirrors Report plus the page's auxiliary
+ * datasets (employee performance, in-range write-off list, data-presence
+ * flag, earliest entry year for the trend year picker).
+ */
+interface ReportRpc extends Report {
+  employeePerf: EmployeePerfRow[]
+  rangeWriteOffs: WriteOffLite[]
+  hasData: boolean
+  earliestYear: number | null
+}
+
+const EMPTY_REPORT: Report = {
+  sales: 0,
+  collected: 0,
+  writeOffs: 0,
+  expenseTotal: 0,
+  byCategory: [],
+  payroll: 0,
+  profit: 0,
+  forfeitureIncome: 0,
+  refunds: 0,
+  depositLiability: 0,
+  receivable: 0,
+  aging: { d30: 0, d60: 0, d60p: 0 },
+  agingRows: [],
+  perAgent: [],
+}
+
 /** Last day (YYYY-MM-DD) of the month containing a YYYY-MM-DD date. */
 function monthEnd(dateStr: string): string {
   const [y, m] = dateStr.split('-').map(Number)
@@ -178,44 +171,6 @@ function addDays(dateStr: string, delta: number): string {
   const d = new Date(`${dateStr}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + delta)
   return d.toISOString().slice(0, 10)
-}
-
-/**
- * Aging buckets as of `asOf`, using the same rule as the main report:
- * per-agent receivable = sales - entry cash - payments - write-offs
- * (floored at 0), allocated to the NEWEST entries first.
- */
-function computeAging(
-  allEntries: EntryLite[],
-  allPayments: PaymentLite[],
-  allWriteOffs: WriteOffLite[],
-  asOf: string,
-): Record<Bucket, number> {
-  const aging: Record<Bucket, number> = { d30: 0, d60: 0, d60p: 0 }
-  const toMs = new Date(asOf).getTime()
-  const key = (r: { agent_id: string | null; agent_name: string | null }) =>
-    r.agent_id ?? `deleted:${r.agent_name}`
-  const agentKeys = new Set<string>()
-  for (const r of [...allEntries, ...allPayments, ...allWriteOffs]) agentKeys.add(key(r))
-  const sumAmt = (rows: { amount: number }[]) => rows.reduce((s, r) => s + r.amount, 0)
-  for (const k of agentKeys) {
-    const ae = allEntries.filter((e) => key(e) === k)
-    const allSales = sumAmt(ae)
-    const allColl = ae.reduce((s, e) => s + e.amount_collected, 0)
-    const allPaid = sumAmt(allPayments.filter((p) => key(p) === k))
-    const allWo = sumAmt(allWriteOffs.filter((w) => key(w) === k))
-    let left = Math.max(0, allSales - allColl - allPaid - allWo)
-    for (const e of [...ae].reverse()) {
-      if (left <= 0) break
-      const s = Math.min(left, e.amount)
-      if (s <= 0) continue
-      left -= s
-      const days = (toMs - new Date(e.entry_date).getTime()) / 86400000
-      const bucket: Bucket = days <= 30 ? 'd30' : days <= 60 ? 'd60' : 'd60p'
-      aging[bucket] += s
-    }
-  }
-  return aging
 }
 
 type BriefSeverity = 'high' | 'warn' | 'info'
@@ -331,26 +286,28 @@ export default function ReportsPage() {
 
   const [agents, setAgents] = useState<Agent[]>([])
   const [profiles, setProfiles] = useState<ProfileLite[]>([])
-  const [entries, setEntries] = useState<EntryLite[]>([])
-  const [expenses, setExpenses] = useState<ExpenseLite[]>([])
-  const [categories, setCategories] = useState<CategoryLite[]>([])
-  const [writeOffs, setWriteOffs] = useState<WriteOffLite[]>([])
-  const [runs, setRuns] = useState<RunLite[]>([])
-  const [payments, setPayments] = useState<PaymentLite[]>([])
-  const [deposits, setDeposits] = useState<DepositLite[]>([])
-  const [settlements, setSettlements] = useState<SettlementLite[]>([])
-  const [trendExpenses, setTrendExpenses] = useState<ExpenseLite[]>([])
-  const [trendRuns, setTrendRuns] = useState<RunLite[]>([])
+  // The whole report (range figures, aging, per-agent, employee table,
+  // in-range write-offs) now comes from the report_range RPC — the page no
+  // longer downloads the full entry/payment history to aggregate locally.
+  const [reportData, setReportData] = useState<ReportRpc | null>(null)
+  // Rolling 24-month trend from the report_months RPC.
+  const [trend, setTrend] = useState<TrendRow[]>([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
   const [showAgingDetail, setShowAgingDetail] = useState(false)
   const [exporting, setExporting] = useState(false)
 
   // Daily Brief (always about TODAY, independent of the applied range).
+  // Its aging buckets come from the report_aging RPC; its entry-level
+  // checks only ever look at today and the previous 7 days, so the entry
+  // fetch is bounded to that window.
   const [openDisputes, setOpenDisputes] = useState(0)
   const [briefEntries, setBriefEntries] = useState<EntryLite[]>([])
-  const [briefPayments, setBriefPayments] = useState<PaymentLite[]>([])
-  const [briefWriteOffs, setBriefWriteOffs] = useState<WriteOffLite[]>([])
+  const [briefAging, setBriefAging] = useState<Record<Bucket, number>>({
+    d30: 0,
+    d60: 0,
+    d60p: 0,
+  })
   const [focusDispute, setFocusDispute] = useState(true)
   const [focusDebt, setFocusDebt] = useState(true)
   const [focusSales, setFocusSales] = useState(true)
@@ -366,8 +323,8 @@ export default function ReportsPage() {
   // Trend controls: rolling window size, or a calendar year.
   const [trendCount, setTrendCount] = useState<6 | 12 | 24>(12)
   const [trendYear, setTrendYear] = useState('')
-  const [yearExpenses, setYearExpenses] = useState<ExpenseLite[]>([])
-  const [yearRuns, setYearRuns] = useState<RunLite[]>([])
+  // Per-year trend rows from report_months (12 months of trendYear).
+  const [yearTrendRows, setYearTrendRows] = useState<TrendRow[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -375,98 +332,14 @@ export default function ReportsPage() {
     try {
       const { from: f, to: t } = applied
       const trendMonths = monthList(t.slice(0, 7), 24)
-      const trendFrom = `${trendMonths[0]}-01`
-      const [
-        ag, en, ex, ct, wo, rn, pm, dp, st, tEx, tRn, dsp, bEn, bPm, bWo, pf,
-      ] = await Promise.all([
+      // The Daily Brief only inspects today and the previous 7 days, so
+      // its entry fetch is bounded to that window (its aging buckets come
+      // from the report_aging RPC instead of a full-history scan).
+      const briefFrom = addDays(today, -7)
+      const [ag, pf, dsp, bEn, rr, tm, ra] = await Promise.all([
         supabase.from('agents').select('*').order('name'),
-        fetchAll<EntryLite>((a, b) =>
-          supabase
-            .from('daily_entries')
-            .select('id, agent_id, agent_name, entry_date, delivered_qty, returned_qty, amount, amount_collected, created_by, created_at')
-            .lte('entry_date', t)
-            .order('entry_date', { ascending: true })
-            .order('created_at', { ascending: true })
-            .range(a, b),
-        ),
-        fetchAll<ExpenseLite>((a, b) =>
-          supabase
-            .from('expenses')
-            .select('id, expense_date, category_id, amount')
-            .gte('expense_date', f)
-            .lte('expense_date', t)
-            .order('expense_date', { ascending: true })
-            .order('created_at', { ascending: true })
-            .range(a, b),
-        ),
-        supabase.from('expense_categories').select('id, name').order('name'),
-        fetchAll<WriteOffLite>((a, b) =>
-          supabase
-            .from('write_offs')
-            .select('id, agent_id, agent_name, writeoff_date, amount, note, created_by, created_at')
-            .lte('writeoff_date', t)
-            .order('writeoff_date', { ascending: true })
-            .order('created_at', { ascending: true })
-            .range(a, b),
-        ),
-        fetchAll<RunLite>((a, b) =>
-          supabase
-            .from('payroll_runs')
-            .select('id, month, base, bonus')
-            .gte('month', f.slice(0, 7))
-            .lte('month', t.slice(0, 7))
-            .order('month', { ascending: true })
-            .order('created_at', { ascending: true })
-            .range(a, b),
-        ),
-        fetchAll<PaymentLite>((a, b) =>
-          supabase
-            .from('agent_payments')
-            .select('id, agent_id, agent_name, payment_date, amount, created_by')
-            .lte('payment_date', t)
-            .order('payment_date', { ascending: true })
-            .order('created_at', { ascending: true })
-            .range(a, b),
-        ),
-        fetchAll<DepositLite>((a, b) =>
-          supabase
-            .from('agent_deposits')
-            .select('id, agent_id, agent_name, deposit_date, amount')
-            .lte('deposit_date', t)
-            .order('deposit_date', { ascending: true })
-            .order('created_at', { ascending: true })
-            .range(a, b),
-        ),
-        fetchAll<SettlementLite>((a, b) =>
-          supabase
-            .from('agent_settlements')
-            .select('id, agent_id, agent_name, settle_date, forfeiture_income, net_refund')
-            .lte('settle_date', t)
-            .order('settle_date', { ascending: true })
-            .order('created_at', { ascending: true })
-            .range(a, b),
-        ),
-        fetchAll<ExpenseLite>((a, b) =>
-          supabase
-            .from('expenses')
-            .select('id, expense_date, category_id, amount')
-            .gte('expense_date', trendFrom)
-            .lte('expense_date', t)
-            .order('expense_date', { ascending: true })
-            .order('created_at', { ascending: true })
-            .range(a, b),
-        ),
-        fetchAll<RunLite>((a, b) =>
-          supabase
-            .from('payroll_runs')
-            .select('id, month, base, bonus')
-            .gte('month', trendMonths[0])
-            .lte('month', trendMonths[trendMonths.length - 1])
-            .order('month', { ascending: true })
-            .order('created_at', { ascending: true })
-            .range(a, b),
-        ),
-        // Daily Brief datasets (anchored to today, not the applied range).
+        supabase.from('profiles').select('id, username, display_name').order('username'),
+        // Daily Brief: open-dispute count (small, bounded by open rows).
         fetchAll<DisputeLite>((a, b) =>
           supabase
             .from('disputes')
@@ -479,50 +352,34 @@ export default function ReportsPage() {
           supabase
             .from('daily_entries')
             .select('id, agent_id, agent_name, entry_date, delivered_qty, returned_qty, amount, amount_collected, created_at')
+            .gte('entry_date', briefFrom)
             .lte('entry_date', today)
             .order('entry_date', { ascending: true })
             .order('created_at', { ascending: true })
             .range(a, b),
         ),
-        fetchAll<PaymentLite>((a, b) =>
-          supabase
-            .from('agent_payments')
-            .select('id, agent_id, agent_name, payment_date, amount')
-            .lte('payment_date', today)
-            .order('payment_date', { ascending: true })
-            .order('created_at', { ascending: true })
-            .range(a, b),
-        ),
-        fetchAll<WriteOffLite>((a, b) =>
-          supabase
-            .from('write_offs')
-            .select('id, agent_id, agent_name, writeoff_date, amount')
-            .lte('writeoff_date', today)
-            .order('writeoff_date', { ascending: true })
-            .order('created_at', { ascending: true })
-            .range(a, b),
-        ),
-        supabase.from('profiles').select('id, username, display_name').order('username'),
+        // The report itself: one server-side aggregation round trip.
+        supabase.rpc('report_range', { p_from: f, p_to: t }),
+        supabase.rpc('report_months', {
+          p_from_month: trendMonths[0],
+          p_months: 24,
+          p_cap: t,
+          p_exp_cap: t,
+        }),
+        supabase.rpc('report_aging', { p_as_of: today }),
       ])
       if (ag.error) throw new Error(ag.error.message)
-      if (ct.error) throw new Error(ct.error.message)
       if (pf.error) throw new Error(pf.error.message)
+      if (rr.error) throw new Error(rr.error.message)
+      if (tm.error) throw new Error(tm.error.message)
+      if (ra.error) throw new Error(ra.error.message)
       setProfiles((pf.data ?? []) as ProfileLite[])
       setAgents((ag.data ?? []) as Agent[])
-      setCategories((ct.data ?? []) as CategoryLite[])
-      setEntries(en)
-      setExpenses(ex)
-      setWriteOffs(wo)
-      setRuns(rn)
-      setPayments(pm)
-      setDeposits(dp)
-      setSettlements(st)
-      setTrendExpenses(tEx)
-      setTrendRuns(tRn)
+      setReportData(rr.data as ReportRpc)
+      setTrend((tm.data ?? []) as TrendRow[])
+      setBriefAging((ra.data ?? { d30: 0, d60: 0, d60p: 0 }) as Record<Bucket, number>)
       setOpenDisputes(dsp.length)
       setBriefEntries(bEn)
-      setBriefPayments(bPm)
-      setBriefWriteOffs(bWo)
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err))
     }
@@ -533,150 +390,36 @@ export default function ReportsPage() {
     load()
   }, [load])
 
-  // Port of the old app's getReport (phase2.functions.ts), on this repo's
-  // column names: entry.amount is the server-computed delivered x unit price.
+  // Report figures: computed server-side by the report_range RPC
+  // (migration 0020 — the old app's getReport math, on this repo's column
+  // names; entry.amount is the server-computed delivered x unit price).
+  // Only the final display sorts run client-side, with the original
+  // comparators, so ordering matches the old in-browser computation.
   const report = useMemo<Report>(() => {
-    const { from: f, to: t } = applied
-    const inRange = (d: string) => d >= f && d <= t
-    const toMs = new Date(t).getTime()
-    const key = (r: { agent_id: string | null; agent_name: string | null }) =>
-      r.agent_id ?? `deleted:${r.agent_name}`
-
-    const groups = new Map<
-      string,
-      { id: string; name: string; closed: boolean; deleted: boolean }
-    >()
-    for (const a of agents) {
-      groups.set(a.id, { id: a.id, name: a.name, closed: !!a.closed_at, deleted: false })
-    }
-    for (const r of [...entries, ...writeOffs, ...payments, ...deposits, ...settlements]) {
-      if (!r.agent_id && !groups.has(key(r))) {
-        groups.set(key(r), {
-          id: key(r),
-          name: `${r.agent_name ?? '—'} (ဖျက်ပြီး)`,
-          closed: true,
-          deleted: true,
-        })
-      }
-    }
-
-    const sumAmt = (rows: { amount: number }[]) => rows.reduce((s, r) => s + r.amount, 0)
-
-    let sales = 0
-    let collectedEntries = 0
-    let writeOffTotal = 0
-    let paymentsTotal = 0
-    let forfeitureIncome = 0
-    let refunds = 0
-    let depositLiability = 0
-    const aging: Record<Bucket, number> = { d30: 0, d60: 0, d60p: 0 }
-    const agingRows: AgingRow[] = []
-
-    const perAgent: AgentReport[] = [...groups.values()].map((g) => {
-      const ae = entries.filter((e) => key(e) === g.id)
-      let allSales = 0
-      let allColl = 0
-      let rSales = 0
-      let rColl = 0
-      let bottles = 0
-      for (const e of ae) {
-        allSales += e.amount
-        allColl += e.amount_collected
-        bottles += e.delivered_qty - e.returned_qty
-        if (inRange(e.entry_date)) {
-          rSales += e.amount
-          rColl += e.amount_collected
-        }
-      }
-      const aw = writeOffs.filter((w) => key(w) === g.id)
-      const allWo = sumAmt(aw)
-      const rWo = sumAmt(aw.filter((w) => inRange(w.writeoff_date)))
-      const ap = payments.filter((p) => key(p) === g.id)
-      const allPaid = sumAmt(ap)
-      const rPaid = sumAmt(ap.filter((p) => inRange(p.payment_date)))
-
-      const receivable = Math.max(0, allSales - allColl - allPaid - allWo)
-      // Aging: outstanding assigned to the newest sales first.
-      let left = receivable
-      for (const e of [...ae].reverse()) {
-        if (left <= 0) break
-        const s = Math.min(left, e.amount)
-        if (s <= 0) continue
-        left -= s
-        const days = (toMs - new Date(e.entry_date).getTime()) / 86400000
-        const bucket: Bucket = days <= 30 ? 'd30' : days <= 60 ? 'd60' : 'd60p'
-        aging[bucket] += s
-        agingRows.push({
-          bucket,
-          agent: g.name,
-          date: e.entry_date,
-          days: Math.max(0, Math.round(days)),
-          amount: s,
-        })
-      }
-
-      const st = settlements.find((s) => key(s) === g.id)
-      const deposit = st
-        ? 0
-        : sumAmt(deposits.filter((d) => key(d) === g.id))
-      if (st && inRange(st.settle_date)) {
-        forfeitureIncome += st.forfeiture_income
-        refunds += st.net_refund
-      }
-      sales += rSales
-      collectedEntries += rColl
-      writeOffTotal += rWo
-      paymentsTotal += rPaid
-      depositLiability += deposit
-      if (st) bottles = 0
-      return {
-        id: g.id,
-        name: g.name,
-        closed: g.closed,
-        deleted: g.deleted,
-        sales: rSales,
-        collected: rColl + rPaid,
-        writeOff: rWo,
-        receivable,
-        bottles,
-        deposit,
-      }
-    })
-
-    const catName = new Map(categories.map((c) => [c.id, c.name]))
-    const catTotals = new Map<string, number>()
-    for (const e of expenses) {
-      const name = (e.category_id && catName.get(e.category_id)) || 'အမျိုးအစား မသတ်မှတ်'
-      catTotals.set(name, (catTotals.get(name) ?? 0) + e.amount)
-    }
-    const byCategory = [...catTotals.entries()]
-      .map(([name, total]) => ({ name, total }))
-      .sort((a, b) => b.total - a.total)
-    const expenseTotal = byCategory.reduce((s, c) => s + c.total, 0)
-
-    const payroll = runs.reduce((s, r) => s + r.base + r.bonus, 0)
-    const profit = sales + forfeitureIncome - expenseTotal - payroll - writeOffTotal
-
-    agingRows.sort((a, b) => b.days - a.days || b.amount - a.amount)
-    perAgent.sort((a, b) => b.receivable - a.receivable || a.name.localeCompare(b.name))
-
+    if (!reportData) return EMPTY_REPORT
+    const perAgent = [...reportData.perAgent].sort(
+      (a, b) => b.receivable - a.receivable || a.name.localeCompare(b.name),
+    )
+    const agingRows = [...reportData.agingRows].sort(
+      (a, b) => b.days - a.days || b.amount - a.amount,
+    )
     return {
-      sales,
-      collected: collectedEntries + paymentsTotal,
-      writeOffs: writeOffTotal,
-      expenseTotal,
-      byCategory,
-      payroll,
-      profit,
-      forfeitureIncome,
-      refunds,
-      depositLiability,
-      receivable: perAgent.reduce((s, a) => s + a.receivable, 0),
-      aging,
+      sales: reportData.sales,
+      collected: reportData.collected,
+      writeOffs: reportData.writeOffs,
+      expenseTotal: reportData.expenseTotal,
+      byCategory: reportData.byCategory,
+      payroll: reportData.payroll,
+      profit: reportData.profit,
+      forfeitureIncome: reportData.forfeitureIncome,
+      refunds: reportData.refunds,
+      depositLiability: reportData.depositLiability,
+      receivable: reportData.receivable,
+      aging: reportData.aging,
       agingRows,
       perAgent,
     }
-  }, [agents, entries, expenses, categories, writeOffs, runs, payments, deposits, settlements, applied])
+  }, [reportData])
 
   // Display names for created_by lookups (write-off list, employee table).
   const profileNameById = useMemo(
@@ -687,145 +430,67 @@ export default function ReportsPage() {
   // Per-employee performance for the applied range, grouped by who recorded
   // the work: entries give bottles delivered + cash collected at delivery,
   // payments give debt collected afterwards.
-  const employeePerf = useMemo(() => {
-    const { from: f, to: t } = applied
-    const inRange = (d: string) => d >= f && d <= t
-    const acc = new Map<
-      string,
-      { id: string; bottles: number; cash: number; debtCollected: number }
-    >()
-    const row = (id: string) => {
-      let r = acc.get(id)
-      if (!r) {
-        r = { id, bottles: 0, cash: 0, debtCollected: 0 }
-        acc.set(id, r)
-      }
-      return r
-    }
-    for (const e of entries) {
-      if (!e.created_by || !inRange(e.entry_date)) continue
-      const r = row(e.created_by)
-      r.bottles += e.delivered_qty
-      r.cash += e.amount_collected
-    }
-    for (const p of payments) {
-      if (!p.created_by || !inRange(p.payment_date)) continue
-      row(p.created_by).debtCollected += p.amount
-    }
-    return [...acc.values()]
-      .map((r) => ({ ...r, total: r.cash + r.debtCollected }))
-      .sort((a, b) => b.total - a.total)
-  }, [entries, payments, applied])
+  const employeePerf = useMemo(
+    () => [...(reportData?.employeePerf ?? [])].sort((a, b) => b.total - a.total),
+    [reportData],
+  )
 
   // Write-offs inside the applied range, newest first (the form's list).
   const rangeWriteOffs = useMemo(
     () =>
-      writeOffs
-        .filter((w) => w.writeoff_date >= applied.from && w.writeoff_date <= applied.to)
-        .sort(
-          (a, b) =>
-            b.writeoff_date.localeCompare(a.writeoff_date) ||
-            b.created_at.localeCompare(a.created_at),
-        ),
-    [writeOffs, applied],
+      [...(reportData?.rangeWriteOffs ?? [])].sort(
+        (a, b) =>
+          b.writeoff_date.localeCompare(a.writeoff_date) ||
+          b.created_at.localeCompare(a.created_at),
+      ),
+    [reportData],
   )
 
-  // Port of buildMonthlyTrend (monthly-trend.ts) for the 24 months ending at
-  // the applied `to` month; the UI shows a 6/12/24-month slice of it.
-  const trend = useMemo<TrendRow[]>(() => {
-    const months = monthList(applied.to.slice(0, 7), 24)
-    const acc = new Map(months.map((m) => [m, { sales: 0, costs: 0, extra: 0 }]))
-    const add = (dateStr: string, fn: (r: { sales: number; costs: number; extra: number }) => void) => {
-      const r = acc.get(dateStr.slice(0, 7))
-      if (r) fn(r)
-    }
-    for (const e of entries) add(e.entry_date, (r) => (r.sales += e.amount))
-    for (const e of trendExpenses) add(e.expense_date, (r) => (r.costs += e.amount))
-    for (const p of trendRuns) add(p.month, (r) => (r.costs += p.base + p.bonus))
-    for (const w of writeOffs) add(w.writeoff_date, (r) => (r.costs += w.amount))
-    for (const s of settlements) add(s.settle_date, (r) => (r.extra += s.forfeiture_income))
-    return months.map((m) => {
-      const r = acc.get(m)!
-      return { month: m, sales: r.sales, costs: r.costs, profit: r.sales + r.extra - r.costs }
-    })
-  }, [entries, trendExpenses, trendRuns, writeOffs, settlements, applied])
+  // The rolling 24-month trend is fetched by load() via the report_months
+  // RPC (state `trend`); the UI below shows a 6/12/24-month slice of it.
 
-  // Calendar-year datasets for the per-year trend mode.
+  // Per-year trend mode: all 12 months of the selected calendar year via
+  // report_months, with the same profit math as the main report (sales +
+  // forfeiture - expenses - payroll(base+bonus) - write-offs). Entries /
+  // write-offs / settlements stay capped at the applied `to` (mirroring
+  // the main report datasets); the year's expenses/payroll cover the
+  // full calendar year, as the page's per-year datasets always did.
   useEffect(() => {
     if (!trendYear) {
-      setYearExpenses([])
-      setYearRuns([])
+      setYearTrendRows([])
       return
     }
     let cancelled = false
     ;(async () => {
       try {
-        const [ex, rn] = await Promise.all([
-          fetchAll<ExpenseLite>((a, b) =>
-            supabase
-              .from('expenses')
-              .select('id, expense_date, category_id, amount')
-              .gte('expense_date', `${trendYear}-01-01`)
-              .lte('expense_date', `${trendYear}-12-31`)
-              .order('expense_date', { ascending: true })
-              .order('created_at', { ascending: true })
-              .range(a, b),
-          ),
-          fetchAll<RunLite>((a, b) =>
-            supabase
-              .from('payroll_runs')
-              .select('id, month, base, bonus')
-              .gte('month', `${trendYear}-01`)
-              .lte('month', `${trendYear}-12`)
-              .order('month', { ascending: true })
-              .order('created_at', { ascending: true })
-              .range(a, b),
-          ),
-        ])
-        if (!cancelled) {
-          setYearExpenses(ex)
-          setYearRuns(rn)
-        }
+        const { data, error } = await supabase.rpc('report_months', {
+          p_from_month: `${trendYear}-01`,
+          p_months: 12,
+          p_cap: applied.to,
+          p_exp_cap: `${trendYear}-12-31`,
+        })
+        if (error) throw new Error(error.message)
+        if (!cancelled) setYearTrendRows((data ?? []) as TrendRow[])
       } catch {
-        /* year mode simply shows what the main datasets hold */
+        /* year mode simply shows zeroed months if the RPC is unavailable */
+        if (!cancelled) {
+          setYearTrendRows(
+            Array.from({ length: 12 }, (_, i) => ({
+              month: `${trendYear}-${String(i + 1).padStart(2, '0')}`,
+              sales: 0,
+              costs: 0,
+              profit: 0,
+            })),
+          )
+        }
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [trendYear])
+  }, [trendYear, applied])
 
-  // Per-year view: all 12 months of the selected calendar year, with the
-  // same profit math as the main report (sales + forfeiture - expenses
-  // - payroll(base+bonus) - write-offs). Empty months show 0.
-  const yearTrend = useMemo<TrendRow[]>(() => {
-    if (!trendYear) return []
-    const months = Array.from(
-      { length: 12 },
-      (_, i) => `${trendYear}-${String(i + 1).padStart(2, '0')}`,
-    )
-    return months.map((m) => {
-      const sales = entries
-        .filter((e) => e.entry_date.startsWith(m))
-        .reduce((s, e) => s + e.amount, 0)
-      const forfeiture = settlements
-        .filter((s) => s.settle_date.startsWith(m))
-        .reduce((s, x) => s + x.forfeiture_income, 0)
-      const exp = yearExpenses
-        .filter((e) => e.expense_date.startsWith(m))
-        .reduce((s, e) => s + e.amount, 0)
-      const pay = yearRuns
-        .filter((r) => r.month === m)
-        .reduce((s, r) => s + r.base + r.bonus, 0)
-      const wo = writeOffs
-        .filter((w) => w.writeoff_date.startsWith(m))
-        .reduce((s, w) => s + w.amount, 0)
-      const costs = exp + pay + wo
-      return { month: m, sales, costs, profit: sales + forfeiture - costs }
-    })
-  }, [trendYear, entries, settlements, yearExpenses, yearRuns, writeOffs])
-
-  const displayTrend = trendYear ? yearTrend : trend.slice(-trendCount)
+  const displayTrend = trendYear ? yearTrendRows : trend.slice(-trendCount)
 
   // Month-over-month change for the rolling trend (last month vs previous).
   const momChange = (pick: (t: TrendRow) => number) => {
@@ -844,21 +509,14 @@ export default function ReportsPage() {
 
   const yearOptions = useMemo(() => {
     const cur = Number(today.slice(0, 4))
-    let earliest = cur
-    for (const e of entries) {
-      const y = Number(e.entry_date.slice(0, 4))
-      if (Number.isFinite(y) && y < earliest) earliest = y
-    }
+    const earliest = Math.min(cur, reportData?.earliestYear ?? cur)
     const out: string[] = []
     for (let y = cur; y >= earliest; y--) out.push(String(y))
     return out
-  }, [entries, today])
+  }, [reportData, today])
 
   // --- Daily Brief ---------------------------------------------------------
-  const briefAging = useMemo(
-    () => computeAging(briefEntries, briefPayments, briefWriteOffs, today),
-    [briefEntries, briefPayments, briefWriteOffs, today],
-  )
+  // (briefAging is state, set from the report_aging RPC in load().)
 
   const briefItems = useMemo<BriefItem[]>(() => {
     const items: BriefItem[] = []
@@ -984,14 +642,7 @@ export default function ReportsPage() {
     setWoBusy(false)
   }
 
-  const hasData =
-    entries.length > 0 ||
-    expenses.length > 0 ||
-    payments.length > 0 ||
-    writeOffs.length > 0 ||
-    runs.length > 0 ||
-    deposits.length > 0 ||
-    settlements.length > 0
+  const hasData = reportData?.hasData ?? false
 
   async function exportExcel() {
     if (exporting) return

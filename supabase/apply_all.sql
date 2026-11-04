@@ -2562,3 +2562,1259 @@ end $$;
 
 create trigger deposits_insert_today before insert on agent_deposits
   for each row execute function guard_insert_today('deposit_date');
+
+-- 0020 --
+-- 0020_report_aggregation.sql — Server-side aggregation for the Reports page.
+--
+-- The Reports page used to fetchAll-scan the full daily_entries /
+-- agent_payments / write_offs / agent_deposits / agent_settlements history
+-- and aggregate in the browser (~30 s at 12k entries). These RPCs reproduce
+-- the page's math EXACTLY in SQL (a port of the old app's getReport /
+-- buildMonthlyTrend semantics, as already implemented client-side):
+--
+--   * per-agent receivable = max(0, sales - entry cash - payments
+--     - write-offs) over ALL rows <= p_to; range figures use [p_from, p_to].
+--   * aging allocates each agent's receivable to their NEWEST entries
+--     first, bucketed by whole days between entry_date and p_to
+--     (<=30 / 31-60 / >60).
+--   * an agent with a settlement (<= p_to) shows deposit 0 and bottles 0;
+--     its forfeiture_income / net_refund count only when settle_date is
+--     inside the range.
+--   * deleted agents (agent_id null after hard delete) group by the
+--     agent_name snapshot under a 'deleted:<name>' key, exactly like the
+--     client code.
+--   * profit = sales + forfeiture - expenses - payroll(base+bonus)
+--     - write-offs.
+--
+-- On top of the page-exact floored total, report_range also returns
+-- `receivableRaw`: the UNfloored sum of per-agent balances. The two differ
+-- when some agents are in credit (overpaid): the report card (old app
+-- parity) floors each agent at 0, while the raw total matches the
+-- Collections / agent_outstanding ledger total.
+--
+-- Access: every public function here raises unless the caller is an
+-- effective owner/manager (is_owner_manager(): primary role + user_roles,
+-- co_owner counts as manager — the same rule as the /reports route guard).
+
+-- ---------------------------------------------------------------------------
+-- Internal helper: aging allocation rows as of a date. NOT granted to
+-- anon/authenticated; only the security-definer RPCs below call it.
+-- ---------------------------------------------------------------------------
+create or replace function _report_aging_rows(p_as_of date)
+returns table (
+  agent_key text,
+  entry_date date,
+  days integer,
+  amount bigint,
+  bucket text
+)
+language sql stable security definer set search_path = public as $$
+  with bal as (
+    select k.agent_key,
+           greatest(0, sum(k.sales) - sum(k.coll) - sum(k.paid) - sum(k.wo)) as recv
+    from (
+      select coalesce(e.agent_id::text, 'deleted:' || coalesce(e.agent_name, 'null')) as agent_key,
+             e.amount as sales, e.amount_collected as coll, 0::bigint as paid, 0::bigint as wo
+      from daily_entries e
+      where e.entry_date <= p_as_of
+      union all
+      select coalesce(p.agent_id::text, 'deleted:' || coalesce(p.agent_name, 'null')),
+             0, 0, p.amount, 0
+      from agent_payments p
+      where p.payment_date <= p_as_of
+      union all
+      select coalesce(w.agent_id::text, 'deleted:' || coalesce(w.agent_name, 'null')),
+             0, 0, 0, w.amount
+      from write_offs w
+      where w.writeoff_date <= p_as_of
+    ) k
+    group by k.agent_key
+  ),
+  walk as (
+    select b.agent_key,
+           e.entry_date,
+           e.amount,
+           coalesce(
+             sum(greatest(e.amount, 0)) over (
+               partition by b.agent_key
+               order by e.entry_date desc, e.created_at desc, e.id desc
+               rows between unbounded preceding and 1 preceding
+             ), 0) as before_pos,
+           b.recv
+    from bal b
+    join daily_entries e
+      on coalesce(e.agent_id::text, 'deleted:' || coalesce(e.agent_name, 'null')) = b.agent_key
+     and e.entry_date <= p_as_of
+    where b.recv > 0
+  )
+  select w.agent_key,
+         w.entry_date,
+         (p_as_of - w.entry_date) as days,
+         least(w.amount, w.recv - w.before_pos) as amount,
+         case
+           when (p_as_of - w.entry_date) <= 30 then 'd30'
+           when (p_as_of - w.entry_date) <= 60 then 'd60'
+           else 'd60p'
+         end as bucket
+  from walk w
+  where w.amount > 0
+    and w.before_pos < w.recv;
+$$;
+
+revoke execute on function _report_aging_rows(date) from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- report_range(p_from, p_to): the main range report in one round trip.
+-- ---------------------------------------------------------------------------
+create or replace function report_range(p_from date, p_to date)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_result jsonb;
+begin
+  if not is_owner_manager() then
+    raise exception 'owner_manager_only';
+  end if;
+
+  with groups as (
+    select a.id::text as gkey,
+           a.name as gname,
+           (a.closed_at is not null) as closed,
+           false as deleted,
+           a.name as sort_name
+    from agents a
+    union all
+    select d.gkey,
+           coalesce(d.agent_name, '—') || ' (ဖျက်ပြီး)' as gname,
+           true as closed,
+           true as deleted,
+           coalesce(d.agent_name, '—') as sort_name
+    from (
+      select distinct
+             'deleted:' || coalesce(r.agent_name, 'null') as gkey,
+             r.agent_name
+      from (
+        select agent_name from daily_entries
+          where agent_id is null and entry_date <= p_to
+        union all
+        select agent_name from write_offs
+          where agent_id is null and writeoff_date <= p_to
+        union all
+        select agent_name from agent_payments
+          where agent_id is null and payment_date <= p_to
+        union all
+        select agent_name from agent_deposits
+          where agent_id is null and deposit_date <= p_to
+        union all
+        select agent_name from agent_settlements
+          where agent_id is null and settle_date <= p_to
+      ) r
+    ) d
+  ),
+  e_agg as (
+    select coalesce(e.agent_id::text, 'deleted:' || coalesce(e.agent_name, 'null')) as gkey,
+           sum(e.amount) as all_sales,
+           sum(e.amount_collected) as all_coll,
+           sum(e.delivered_qty - e.returned_qty) as bottles,
+           coalesce(sum(e.amount) filter (where e.entry_date between p_from and p_to), 0) as r_sales,
+           coalesce(sum(e.amount_collected) filter (where e.entry_date between p_from and p_to), 0) as r_coll
+    from daily_entries e
+    where e.entry_date <= p_to
+    group by 1
+  ),
+  w_agg as (
+    select coalesce(w.agent_id::text, 'deleted:' || coalesce(w.agent_name, 'null')) as gkey,
+           sum(w.amount) as all_wo,
+           coalesce(sum(w.amount) filter (where w.writeoff_date between p_from and p_to), 0) as r_wo
+    from write_offs w
+    where w.writeoff_date <= p_to
+    group by 1
+  ),
+  p_agg as (
+    select coalesce(p.agent_id::text, 'deleted:' || coalesce(p.agent_name, 'null')) as gkey,
+           sum(p.amount) as all_paid,
+           coalesce(sum(p.amount) filter (where p.payment_date between p_from and p_to), 0) as r_paid
+    from agent_payments p
+    where p.payment_date <= p_to
+    group by 1
+  ),
+  d_agg as (
+    select coalesce(d.agent_id::text, 'deleted:' || coalesce(d.agent_name, 'null')) as gkey,
+           sum(d.amount) as dep_total
+    from agent_deposits d
+    where d.deposit_date <= p_to
+    group by 1
+  ),
+  s_one as (
+    select distinct on (s.gkey) s.gkey, s.settle_date, s.forfeiture_income, s.net_refund
+    from (
+      select coalesce(st.agent_id::text, 'deleted:' || coalesce(st.agent_name, 'null')) as gkey,
+             st.settle_date, st.forfeiture_income, st.net_refund, st.created_at
+      from agent_settlements st
+      where st.settle_date <= p_to
+    ) s
+    order by s.gkey, s.settle_date asc, s.created_at asc
+  ),
+  per_agent as (
+    select g.gkey,
+           g.gname,
+           g.closed,
+           g.deleted,
+           coalesce(e.r_sales, 0) as sales,
+           coalesce(e.r_coll, 0) + coalesce(p.r_paid, 0) as collected,
+           coalesce(w.r_wo, 0) as write_off,
+           greatest(0,
+             coalesce(e.all_sales, 0) - coalesce(e.all_coll, 0)
+             - coalesce(p.all_paid, 0) - coalesce(w.all_wo, 0)) as receivable,
+           (coalesce(e.all_sales, 0) - coalesce(e.all_coll, 0)
+             - coalesce(p.all_paid, 0) - coalesce(w.all_wo, 0)) as receivable_raw,
+           case when s.gkey is not null then 0 else coalesce(e.bottles, 0) end as bottles,
+           case when s.gkey is not null then 0 else coalesce(d.dep_total, 0) end as deposit,
+           case when s.gkey is not null and s.settle_date between p_from and p_to
+                then s.forfeiture_income else 0 end as forfeiture_r,
+           case when s.gkey is not null and s.settle_date between p_from and p_to
+                then s.net_refund else 0 end as refund_r
+    from groups g
+    left join e_agg e on e.gkey = g.gkey
+    left join w_agg w on w.gkey = g.gkey
+    left join p_agg p on p.gkey = g.gkey
+    left join d_agg d on d.gkey = g.gkey
+    left join s_one s on s.gkey = g.gkey
+  ),
+  totals as (
+    select coalesce(sum(sales), 0) as sales,
+           coalesce(sum(collected), 0) as collected,
+           coalesce(sum(write_off), 0) as write_offs,
+           coalesce(sum(receivable), 0) as receivable,
+           coalesce(sum(receivable_raw), 0) as receivable_raw,
+           coalesce(sum(deposit), 0) as deposit_liability,
+           coalesce(sum(forfeiture_r), 0) as forfeiture_income,
+           coalesce(sum(refund_r), 0) as refunds
+    from per_agent
+  ),
+  cat as (
+    select coalesce(c.name, 'အမျိုးအစား မသတ်မှတ်') as name,
+           sum(x.amount) as total,
+           min(x.expense_date) as first_date,
+           min(x.created_at) as first_created
+    from expenses x
+    left join expense_categories c on c.id = x.category_id
+    where x.expense_date between p_from and p_to
+    group by 1
+  ),
+  cat_json as (
+    select coalesce(
+             jsonb_agg(jsonb_build_object('name', name, 'total', total)
+                       order by total desc, first_date asc, first_created asc),
+             '[]'::jsonb) as by_category,
+           coalesce(sum(total), 0) as expense_total
+    from cat
+  ),
+  payroll as (
+    select coalesce(sum(base + bonus), 0) as total
+    from payroll_runs
+    where month between to_char(p_from, 'YYYY-MM') and to_char(p_to, 'YYYY-MM')
+  ),
+  aging_rows as (
+    select r.agent_key, r.entry_date, r.days, r.amount, r.bucket,
+           g.gname
+    from _report_aging_rows(p_to) r
+    join groups g on g.gkey = r.agent_key
+  ),
+  aging_json as (
+    select coalesce(sum(amount) filter (where bucket = 'd30'), 0) as d30,
+           coalesce(sum(amount) filter (where bucket = 'd60'), 0) as d60,
+           coalesce(sum(amount) filter (where bucket = 'd60p'), 0) as d60p,
+           coalesce(
+             jsonb_agg(jsonb_build_object(
+                         'bucket', bucket,
+                         'agent', gname,
+                         'date', to_char(entry_date, 'YYYY-MM-DD'),
+                         'days', greatest(0, days),
+                         'amount', amount)
+                       order by days desc, amount desc, gname asc, entry_date desc),
+             '[]'::jsonb) as rows
+    from aging_rows
+  ),
+  per_agent_json as (
+    select coalesce(
+             jsonb_agg(jsonb_build_object(
+                         'id', gkey,
+                         'name', gname,
+                         'closed', closed,
+                         'deleted', deleted,
+                         'sales', sales,
+                         'collected', collected,
+                         'writeOff', write_off,
+                         'receivable', receivable,
+                         'bottles', bottles,
+                         'deposit', deposit)
+                       order by receivable desc, gname asc),
+             '[]'::jsonb) as per_agent
+    from per_agent
+  ),
+  emp as (
+    select e.created_by as uid, 0 as src, e.entry_date as d, e.created_at as ca,
+           e.delivered_qty::bigint as bottles, e.amount_collected as cash, 0::bigint as debt
+    from daily_entries e
+    where e.created_by is not null and e.entry_date between p_from and p_to
+    union all
+    select p.created_by, 1, p.payment_date, p.created_at,
+           0, 0, p.amount
+    from agent_payments p
+    where p.created_by is not null and p.payment_date between p_from and p_to
+  ),
+  emp_first as (
+    select distinct on (uid) uid, src, d, ca
+    from emp
+    order by uid, src, d, ca
+  ),
+  emp_agg as (
+    select e.uid,
+           sum(e.bottles) as bottles,
+           sum(e.cash) as cash,
+           sum(e.debt) as debt_collected,
+           sum(e.cash + e.debt) as total,
+           f.src as f_src, f.d as f_d, f.ca as f_ca
+    from emp e
+    join emp_first f on f.uid = e.uid
+    group by e.uid, f.src, f.d, f.ca
+  ),
+  emp_json as (
+    select coalesce(
+             jsonb_agg(jsonb_build_object(
+                         'id', uid,
+                         'bottles', bottles,
+                         'cash', cash,
+                         'debtCollected', debt_collected,
+                         'total', total)
+                       order by f_src asc, f_d asc, f_ca asc),
+             '[]'::jsonb) as employee_perf
+    from emp_agg
+  ),
+  wo_json as (
+    select coalesce(
+             jsonb_agg(jsonb_build_object(
+                         'id', w.id,
+                         'agent_id', w.agent_id,
+                         'agent_name', w.agent_name,
+                         'writeoff_date', to_char(w.writeoff_date, 'YYYY-MM-DD'),
+                         'amount', w.amount,
+                         'note', w.note,
+                         'created_by', w.created_by,
+                         'created_at', w.created_at)
+                       order by w.writeoff_date desc, w.created_at desc),
+             '[]'::jsonb) as range_write_offs
+    from write_offs w
+    where w.writeoff_date between p_from and p_to
+  )
+  select jsonb_build_object(
+    'sales', t.sales,
+    'collected', t.collected,
+    'writeOffs', t.write_offs,
+    'expenseTotal', cj.expense_total,
+    'byCategory', cj.by_category,
+    'payroll', pr.total,
+    'profit', t.sales + t.forfeiture_income - cj.expense_total - pr.total - t.write_offs,
+    'forfeitureIncome', t.forfeiture_income,
+    'refunds', t.refunds,
+    'depositLiability', t.deposit_liability,
+    'receivable', t.receivable,
+    'receivableRaw', t.receivable_raw,
+    'aging', jsonb_build_object('d30', aj.d30, 'd60', aj.d60, 'd60p', aj.d60p),
+    'agingRows', aj.rows,
+    'perAgent', pj.per_agent,
+    'employeePerf', ej.employee_perf,
+    'rangeWriteOffs', wj.range_write_offs,
+    'hasData', (
+      exists (select 1 from daily_entries where entry_date <= p_to)
+      or exists (select 1 from expenses where expense_date between p_from and p_to)
+      or exists (select 1 from agent_payments where payment_date <= p_to)
+      or exists (select 1 from write_offs where writeoff_date <= p_to)
+      or exists (select 1 from payroll_runs
+                 where month between to_char(p_from, 'YYYY-MM') and to_char(p_to, 'YYYY-MM'))
+      or exists (select 1 from agent_deposits where deposit_date <= p_to)
+      or exists (select 1 from agent_settlements where settle_date <= p_to)
+    ),
+    'earliestYear', (
+      select extract(year from min(entry_date))::int
+      from daily_entries
+      where entry_date <= p_to
+    )
+  ) into v_result
+  from totals t, cat_json cj, payroll pr, aging_json aj, per_agent_json pj,
+       emp_json ej, wo_json wj;
+
+  return v_result;
+end $$;
+
+revoke execute on function report_range(date, date) from public, anon;
+grant execute on function report_range(date, date) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- report_months(p_from_month, p_months, p_cap, p_exp_cap): monthly trend.
+-- One series of consecutive months starting at p_from_month ('YYYY-MM').
+-- Entries / write-offs / settlements are capped at p_cap (in the page,
+-- the applied range's `to`); expenses are capped at p_exp_cap (rolling
+-- mode passes the same `to`; per-year mode passes the year's Dec 31 —
+-- mirroring the page's separate per-year expense fetch). Payroll is
+-- matched by month text, as in the client code.
+-- ---------------------------------------------------------------------------
+create or replace function report_months(
+  p_from_month text,
+  p_months integer,
+  p_cap date,
+  p_exp_cap date
+)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_result jsonb;
+begin
+  if not is_owner_manager() then
+    raise exception 'owner_manager_only';
+  end if;
+  if p_months is null or p_months < 1 or p_months > 60 then
+    raise exception 'invalid_months';
+  end if;
+
+  with months as (
+    select to_char((p_from_month || '-01')::date + make_interval(months => i), 'YYYY-MM') as m,
+           i
+    from generate_series(0, p_months - 1) as i
+  ),
+  sales_m as (
+    select to_char(e.entry_date, 'YYYY-MM') as m, sum(e.amount) as total
+    from daily_entries e
+    where e.entry_date <= p_cap
+      and to_char(e.entry_date, 'YYYY-MM') in (select m from months)
+    group by 1
+  ),
+  exp_m as (
+    select to_char(x.expense_date, 'YYYY-MM') as m, sum(x.amount) as total
+    from expenses x
+    where x.expense_date <= p_exp_cap
+      and to_char(x.expense_date, 'YYYY-MM') in (select m from months)
+    group by 1
+  ),
+  pay_m as (
+    select r.month as m, sum(r.base + r.bonus) as total
+    from payroll_runs r
+    where r.month in (select m from months)
+    group by 1
+  ),
+  wo_m as (
+    select to_char(w.writeoff_date, 'YYYY-MM') as m, sum(w.amount) as total
+    from write_offs w
+    where w.writeoff_date <= p_cap
+      and to_char(w.writeoff_date, 'YYYY-MM') in (select m from months)
+    group by 1
+  ),
+  forf_m as (
+    select to_char(s.settle_date, 'YYYY-MM') as m, sum(s.forfeiture_income) as total
+    from agent_settlements s
+    where s.settle_date <= p_cap
+      and to_char(s.settle_date, 'YYYY-MM') in (select m from months)
+    group by 1
+  )
+  select coalesce(
+           jsonb_agg(jsonb_build_object(
+                       'month', mo.m,
+                       'sales', coalesce(sm.total, 0),
+                       'costs', coalesce(em.total, 0) + coalesce(pm.total, 0)
+                                + coalesce(wm.total, 0),
+                       'profit', coalesce(sm.total, 0) + coalesce(fm.total, 0)
+                                 - (coalesce(em.total, 0) + coalesce(pm.total, 0)
+                                    + coalesce(wm.total, 0)))
+                     order by mo.i),
+           '[]'::jsonb)
+  into v_result
+  from months mo
+  left join sales_m sm on sm.m = mo.m
+  left join exp_m em on em.m = mo.m
+  left join pay_m pm on pm.m = mo.m
+  left join wo_m wm on wm.m = mo.m
+  left join forf_m fm on fm.m = mo.m;
+
+  return v_result;
+end $$;
+
+revoke execute on function report_months(text, integer, date, date) from public, anon;
+grant execute on function report_months(text, integer, date, date) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- report_aging(p_as_of): aging bucket totals only (Daily Brief).
+-- ---------------------------------------------------------------------------
+create or replace function report_aging(p_as_of date)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_result jsonb;
+begin
+  if not is_owner_manager() then
+    raise exception 'owner_manager_only';
+  end if;
+
+  select jsonb_build_object(
+    'd30', coalesce(sum(amount) filter (where bucket = 'd30'), 0),
+    'd60', coalesce(sum(amount) filter (where bucket = 'd60'), 0),
+    'd60p', coalesce(sum(amount) filter (where bucket = 'd60p'), 0)
+  ) into v_result
+  from _report_aging_rows(p_as_of);
+
+  return v_result;
+end $$;
+
+revoke execute on function report_aging(date) from public, anon;
+grant execute on function report_aging(date) to authenticated;
+
+-- 0021 --
+-- 0021_collections_aggregation.sql — Performance wave P2: server-side
+-- aggregation for the Collections page and the Agents page.
+--
+-- Problem: CollectionsPage downloaded EVERY daily_entries row (12,423 at
+-- seed volume), every agent_payments row and every write_offs row and
+-- aggregated them in the browser (~90 s); AgentsPage downloaded every
+-- daily_entries row just to compute bottles-held per agent. Both pages
+-- now call one RPC each and receive one small result set.
+--
+-- collections_summary(p_from, p_to):
+--   Per-agent sales / cash / payments / write-offs / outstanding in ONE
+--   call, for every agent (agents with no activity return zeros, exactly
+--   like the client-side defaults the page used before).
+--   - Date bounds are optional; NULL/NULL means all time, which is what
+--     the Collections page shows. A bounded range filters entries by
+--     entry_date, payments by payment_date, write-offs by writeoff_date.
+--   - The all-time outstanding column IS agent_outstanding(agent_id) —
+--     the existing single source of truth (0006) also used by the
+--     credit-limit guards — so this summary can never drift from the
+--     per-agent balance. For a bounded range, outstanding is the
+--     range-filtered components' difference (agent_outstanding itself
+--     is all-time only).
+--   - Component definitions match the old client aggregation exactly:
+--     sales = sum(daily_entries.amount), cash = sum(amount_collected),
+--     payments = sum(agent_payments.amount), write_offs = sum(amount);
+--     rows with agent_id NULL (hard-deleted agents) are excluded, as
+--     before.
+--   - Access mirrors the /collections route guard (App.tsx): effective
+--     owner/manager only, via is_owner_manager() (has_role honours
+--     user_roles extras and co_owner = manager; inactive profiles fail).
+--
+-- agent_held_totals():
+--   (agent_id, held) for every agent, held = sum(delivered_qty -
+--   returned_qty) over daily_entries — the exact formula AgentsPage
+--   computed client-side. Access mirrors the /agents route guard:
+--   effective owner/manager/staff, via is_staff_plus().
+--
+-- Both functions are security definer with an internal role check (the
+-- 0014 pattern): execute is granted to `authenticated`, and the check
+-- inside is the real gate (anon callers have auth.uid() NULL, so
+-- has_role is false and the call is rejected).
+
+create or replace function collections_summary(
+  p_from date default null,
+  p_to date default null
+)
+returns table(
+  agent_id uuid,
+  sales bigint,
+  cash bigint,
+  payments bigint,
+  write_offs bigint,
+  outstanding bigint
+)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not is_owner_manager() then
+    raise exception 'forbidden';
+  end if;
+  return query
+  select
+    a.id,
+    coalesce(e.sales, 0)::bigint,
+    coalesce(e.cash, 0)::bigint,
+    coalesce(p.pay, 0)::bigint,
+    coalesce(w.wo, 0)::bigint,
+    case
+      when p_from is null and p_to is null then agent_outstanding(a.id)
+      else coalesce(e.sales, 0)::bigint - coalesce(e.cash, 0)::bigint
+         - coalesce(p.pay, 0)::bigint - coalesce(w.wo, 0)::bigint
+    end
+  from agents a
+  left join (
+    select en.agent_id,
+           sum(en.amount) as sales,
+           sum(en.amount_collected) as cash
+    from daily_entries en
+    where en.agent_id is not null
+      and (p_from is null or en.entry_date >= p_from)
+      and (p_to is null or en.entry_date <= p_to)
+    group by en.agent_id
+  ) e on e.agent_id = a.id
+  left join (
+    select pm.agent_id, sum(pm.amount) as pay
+    from agent_payments pm
+    where pm.agent_id is not null
+      and (p_from is null or pm.payment_date >= p_from)
+      and (p_to is null or pm.payment_date <= p_to)
+    group by pm.agent_id
+  ) p on p.agent_id = a.id
+  left join (
+    select wo.agent_id, sum(wo.amount) as wo
+    from write_offs wo
+    where wo.agent_id is not null
+      and (p_from is null or wo.writeoff_date >= p_from)
+      and (p_to is null or wo.writeoff_date <= p_to)
+    group by wo.agent_id
+  ) w on w.agent_id = a.id;
+end $$;
+
+grant execute on function collections_summary(date, date) to authenticated;
+
+create or replace function agent_held_totals()
+returns table(agent_id uuid, held bigint)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not is_staff_plus() then
+    raise exception 'forbidden';
+  end if;
+  return query
+  select a.id, coalesce(sum(e.delivered_qty - e.returned_qty), 0)::bigint
+  from agents a
+  left join daily_entries e on e.agent_id = a.id
+  group by a.id;
+end $$;
+
+grant execute on function agent_held_totals() to authenticated;
+
+-- 0022 --
+-- 0022_data_quality_scan.sql — Server-side data-quality scan RPC.
+--
+-- Performance wave P3: DataQualityPage used to fetchAll-scan
+-- daily_entries / agent_payments / agent_deposits / payroll_runs /
+-- expenses / write_offs / disputes / profiles in the browser and run
+-- every check in JS (at 12,423 entries it produced ~15k issues and
+-- took the better part of a minute; per-row RLS helper evaluation on
+-- the client fetches was the bottleneck). This RPC reproduces
+-- runChecks (src/pages/DataQualityPage.tsx) check-for-check in one
+-- security-definer query and returns the finished issue list plus the
+-- row counts the page header displays.
+--
+-- Return shape:
+--   { "issues": [ {kind, severity, table, recordId, date, name,
+--                  problem, suggestion}, ... ],
+--     "counts": { "entries": n, "deposits": n, "payroll": n,
+--                 "expenses": n } }
+-- Issues come back in the page's final order: severity rank
+-- (high < medium < low), then date DESC, stable within ties — the
+-- (sec, ord) keys below recreate the page's append order so ties
+-- resolve exactly as the JS stable sort did. The page still owns the
+-- `locked` flag (month_locks lookup) and all rendering/filtering.
+--
+-- Fidelity notes (JS -> SQL semantics):
+-- * All money/qty columns are integer/bigint, so the JS Number()
+--   casts and |a-b| > 0.5 tolerances collapse to exact integer
+--   compares (<> 0, <= -1, >= 1 as appropriate).
+-- * fmt(x) in the page is Math.round(x).toLocaleString('en-US');
+--   here to_char(x, 'FM999,999,999,999,999') (after round() where the
+--   page rounds a quotient). Values interpolated WITHOUT fmt() in the
+--   page (row counts, ages, percents) are concatenated raw here too.
+-- * "Fetch order" in the page is (created_at, id) per table; the
+--   per-entry iteration order is entry_date asc, stable over fetch
+--   order. Both are recreated with row_number() keys.
+-- * daysBetween on date-only strings is plain date subtraction.
+-- * The night-entry check uses the Asia/Yangon hour of created_at
+--   (the page adds 6.5h to the UTC timestamp — the same instant).
+-- * Dispute dates/ages use the UTC calendar date of created_at (the
+--   page slices the ISO string PostgREST returns).
+-- * The running bottle balance clamps at 0 after every row; in SQL
+--   cval = ssum - least(0, running-min(ssum)) is exactly that clamped
+--   value, and hval = lag(cval) + delivered - returned is the
+--   pre-clamp value the checks test.
+-- * Owner/manager gate: is_owner_manager() (0006) — the effective-role
+--   helper the page's own route gate relies on (primary role, plus
+--   co_owner counts as manager, plus user_roles extras). Bare
+--   app_role() would lock out co_owner users who can open the page.
+
+create or replace function data_quality_scan() returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_today date := (now() at time zone 'Asia/Yangon')::date;
+  v_bk_json jsonb;
+  v_bk text;
+  v_result jsonb;
+begin
+  if not is_owner_manager() then
+    raise exception 'data_quality_scan: owner/manager only'
+      using errcode = '42501';
+  end if;
+
+  -- Backup stamp, mirroring getLastBackupAt() (src/lib/backup.ts): the
+  -- app_settings value must be a JSON string; tolerate the legacy
+  -- double-encoded shape (a string containing a quoted ISO string).
+  select value into v_bk_json from app_settings where key = 'last_backup_at';
+  if v_bk_json is not null and jsonb_typeof(v_bk_json) = 'string' then
+    v_bk := v_bk_json #>> '{}';
+    if v_bk is not null and left(v_bk, 1) = '"' then
+      v_bk := v_bk::jsonb #>> '{}';
+    end if;
+  end if;
+
+  with
+  prof as (
+    select p.id, coalesce(nullif(btrim(p.display_name), ''), p.username) as pname
+    from profiles p
+  ),
+  entries_f as (
+    select e.*, row_number() over (order by e.created_at, e.id) as frn
+    from daily_entries e
+  ),
+  payments_f as (
+    select p.*, row_number() over (order by p.created_at, p.id) as frn
+    from agent_payments p
+  ),
+  writeoffs_f as (
+    select w.*, row_number() over (order by w.created_at, w.id) as frn
+    from write_offs w
+  ),
+  deposits_f as (
+    select d.*, row_number() over (order by d.created_at, d.id) as frn
+    from agent_deposits d
+  ),
+  payroll_f as (
+    select p.*, row_number() over (order by p.created_at, p.id) as frn
+    from payroll_runs p
+  ),
+  expenses_f as (
+    select x.*, row_number() over (order by x.created_at, x.id) as frn
+    from expenses x
+  ),
+  disputes_f as (
+    select d.*, row_number() over (order by d.created_at, d.id) as frn
+    from disputes d
+  ),
+  -- Per-entry iteration order: entry_date asc, stable over fetch order.
+  ent_sorted as (
+    select e.*, row_number() over (order by e.entry_date, e.created_at, e.id) as srn
+    from daily_entries e
+  ),
+  -- Running bottle balance (see header note for the clamp identity).
+  held1 as (
+    select s.id, s.agent_id, s.agent_name, s.entry_date, s.created_at, s.srn,
+           s.delivered_qty, s.returned_qty,
+           sum(s.delivered_qty - s.returned_qty) over (
+             partition by s.agent_id
+             order by s.entry_date, s.created_at, s.id
+             rows between unbounded preceding and current row
+           ) as ssum
+    from ent_sorted s
+    where s.agent_id is not null
+  ),
+  held2 as (
+    select h.*,
+           h.ssum - least(0::bigint, min(h.ssum) over (
+             partition by h.agent_id
+             order by h.entry_date, h.created_at, h.id
+             rows between unbounded preceding and current row
+           )) as cval
+    from held1 h
+  ),
+  held3 as (
+    select h.*,
+           lag(h.cval, 1, 0) over (
+             partition by h.agent_id
+             order by h.entry_date, h.created_at, h.id
+           ) + h.delivered_qty - h.returned_qty as hval
+    from held2 h
+  ),
+  final_held as (
+    select distinct on (h.agent_id) h.agent_id, h.cval
+    from held3 h
+    order by h.agent_id, h.entry_date desc, h.created_at desc, h.id desc
+  ),
+  -- First fetch-order appearance per agent (the page's Map order).
+  agent_first as (
+    select e.agent_id, min(e.frn) as ffrn
+    from entries_f e
+    where e.agent_id is not null
+    group by e.agent_id
+  ),
+  -- Debt FIFO: d = what a trip still owes before payments/write-offs.
+  entd as (
+    select e.*,
+           e.delivered_qty::bigint * e.unit_price - e.amount_collected as d
+    from daily_entries e
+    where e.agent_id is not null
+  ),
+  pool as (
+    select u.agent_id, sum(u.amount) as pool0
+    from (
+      select agent_id, amount from agent_payments where agent_id is not null
+      union all
+      select agent_id, amount from write_offs where agent_id is not null
+    ) u
+    group by u.agent_id
+  ),
+  fifo1 as (
+    select t.*,
+           coalesce(p.pool0, 0) + sum(case when t.d < 0 then -t.d else 0 end)
+             over (partition by t.agent_id) as pool1
+    from entd t
+    left join pool p on p.agent_id = t.agent_id
+  ),
+  fifo2 as (
+    select f.*,
+           sum(case when f.d > 0 then f.d else 0 end) over (
+             partition by f.agent_id
+             order by f.entry_date, f.created_at, f.id
+             rows between unbounded preceding and 1 preceding
+           ) as cum_before
+    from fifo1 f
+  ),
+  fifo3 as (
+    select f.*,
+           case when f.d > 0
+                then greatest(0::bigint, f.d - greatest(0::bigint, f.pool1 - coalesce(f.cum_before, 0)))
+                else 0::bigint end as left_amt
+    from fifo2 f
+  ),
+  aging as (
+    select a.agent_id, sum(a.left_amt) as owed
+    from fifo3 a
+    where a.left_amt > 0
+    group by a.agent_id
+  ),
+  oldest as (
+    select distinct on (o.agent_id) o.agent_id, o.entry_date, o.agent_name
+    from fifo3 o
+    where o.left_amt > 0
+    order by o.agent_id, o.entry_date, o.created_at, o.id
+  ),
+  -- Negative total balance per agent (over-collected).
+  bal as (
+    select u.aid, sum(u.delta) as bal
+    from (
+      select agent_id as aid, (amount - amount_collected) as delta
+      from daily_entries where agent_id is not null
+      union all
+      select agent_id, -amount from agent_payments where agent_id is not null
+      union all
+      select agent_id, -amount from write_offs where agent_id is not null
+    ) u
+    group by u.aid
+  ),
+  bal_ord as (
+    select z.aid, min(z.ordv) as o
+    from (
+      select agent_id as aid, frn as ordv from entries_f where agent_id is not null
+      union all
+      select agent_id, 1000000 + frn from payments_f where agent_id is not null
+      union all
+      select agent_id, 2000000 + frn from writeoffs_f where agent_id is not null
+    ) z
+    group by z.aid
+  ),
+  dep_bottles as (
+    select d.agent_id, sum(d.bottles)::bigint as db
+    from agent_deposits d
+    group by d.agent_id
+  )
+  select jsonb_build_object(
+    'issues', coalesce((
+      select jsonb_agg(s.iss order by s.rk, s.dt desc, s.sec, s.ord)
+      from (
+        select b.sec, b.ord, b.dt,
+               case b.severity when 'high' then 0 when 'medium' then 1 else 2 end as rk,
+               jsonb_build_object(
+                 'kind', b.kind, 'severity', b.severity, 'table', b.tbl,
+                 'recordId', b.rid, 'date', b.dt, 'name', b.nm,
+                 'problem', b.problem, 'suggestion', b.suggestion
+               ) as iss
+        from (
+          -- sec 0: duplicates — same agent + day, identical numbers;
+          -- one issue per row after the first (fetch order).
+          select 0 as sec, r.frn as ord, 'duplicate' as kind, 'high' as severity,
+                 'daily_entries' as tbl, r.id::text as rid,
+                 r.entry_date::text as dt,
+                 coalesce(r.agent_name, a.name, '—') as nm,
+                 'တစ်ရက်တည်းတွင် မှတ်တမ်း ' || d.cnt || ' ခု (ဂဏန်းတူ)' as problem,
+                 'ထပ်နေသော မှတ်တမ်းကို ဖျက်ပါ' as suggestion
+          from (
+            select e.*,
+                   row_number() over (
+                     partition by e.agent_id, e.entry_date
+                     order by e.created_at, e.id
+                   ) as grn
+            from entries_f e
+            where e.agent_id is not null
+          ) r
+          join (
+            select agent_id, entry_date, count(*) as cnt
+            from daily_entries
+            where agent_id is not null
+            group by agent_id, entry_date
+            having count(*) >= 2
+               and min(delivered_qty) = max(delivered_qty)
+               and min(returned_qty) = max(returned_qty)
+               and min(amount_collected) = max(amount_collected)
+          ) d on d.agent_id = r.agent_id and d.entry_date = r.entry_date
+          left join agents a on a.id = r.agent_id
+          where r.grn > 1
+
+          union all
+          -- sec 1: per-entry checks (sub-order follows the page's
+          -- check order inside its per-entry loop).
+          select 1, e.srn * 16 + 1, 'impossible', 'high', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 'အနုတ်ဂဏန်း ပါနေသည်',
+                 'ဂဏန်းကို 0 သို့မဟုတ် အမှန်ဖြင့် ပြင်ပါ'
+          from ent_sorted e
+          left join agents a on a.id = e.agent_id
+          where e.delivered_qty < 0 or e.returned_qty < 0 or e.amount_collected < 0
+
+          union all
+          select 1, e.srn * 16 + 2, 'impossible', 'medium', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 'တစ်ရက် ' || to_char(e.delivered_qty::bigint, 'FM999,999,999,999,999') || ' ဘူး ပို့ — အလွန်များသည်',
+                 'ဂဏန်း ထပ်ရိုက်မိခြင်း ရှိမရှိ စစ်ပါ'
+          from ent_sorted e
+          left join agents a on a.id = e.agent_id
+          where e.delivered_qty > 2000
+
+          union all
+          select 1, e.srn * 16 + 3, 'impossible', 'medium', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 'အနာဂတ်ရက်စွဲ',
+                 'ရက်စွဲကို မှန်အောင် ပြင်ပါ'
+          from ent_sorted e
+          left join agents a on a.id = e.agent_id
+          where e.entry_date > v_today
+
+          union all
+          select 1, e.srn * 16 + 4, 'impossible', 'low', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 'ဂဏန်းအားလုံး 0 — အလွတ်မှတ်တမ်း',
+                 'မလိုအပ်ပါက ဖျက်ပါ'
+          from ent_sorted e
+          left join agents a on a.id = e.agent_id
+          where e.delivered_qty = 0 and e.returned_qty = 0 and e.amount_collected = 0
+            and (e.notes is null or btrim(e.notes) = '')
+
+          union all
+          select 1, e.srn * 16 + 5, 'mismatch', 'high', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 'ရောင်းငွေ မကိုက် — ' || to_char(e.delivered_qty::bigint, 'FM999,999,999,999,999')
+                   || ' × ' || to_char(e.unit_price::bigint, 'FM999,999,999,999,999')
+                   || ' = ' || to_char(e.delivered_qty::bigint * e.unit_price, 'FM999,999,999,999,999')
+                   || ' ဖြစ်ရမည် (မှတ်ထား ' || to_char(e.amount, 'FM999,999,999,999,999') || ')',
+                 'မှတ်တမ်းကို စစ်ပြီး ပြင်ပါ'
+          from ent_sorted e
+          left join agents a on a.id = e.agent_id
+          where e.amount <> e.delivered_qty::bigint * e.unit_price
+
+          union all
+          select 1, e.srn * 16 + 6, 'snapshot', 'medium', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 'ကိုယ်စားလှယ် အမည် မှတ်တမ်း (snapshot) ပျောက်နေသည်',
+                 'မှတ်တမ်းကို တစ်ခါ ပြန်သိမ်းပါ (အမည် အလိုအလျောက် ပြန်ဝင်မည်)'
+          from ent_sorted e
+          left join agents a on a.id = e.agent_id
+          where e.agent_id is not null
+            and (e.agent_name is null or btrim(e.agent_name) = '')
+
+          union all
+          select 1, h.srn * 16 + 7, 'impossible', 'high', 'daily_entries', h.id::text,
+                 h.entry_date::text,
+                 coalesce(h.agent_name, a.name, '—'),
+                 'ပို့ထားသည်ထက် ဗူးခွံ ပိုပြန်ယူ (လက်ကျန် ' || to_char(h.hval, 'FM999,999,999,999,999') || ')',
+                 'ပြန်ယူဗူးခွံ အရေအတွက် သို့မဟုတ် ယခင်ပို့ဘူးကို စစ်ပြီး ပြင်ပါ'
+          from held3 h
+          left join agents a on a.id = h.agent_id
+          where h.hval < 0
+
+          union all
+          select 1, h.srn * 16 + 8, 'impossible', 'medium', 'daily_entries', h.id::text,
+                 h.entry_date::text,
+                 coalesce(h.agent_name, a.name, '—'),
+                 'လက်ကျန် ' || to_char(h.hval, 'FM999,999,999,999,999')
+                   || ' ဘူး — ကန့်သတ်ချက် ' || to_char(a.bottle_limit::bigint, 'FM999,999,999,999,999') || ' ကျော်',
+                 'ကန့်သတ်ချက် တိုးပါ သို့မဟုတ် ပို့ဘူးကို စစ်ပါ'
+          from held3 h
+          join agents a on a.id = h.agent_id
+          where a.bottle_limit > 0 and h.hval > a.bottle_limit
+
+          union all
+          select 1, e.srn * 16 + 9, 'mismatch', 'medium', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 'ယူနစ်ဈေး ' || to_char(e.unit_price::bigint, 'FM999,999,999,999,999')
+                   || ' ≠ ကိုယ်စားလှယ်ဈေး ' || to_char(a.default_unit_price::bigint, 'FM999,999,999,999,999'),
+                 'မှတ်တမ်းကို တစ်ခါ ပြန်သိမ်းပါ (ဈေး အလိုအလျောက် ညှိမည်)'
+          from ent_sorted e
+          join agents a on a.id = e.agent_id
+          where e.unit_price <> a.default_unit_price
+
+          union all
+          -- sec 2: deposit amount mismatch.
+          select 2, d.frn, 'mismatch', 'high', 'agent_deposits', d.id::text,
+                 d.deposit_date::text,
+                 coalesce(d.agent_name, a.name, '—'),
+                 'အပေါင် ' || to_char(d.bottles::bigint, 'FM999,999,999,999,999')
+                   || ' × ' || to_char(d.price_per_bottle::bigint, 'FM999,999,999,999,999')
+                   || ' = ' || to_char(d.bottles::bigint * d.price_per_bottle, 'FM999,999,999,999,999')
+                   || ' ဖြစ်ရမည် (မှတ်ထား ' || to_char(d.amount, 'FM999,999,999,999,999') || ')',
+                 'ပမာဏကို ' || to_char(d.bottles::bigint * d.price_per_bottle, 'FM999,999,999,999,999') || ' ကျပ် သို့ ပြင်ပါ'
+          from deposits_f d
+          left join agents a on a.id = d.agent_id
+          where d.amount <> d.bottles::bigint * d.price_per_bottle
+
+          union all
+          -- sec 3: payroll checks.
+          select 3, p.frn * 4 + 1, 'mismatch', 'high', 'payroll_runs', p.id::text,
+                 p.month,
+                 coalesce(pr.pname, ''),
+                 'လစာ ' || to_char(p.base, 'FM999,999,999,999,999')
+                   || ' + ' || to_char(p.bonus, 'FM999,999,999,999,999')
+                   || ' − ' || to_char(p.deduction, 'FM999,999,999,999,999')
+                   || ' = ' || to_char(p.base + p.bonus - p.deduction, 'FM999,999,999,999,999')
+                   || ' (မှတ်ထား ' || to_char(p.net, 'FM999,999,999,999,999') || ')',
+                 'လစာကို ပြန်တွက်ပါ'
+          from payroll_f p
+          left join prof pr on pr.id = p.user_id
+          where p.base + p.bonus - p.deduction <> p.net
+
+          union all
+          select 3, p.frn * 4 + 2, 'impossible', 'medium', 'payroll_runs', p.id::text,
+                 p.month,
+                 coalesce(pr.pname, ''),
+                 'အသားတင်လစာ အနုတ်',
+                 'advance အရစ်ကျ ပမာဏကို လျှော့ပါ'
+          from payroll_f p
+          left join prof pr on pr.id = p.user_id
+          where p.net < 0
+
+          union all
+          -- sec 4: expense checks.
+          select 4, x.frn * 4 + 1, 'impossible', 'medium', 'expenses', x.id::text,
+                 x.expense_date::text,
+                 x.title,
+                 'ကုန်ကျငွေ 0 သို့မဟုတ် အနုတ်',
+                 'ပမာဏကို ပြင်ပါ သို့မဟုတ် ဖျက်ပါ'
+          from expenses_f x
+          where x.amount <= 0
+
+          union all
+          select 4, x.frn * 4 + 2, 'impossible', 'medium', 'expenses', x.id::text,
+                 x.expense_date::text,
+                 x.title,
+                 'အနာဂတ်ရက်စွဲ',
+                 'ရက်စွဲကို ပြင်ပါ'
+          from expenses_f x
+          where x.expense_date > v_today
+
+          union all
+          -- sec 5: negative total balance per agent.
+          select 5, o.o, 'debt', 'high', 'agents', b.aid::text,
+                 v_today::text,
+                 coalesce(a.name, '—'),
+                 'ကိုယ်စားလှယ် လက်ကျန် အနုတ် ' || to_char(b.bal, 'FM999,999,999,999,999') || ' ကျပ် — ငွေ ပိုကောက်ခံထားသည်',
+                 'ကောက်ခံမှု မှတ်တမ်းများကို စစ်ပါ'
+          from bal b
+          join bal_ord o on o.aid = b.aid
+          left join agents a on a.id = b.aid
+          where b.bal < 0
+
+          union all
+          -- sec 6: debt aging (oldest unpaid trip older than 30 days).
+          select 6, f.ffrn * 2, 'debt',
+                 case when (v_today - o.entry_date) > 60 then 'high' else 'medium' end,
+                 'agents', g.agent_id::text,
+                 o.entry_date::text,
+                 coalesce(o.agent_name, a.name, '—'),
+                 'ကြွေး ' || to_char(g.owed, 'FM999,999,999,999,999')
+                   || ' ကျပ် — အဟောင်းဆုံး ' || (v_today - o.entry_date) || ' ရက် ကြာပြီ',
+                 case when (v_today - o.entry_date) > 60
+                      then 'ယနေ့ပဲ ဖုန်းဆက်ကောက်ပါ၊ ငွေမရမချင်း ထပ်မပို့ပါနှင့်'
+                      else 'ကိုယ်စားလှယ်ကို သတိပေးပြီး ကောက်ခံရန် စီစဉ်ပါ' end
+          from aging g
+          join oldest o on o.agent_id = g.agent_id
+          join agent_first f on f.agent_id = g.agent_id
+          left join agents a on a.id = g.agent_id
+          where (v_today - o.entry_date) > 30
+
+          union all
+          -- sec 6b: bottles held beyond deposit coverage.
+          select 6, f.ffrn * 2 + 1, 'mismatch', 'medium', 'agents', fh.agent_id::text,
+                 v_today::text,
+                 a.name,
+                 'လက်ကျန် ' || to_char(fh.cval, 'FM999,999,999,999,999')
+                   || ' ဘူး > အပေါင်ယူထား ' || to_char(db.db, 'FM999,999,999,999,999') || ' ဘူး',
+                 'ကျန် ' || to_char(fh.cval - db.db, 'FM999,999,999,999,999') || ' ဘူးအတွက် အပေါင် ထပ်ယူပါ သို့မဟုတ် ဘူးခွံ ပြန်သိမ်းပါ'
+          from final_held fh
+          join dep_bottles db on db.agent_id = fh.agent_id
+          join agents a on a.id = fh.agent_id
+          join agent_first f on f.agent_id = fh.agent_id
+          where db.db > 0 and fh.cval > db.db
+
+          union all
+          -- sec 7: suspicious habits (>=20 bottles with 0 collected;
+          -- records entered late at night, Yangon time).
+          select 7, e.frn * 4 + 1, 'suspicious', 'low', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 to_char(e.delivered_qty::bigint, 'FM999,999,999,999,999') || ' ဘူး ပို့ပြီး ငွေ 0 လက်ခံ',
+                 'အကြွေးသက်သက်ဟုတ်မဟုတ် ပို့သူဝန်ထမ်းကို မေးပါ'
+          from entries_f e
+          left join agents a on a.id = e.agent_id
+          where e.delivered_qty >= 20 and e.amount_collected = 0
+
+          union all
+          select 7, e.frn * 4 + 2, 'suspicious', 'low', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 'ညနက် ' || lpad((extract(hour from (e.created_at at time zone 'Asia/Yangon'))::int)::text, 2, '0')
+                   || ' နာရီတွင် ထည့်သွင်း'
+                   || case when coalesce(pr.pname, '') <> '' then ' (' || pr.pname || ')' else '' end,
+                 'အချိန်လွန်ထည့်ရသည့် အကြောင်းကို စစ်ပါ'
+          from entries_f e
+          left join agents a on a.id = e.agent_id
+          left join prof pr on pr.id = e.created_by
+          where extract(hour from (e.created_at at time zone 'Asia/Yangon'))::int >= 22
+             or extract(hour from (e.created_at at time zone 'Asia/Yangon'))::int < 5
+
+          union all
+          -- sec 8: collection anomalies — per collector (payments
+          -- created_by), per day, totals >= 100,000 only. Rule (a):
+          -- day >= 3x the trailing-7-day daily average (only days
+          -- present in the data form the baseline; missing days count
+          -- as 0 in the average). Rule (b): day >= 1.5x previous day.
+          select 8, an.cord * 1000000 + an.first_frn * 4 + 0, 'collection_anomaly', 'high',
+                 'agent_payments', an.created_by::text,
+                 an.day::text,
+                 an.pname,
+                 an.pname || ' သည် ပုံမှန်ထက် ၃ ဆပိုများသော ငွေကို ကောက်ခံခဲ့သည်',
+                 'ကောက်ငွေ ' || to_char(an.total, 'FM999,999,999,999,999')
+                   || ' ကျပ် · ပုံမှန်ငွေ ' || to_char(round(an.wsum / 7.0)::bigint, 'FM999,999,999,999,999')
+                   || ' ကျပ် — ကောက်ခံမှု မှတ်တမ်းများကို စစ်ပါ'
+          from (
+            select d.created_by, d.day, d.total, d.first_frn, c.cord, pf.pname,
+                   (select sum(x.total) from (
+                      select created_by, payment_date as day, sum(amount) as total
+                      from agent_payments where created_by is not null
+                      group by created_by, payment_date
+                    ) x where x.created_by = d.created_by and x.day >= d.day - 7 and x.day < d.day) as wsum,
+                   (select count(*) from (
+                      select created_by, payment_date as day, sum(amount) as total
+                      from agent_payments where created_by is not null
+                      group by created_by, payment_date
+                    ) x where x.created_by = d.created_by and x.day >= d.day - 7 and x.day < d.day) as wcnt
+            from (
+              select created_by, payment_date as day, sum(amount) as total, min(frn) as first_frn
+              from payments_f where created_by is not null
+              group by created_by, payment_date
+            ) d
+            join (
+              select created_by, min(first_frn) as cord
+              from (
+                select created_by, payment_date as day, min(frn) as first_frn
+                from payments_f where created_by is not null
+                group by created_by, payment_date
+              ) dd
+              group by created_by
+            ) c on c.created_by = d.created_by
+            join prof pf on pf.id = d.created_by
+            where d.total >= 100000
+          ) an
+          where an.wcnt > 0 and an.wsum > 0 and an.total * 7 >= 3 * an.wsum
+
+          union all
+          select 8, an.cord * 1000000 + an.first_frn * 4 + 1, 'collection_anomaly', 'high',
+                 'agent_payments', an.created_by::text,
+                 an.day::text,
+                 an.pname,
+                 an.pname || ' ကောက်ခံသောငွေသည် ယမန်နေ့၏ ' || round(an.total * 100.0 / an.prev_total) || '% ရှိသည်',
+                 'ကောက်ငွေ ' || to_char(an.total, 'FM999,999,999,999,999')
+                   || ' ကျပ် · ယမန်နေ့ငွေ ' || to_char(an.prev_total, 'FM999,999,999,999,999')
+                   || ' ကျပ် — ကောက်ခံမှု မှတ်တမ်းများကို စစ်ပါ'
+          from (
+            select d.created_by, d.day, d.total, d.first_frn, c.cord, pf.pname,
+                   (select x.total from (
+                      select created_by, payment_date as day, sum(amount) as total
+                      from agent_payments where created_by is not null
+                      group by created_by, payment_date
+                    ) x where x.created_by = d.created_by and x.day = d.day - 1) as prev_total
+            from (
+              select created_by, payment_date as day, sum(amount) as total, min(frn) as first_frn
+              from payments_f where created_by is not null
+              group by created_by, payment_date
+            ) d
+            join (
+              select created_by, min(first_frn) as cord
+              from (
+                select created_by, payment_date as day, min(frn) as first_frn
+                from payments_f where created_by is not null
+                group by created_by, payment_date
+              ) dd
+              group by created_by
+            ) c on c.created_by = d.created_by
+            join prof pf on pf.id = d.created_by
+            where d.total >= 100000
+          ) an
+          where an.prev_total is not null and an.prev_total > 0 and an.total * 2 >= 3 * an.prev_total
+
+          union all
+          -- sec 9: disputes unresolved for more than 7 days.
+          select 9, d.frn, 'dispute', 'medium', 'disputes', d.id::text,
+                 ((d.created_at at time zone 'UTC')::date)::text,
+                 coalesce(a.name, '—'),
+                 'အငြင်းပွားမှု ' || (v_today - (d.created_at at time zone 'UTC')::date) || ' ရက် ကြာပြီ — မဖြေရှင်းရသေးပါ',
+                 'အငြင်းပွားမှု စာမျက်နှာတွင် ပြန်ဖြေပြီး ပိတ်ပါ'
+          from disputes_f d
+          left join agents a on a.id = d.agent_id
+          where d.status <> 'closed'
+            and (v_today - (d.created_at at time zone 'UTC')::date) > 7
+
+          union all
+          -- sec 10: backup freshness.
+          select 10, 0, 'system', 'medium', 'app_settings', 'last_backup_at',
+                 v_today::text,
+                 'Backup',
+                 'Backup တစ်ခါမှ မလုပ်ရသေးပါ',
+                 'ပင်မ စာမျက်နှာမှ Backup ဒေါင်းလုပ် လုပ်ပါ'
+          where v_bk is null
+
+          union all
+          select 10, 0, 'system', 'medium', 'app_settings', 'last_backup_at',
+                 left(v_bk, 10),
+                 'Backup',
+                 'နောက်ဆုံး Backup သည် ' || (v_today - left(v_bk, 10)::date) || ' ရက် ကြာပြီ',
+                 'ပင်မ စာမျက်နှာမှ Backup အသစ် ဒေါင်းလုပ် လုပ်ပါ'
+          where v_bk is not null
+            and v_bk ~ '^\d{4}-\d{2}-\d{2}'
+            and (v_today - left(v_bk, 10)::date) > 7
+        ) b
+      ) s
+    ), '[]'::jsonb),
+    'counts', jsonb_build_object(
+      'entries', (select count(*) from daily_entries),
+      'deposits', (select count(*) from agent_deposits),
+      'payroll', (select count(*) from payroll_runs),
+      'expenses', (select count(*) from expenses)
+    )
+  ) into v_result;
+
+  return v_result;
+end $$;
+
+revoke all on function public.data_quality_scan() from public, anon;
+grant execute on function public.data_quality_scan() to authenticated;
