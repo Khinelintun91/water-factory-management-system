@@ -105,6 +105,7 @@ function BackupCard() {
 function MonthLockCard() {
   const { profile } = useAuth()
   const [locks, setLocks] = useState<string[]>([])
+  const [showLocks, setShowLocks] = useState(false)
   const [month, setMonth] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
 
@@ -157,18 +158,47 @@ function MonthLockCard() {
       </div>
       {msg && <p className="mt-2 text-sm text-red-600">{msg}</p>}
       {locks.length > 0 && (
-        <ul className="mt-3 space-y-1.5 text-sm">
-          {locks.map((m) => (
-            <li key={m} className="flex items-center justify-between gap-2">
-              <span>🔒 {m.slice(0, 7)}</span>
-              {profile?.role === 'owner' && (
-                <SecondaryButton size="sm" onClick={() => onUnlock(m)}>
-                  ပြန်ဖွင့်ရန်
-                </SecondaryButton>
-              )}
-            </li>
-          ))}
-        </ul>
+        <>
+          <button
+            type="button"
+            onClick={() => setShowLocks((v) => !v)}
+            aria-expanded={showLocks}
+            className="mt-3 flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl bg-stone-50 px-3 py-2 text-left text-sm font-medium transition active:scale-[0.99] dark:bg-neutral-800/70"
+          >
+            <span>🔒 ပိတ်ထားသော လ: {locks.length} လ</span>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`h-5 w-5 shrink-0 opacity-70 transition-transform ${showLocks ? 'rotate-180' : ''}`}
+              aria-hidden="true"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+          <div
+            aria-hidden={!showLocks}
+            className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${showLocks ? '[grid-template-rows:1fr]' : '[grid-template-rows:0fr]'}`}
+          >
+            <div className="min-h-0 overflow-hidden">
+              <ul className="space-y-1.5 pt-2.5 text-sm">
+                {locks.map((m) => (
+                  <li key={m} className="flex items-center justify-between gap-2">
+                    <span>🔒 {m.slice(0, 7)}</span>
+                    {profile?.role === 'owner' && (
+                      <SecondaryButton size="sm" onClick={() => onUnlock(m)}>
+                        ပြန်ဖွင့်ရန်
+                      </SecondaryButton>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </>
       )}
     </Card>
   )
