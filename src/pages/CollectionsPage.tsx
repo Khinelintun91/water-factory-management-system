@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { dailySummaryCsv } from '../lib/exports'
 import { formatMMK, personName, todayYangon, type Agent, type Profile } from '../lib/types'
-import { FACE_TIERS, type FaceTier } from '../lib/cardFace'
+import { FACE_TIERS, salesTierMap } from '../lib/cardFace'
 import {
   Banner,
   Card,
@@ -365,28 +365,12 @@ export default function CollectionsPage() {
   }
 
   // Face tier per agent: rank all agents by lifetime sales and split into
-  // thirds — top gold, middle white, bottom black.
-  const tierByAgent = useMemo(() => {
-    const ranked = [...agents].sort(
-      (x, y) => (totals.get(y.id)?.sales ?? 0) - (totals.get(x.id)?.sales ?? 0),
-    )
-    const n = ranked.length
-    const m = new Map<string, FaceTier>()
-    ranked.forEach((a, r) => {
-      const sales = totals.get(a.id)?.sales ?? 0
-      m.set(
-        a.id,
-        sales <= 0
-          ? 'black'
-          : r < Math.ceil(n / 3)
-            ? 'gold'
-            : r < Math.ceil((2 * n) / 3)
-              ? 'white'
-              : 'black',
-      )
-    })
-    return m
-  }, [agents, totals])
+  // thirds — top gold, middle white, bottom black (shared salesTierMap;
+  // agents arrive in created_at order, matching the My Page RPC).
+  const tierByAgent = useMemo(
+    () => salesTierMap(agents.map((a) => ({ id: a.id, sales: totals.get(a.id)?.sales ?? 0 }))),
+    [agents, totals],
+  )
 
   const expandedLedger = useMemo(
     () => (expandedId ? buildLedger(expandedId) : []),

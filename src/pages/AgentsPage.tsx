@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { formatMMK, personName, todayYangon, type Agent } from '../lib/types'
-import { FACE_TIERS } from '../lib/cardFace'
+import { FACE_TIERS, salesTierMap, type FaceTier } from '../lib/cardFace'
 import {
   EmptyState,
   Field,
@@ -21,6 +21,7 @@ interface AgentRow extends Agent {
   phone: string | null
   held: number
   outstanding: number
+  sales: number
 }
 
 /** An existing agent login account not yet linked to any agent record. */
@@ -125,13 +126,18 @@ export default function AgentsPage() {
     // Bottles-held per agent comes from the agent_held_totals RPC (0021),
     // which sums delivered − returned server-side; this page previously
     // downloaded every daily_entries row just for that one number.
-    const [{ data: contacts }, { data: heldRows }] = await Promise.all([
+    const [{ data: contacts }, { data: heldRows }, { data: summaryRows }] = await Promise.all([
       supabase.from('agent_contacts').select('agent_id, phone'),
       supabase.rpc('agent_held_totals'),
+      supabase.rpc('collections_summary'),
     ])
     const phoneByAgent = new Map<string, string>()
     for (const c of (contacts ?? []) as { agent_id: string; phone: string }[]) {
       phoneByAgent.set(c.agent_id, c.phone)
+    }
+    const salesByAgent = new Map<string, number>()
+    for (const r of (summaryRows ?? []) as { agent_id: string | null; sales: number }[]) {
+      if (r.agent_id) salesByAgent.set(r.agent_id, Number(r.sales) || 0)
     }
     const heldByAgent = new Map<string, number>()
     for (const h of (heldRows ?? []) as { agent_id: string; held: number }[]) {
@@ -155,6 +161,7 @@ export default function AgentsPage() {
         phone: phoneByAgent.get(a.id) ?? null,
         held: heldByAgent.get(a.id) ?? 0,
         outstanding: outstanding[i] ?? 0,
+        sales: salesByAgent.get(a.id) ?? 0,
       })),
     )
     setLoading(false)
@@ -305,16 +312,32 @@ export default function AgentsPage() {
   const miniLabel = 'text-[11px] font-medium text-stone-500 dark:text-neutral-400'
   const miniValue = 'mt-0.5 text-sm font-bold tabular-nums'
 
+  // Face tiers by lifetime sales — the same rule as Collections (shared
+  // salesTierMap): rank in created_at order so sales ties break the same
+  // way on both pages.
+  const tierByAgent = useMemo(
+    () =>
+      salesTierMap(
+        [...rows]
+          .sort((x, y) => x.created_at.localeCompare(y.created_at))
+          .map((r) => ({ id: r.id, sales: r.sales })),
+      ),
+    [rows],
+  )
+
   function renderCard(a: AgentRow, idx: number, arr: AgentRow[]) {
     const open = openId === a.id
-    // Wallet stack in the owner's chosen style, one silver-white face per
-    // agent (FACE_TIERS.white): each face slides over the one above so only
+    // Wallet stack in the owner's chosen style, face colour by sales
+    // tier: each face slides over the one above so only
     // its strip — name + outstanding — shows; the last face shows in full.
     // Tapping opens the detail body (contact, stat chips, inline edit
     // fields, detail-page link) below the face.
     const prevOpen = idx > 0 && openId === arr[idx - 1]?.id
     const stacked = !open && idx > 0 && !prevOpen
-    const tier = a.closed_at ? FACE_TIERS.black : FACE_TIERS.white
+    // Face colour = sales tier (gold/white/black), like Collections; a
+    // settled agent is always black.
+    const tierName: FaceTier = a.closed_at ? 'black' : (tierByAgent.get(a.id) ?? 'black')
+    const tier = FACE_TIERS[tierName]
     return (
       <div
         key={a.id}
@@ -333,14 +356,12 @@ export default function AgentsPage() {
               {a.name}
               {a.code && <span className={`ml-2 text-xs font-normal ${tier.sub}`}>({a.code})</span>}
               {!a.active && !a.closed_at && (
-                <span className="ml-2 rounded-full bg-stone-900/10 px-2 py-0.5 text-[11px] font-medium text-stone-700">
-                  ပိတ်ထားသည်
-                </span>
+                <span className={`ml-2 text-xs ${tier.sub}`}>(ပိတ်ထားသည်)</span>
               )}
             </span>
             <span className="flex shrink-0 items-center gap-1.5">
               <span
-                className={`font-bold tabular-nums ${a.outstanding > 0 ? (a.closed_at ? 'text-red-400' : 'text-red-600') : a.outstanding < 0 ? tier.neg : ''}`}
+                className={`font-bold tabular-nums ${a.outstanding > 0 ? (tierName === 'black' ? 'text-red-400' : 'text-red-600') : a.outstanding < 0 ? tier.neg : ''}`}
               >
                 {formatMMK(a.outstanding)}
               </span>

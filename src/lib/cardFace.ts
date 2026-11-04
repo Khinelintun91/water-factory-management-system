@@ -36,3 +36,29 @@ export const FACE_TIERS: Record<
     extra: '',
   },
 }
+
+/**
+ * Rank agents by lifetime sales and split into thirds — top gold, middle
+ * white, bottom black; zero sales is always black. `rows` must be in
+ * created_at order so sales ties break the same way everywhere; this
+ * mirrors the my_card_tier() RPC (migration 0024), so the owner's pages
+ * and the agent's own My Page always agree on a tier.
+ */
+export function salesTierMap(rows: { id: string; sales: number }[]): Map<string, FaceTier> {
+  const ranked = [...rows].sort((x, y) => y.sales - x.sales)
+  const n = ranked.length
+  const m = new Map<string, FaceTier>()
+  ranked.forEach((r, i) => {
+    m.set(
+      r.id,
+      r.sales <= 0
+        ? 'black'
+        : i < Math.ceil(n / 3)
+          ? 'gold'
+          : i < Math.ceil((2 * n) / 3)
+            ? 'white'
+            : 'black',
+    )
+  })
+  return m
+}
