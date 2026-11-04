@@ -194,7 +194,7 @@ export default function MyPage() {
   const salesTotal = entries.reduce((s, r) => s + r.amount, 0)
   const collectedTotal = entries.reduce((s, r) => s + r.amount_collected, 0) + totalPayments
   const faceOutstanding = closed ? 0 : lifetimeDue - totalPayments - writeOffTotal
-  const faceTier = cardTier ? FACE_TIERS[cardTier.tier] : null
+  const faceTier = cardTier ? FACE_TIERS[closed ? 'black' : cardTier.tier] : null
 
   function openDispute(key: string) {
     setDisputeKey(key)

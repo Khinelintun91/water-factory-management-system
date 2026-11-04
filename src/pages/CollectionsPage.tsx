@@ -459,7 +459,7 @@ export default function CollectionsPage() {
               // over that body.
               const prevOpen = idx > 0 && openId === visibleAgents[idx - 1]?.id
               const stacked = !open && idx > 0 && !prevOpen
-              const tier = FACE_TIERS[tierByAgent.get(a.id) ?? 'black']
+              const tier = FACE_TIERS[a.closed_at ? 'black' : (tierByAgent.get(a.id) ?? 'black')]
               return (
                 <div
                   key={a.id}

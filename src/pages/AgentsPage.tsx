@@ -314,7 +314,7 @@ export default function AgentsPage() {
     // fields, detail-page link) below the face.
     const prevOpen = idx > 0 && openId === arr[idx - 1]?.id
     const stacked = !open && idx > 0 && !prevOpen
-    const tier = FACE_TIERS.white
+    const tier = a.closed_at ? FACE_TIERS.black : FACE_TIERS.white
     return (
       <div
         key={a.id}
@@ -340,7 +340,7 @@ export default function AgentsPage() {
             </span>
             <span className="flex shrink-0 items-center gap-1.5">
               <span
-                className={`font-bold tabular-nums ${a.outstanding > 0 ? 'text-red-600' : a.outstanding < 0 ? tier.neg : ''}`}
+                className={`font-bold tabular-nums ${a.outstanding > 0 ? (a.closed_at ? 'text-red-400' : 'text-red-600') : a.outstanding < 0 ? tier.neg : ''}`}
               >
                 {formatMMK(a.outstanding)}
               </span>
@@ -621,7 +621,7 @@ export default function AgentsPage() {
           {closed.length > 0 && displayClosed.length > 0 && (
             <div className="space-y-2.5">
               <h2 className="font-semibold opacity-80">စာရင်းပိတ်ပြီး ကိုယ်စားလှယ်များ</h2>
-              <div className="opacity-80">{displayClosed.map((a, i) => renderCard(a, i, displayClosed))}</div>
+              <div>{displayClosed.map((a, i) => renderCard(a, i, displayClosed))}</div>
             </div>
           )}
         </>
