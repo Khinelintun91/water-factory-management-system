@@ -282,29 +282,9 @@ export default function DataQualityPage() {
       ) : (
         <>
           <Card>
-            <div className="flex flex-wrap gap-2 text-sm">
-              <span className="rounded-full bg-stone-200 px-3 py-1.5 font-semibold dark:bg-neutral-800">
-                စုစုပေါင်း ပြဿနာ {issues.length} ခု
-              </span>
-              <span className={`rounded-full px-3 py-1.5 font-semibold ${SEVERITY_BADGE.high.cls}`}>
-                အရေးကြီး {countsBySeverity.high}
-              </span>
-              <span className={`rounded-full px-3 py-1.5 font-semibold ${SEVERITY_BADGE.medium.cls}`}>
-                သတိပေးချက် {countsBySeverity.medium}
-              </span>
-              <span className={`rounded-full px-3 py-1.5 font-semibold ${SEVERITY_BADGE.low.cls}`}>
-                အသေးစား {countsBySeverity.low}
-              </span>
-              {reviewedCount > 0 && (
-                <span className="rounded-full bg-brand-50 px-3 py-1.5 font-semibold text-brand-700 dark:bg-brand-950/40 dark:text-brand-300">
-                  စစ်ပြီး {reviewedCount} ခု
-                </span>
-              )}
-            </div>
-
             {issues.length > 0 && (
               <>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => setSeverityFilter('all')}
                     className={`inline-flex min-h-[44px] items-center rounded-full px-3.5 text-sm font-semibold ${
