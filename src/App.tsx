@@ -23,6 +23,7 @@ import HandoverPage from './pages/HandoverPage'
 import DataQualityPage from './pages/DataQualityPage'
 import SettingsPage from './pages/SettingsPage'
 import NotificationBell from './components/NotificationBell'
+import ScrollNav from './components/ScrollNav'
 import { DropIcon, MoreIcon, NavIcon } from './components/icons'
 import { Card, LoadingState, PrimaryButton, SecondaryButton } from './components/ui'
 import { applyStoredTheme } from './lib/theme'
@@ -358,6 +359,8 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
+
+        <ScrollNav />
       </div>
 
       {/* Phone bottom tab bar: primary destinations + More. */}

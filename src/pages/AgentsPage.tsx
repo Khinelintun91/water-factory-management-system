@@ -432,27 +432,6 @@ export default function AgentsPage() {
         />
       </div>
 
-      {loading ? (
-        <LoadingState />
-      ) : (
-        <>
-          {open.length === 0 ? (
-            <EmptyState text="မရှိသေးပါ" />
-          ) : displayOpen.length === 0 ? (
-            <EmptyState text="ရှာတွေ့ခြင်း မရှိပါ" />
-          ) : (
-            <ul className="grid gap-3 lg:grid-cols-2">{displayOpen.map(renderCard)}</ul>
-          )}
-
-          {closed.length > 0 && displayClosed.length > 0 && (
-            <div className="space-y-2.5">
-              <h2 className="font-semibold opacity-80">စာရင်းပိတ်ပြီး ကိုယ်စားလှယ်များ</h2>
-              <ul className="grid gap-3 opacity-80 lg:grid-cols-2">{displayClosed.map(renderCard)}</ul>
-            </div>
-          )}
-        </>
-      )}
-
       {canManage && (
         <form onSubmit={onAdd} className={`${cardCls} space-y-3 p-4 lg:p-5`}>
           <div className="text-base font-semibold">ကိုယ်စားလှယ်အသစ် ထည့်ရန်</div>
@@ -552,6 +531,28 @@ export default function AgentsPage() {
             ထည့်ရန်
           </PrimaryButton>
         </form>
+      )}
+
+
+      {loading ? (
+        <LoadingState />
+      ) : (
+        <>
+          {open.length === 0 ? (
+            <EmptyState text="မရှိသေးပါ" />
+          ) : displayOpen.length === 0 ? (
+            <EmptyState text="ရှာတွေ့ခြင်း မရှိပါ" />
+          ) : (
+            <ul className="grid gap-3 lg:grid-cols-2">{displayOpen.map(renderCard)}</ul>
+          )}
+
+          {closed.length > 0 && displayClosed.length > 0 && (
+            <div className="space-y-2.5">
+              <h2 className="font-semibold opacity-80">စာရင်းပိတ်ပြီး ကိုယ်စားလှယ်များ</h2>
+              <ul className="grid gap-3 opacity-80 lg:grid-cols-2">{displayClosed.map(renderCard)}</ul>
+            </div>
+          )}
+        </>
       )}
 
       <p className="text-xs opacity-60">
