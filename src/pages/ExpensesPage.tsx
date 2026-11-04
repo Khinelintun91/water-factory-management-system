@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState, type FormEvent } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { fetchAll } from '../lib/fetchAll'
@@ -34,12 +34,47 @@ interface Category {
 /** Auto-booked by the close-out flow; never offered as a manual form choice. */
 const AUTO_CATEGORY = 'ဗူးအပေါင် ဈေးကွာ'
 
+const MONTH_NAMES = [
+  'ဇန်နဝါရီ', 'ဖေဖော်ဝါရီ', 'မတ်', 'ဧပြီ', 'မေ', 'ဇွန်',
+  'ဇူလိုင်', 'ဩဂုတ်', 'စက်တင်ဘာ', 'အောက်တိုဘာ', 'နိုဝင်ဘာ', 'ဒီဇင်ဘာ',
+]
+
+/**
+ * Month filter options: "all" + every month from the 2020-01 floor through
+ * next month, newest first. The business keeps ALL history, so any past
+ * month must stay reachable in this selector.
+ */
+function monthOptions(): { value: string; label: string }[] {
+  const [y, m] = todayYangon().split('-').map(Number)
+  const out: { value: string; label: string }[] = [{ value: 'all', label: 'အားလုံး' }]
+  let yy = y
+  let mm = m + 1
+  if (mm === 13) {
+    mm = 1
+    yy += 1
+  }
+  while (yy > 2020 || (yy === 2020 && mm >= 1)) {
+    out.push({
+      value: `${yy}-${String(mm).padStart(2, '0')}`,
+      label: `${MONTH_NAMES[mm - 1]} ${yy}`,
+    })
+    mm -= 1
+    if (mm === 0) {
+      mm = 12
+      yy -= 1
+    }
+  }
+  return out
+}
+
 export default function ExpensesPage() {
   const { profile } = useAuth()
   // Owner-only backdating: only the owner sees a date field; every other
   // role's expenses are dated today, exactly as before.
   const isOwner = profile?.role === 'owner'
   const [rows, setRows] = useState<ExpenseRow[]>([])
+  const [monthFilter, setMonthFilter] = useState(() => todayYangon().slice(0, 7))
+  const [shown, setShown] = useState(200)
   const [cats, setCats] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
@@ -51,6 +86,15 @@ export default function ExpensesPage() {
   const [categoryId, setCategoryId] = useState('')
   const [notes, setNotes] = useState('')
   const [expDate, setExpDate] = useState(todayYangon())
+
+  const filteredRows = useMemo(
+    () =>
+      monthFilter === 'all'
+        ? rows
+        : rows.filter((r) => r.expense_date.startsWith(monthFilter)),
+    [rows, monthFilter],
+  )
+  const visibleRows = filteredRows.slice(0, shown)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -260,6 +304,29 @@ export default function ExpensesPage() {
         <EmptyState text="မှတ်တမ် မရှိသေးပါ" />
       ) : (
         <>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={monthFilter}
+              onChange={(e) => {
+                setMonthFilter(e.target.value)
+                setShown(200)
+              }}
+              className={`${inputCls} w-auto`}
+              aria-label="လ ရွေးရန်"
+            >
+              {monthOptions().map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <span className="text-sm text-stone-500 dark:text-neutral-400">
+              {filteredRows.length} ခု
+            </span>
+          </div>
+          <p className="text-xs text-stone-500 dark:text-neutral-400">
+            ပြင်/ဖျက် လုပ်ခွင့်က ထည့်သွင်းသည့် နေ့ တစ်နေ့တည်းသာ ရပါမယ် (ပိုင်ရှင် အပါအဝင် အားလုံး)။
+          </p>
           <div className={`${cardCls} space-y-2.5 p-4 lg:p-5`}>
             <div className="text-base font-semibold">
               ဤလအတွက် အမျိုးအစားအလိုက် ခွဲခြမ်းစိတ်ဖြာမှု
@@ -290,8 +357,11 @@ export default function ExpensesPage() {
           </div>
 
           {/* Phone / tablet: one card per record. */}
+          {filteredRows.length === 0 && (
+            <EmptyState text="ရွေးထားသော လတွင် မှတ်တမ် မရှိပါ" />
+          )}
           <ul className="space-y-3 lg:hidden">
-            {rows.map((r) => (
+            {visibleRows.map((r) => (
               <li key={r.id} className={`${cardCls} p-3.5`}>
                 <div className="flex items-center justify-between gap-2">
                   <div className="font-semibold">{r.title}</div>
@@ -323,7 +393,7 @@ export default function ExpensesPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => {
+                {visibleRows.map((r) => {
                   const panel = rowPanel(r)
                   return (
                     <Fragment key={r.id}>

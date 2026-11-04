@@ -793,7 +793,14 @@ export default function EntriesPage() {
       </div>
 
       {loading ? (
-        <LoadingState />
+        <>
+          <LoadingState />
+          {monthFilter === 'all' && (
+            <p className="text-center text-sm text-stone-500 dark:text-neutral-400">
+              မှတ်တမ်း အားလုံး ဖတ်နေပါတယ် — ၅ နှစ်စာ မို့ ခဏ ကြာနိုင်ပါတယ်…
+            </p>
+          )}
+        </>
       ) : visibleRows.length === 0 ? (
         <EmptyState
           text={

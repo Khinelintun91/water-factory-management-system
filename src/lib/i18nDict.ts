@@ -1145,4 +1145,8 @@ export const EN: Record<string, string> = {
   "စစ်ထုတ်မှု အားလုံး ရှင်းရန်": "Clear all filters",
   "ဒေတာ စစ်ဆေးမှု": "Data Quality",
   "မှတ်တမ်း များရင် ထုတ်တာ ၂–၃ မိနစ် ကြာနိုင်ပါတယ် — ပြီးတဲ့ထိ စောင့်ပေးပါ၊ စာမျက်နှာ မပိတ်ပါနဲ့။": "If there are many records it can take 2-3 minutes — please wait until it finishes and do not close the page.",
+  "ရက်အပိုင်း ရှင်းရန်": "Clear date range",
+  "မှတ်တမ်း အဟောင်းများ ထပ်ပြမည်": "Show older records",
+  "ပိုကောက်ထားသောငွေ ဖြစ်ပါတယ် (အမှား မဟုတ်ပါ)": "This is over-collected money (not an error)",
+  "မှတ်တမ်း အားလုံး ဖတ်နေပါတယ် — ၅ နှစ်စာ မို့ ခဏ ကြာနိုင်ပါတယ်…": "Loading all records — five years of data can take a while…",
 };

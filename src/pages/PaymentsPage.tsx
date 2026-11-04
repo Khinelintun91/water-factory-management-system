@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { fetchAll } from '../lib/fetchAll'
 import {
   formatMMK,
   isTodayYangon,
@@ -24,6 +25,8 @@ import {
 // <option> labels below).
 const METHOD_LABELS: Record<string, string> = {
   cash: 'ငွေသား',
+  kpay: 'KBZPay',
+  wave: 'WavePay',
   kbzpay: 'KBZPay',
   wavepay: 'WavePay',
   bank: 'ဘဏ်',
@@ -47,11 +50,46 @@ function kindChip(r: PaymentRow) {
   )
 }
 
+const MONTH_NAMES = [
+  'ဇန်နဝါရီ', 'ဖေဖော်ဝါရီ', 'မတ်', 'ဧပြီ', 'မေ', 'ဇွန်',
+  'ဇူလိုင်', 'ဩဂုတ်', 'စက်တင်ဘာ', 'အောက်တိုဘာ', 'နိုဝင်ဘာ', 'ဒီဇင်ဘာ',
+]
+
+/**
+ * Month filter options: "all" + every month from the 2020-01 floor through
+ * next month, newest first. The business keeps ALL history, so any past
+ * month must stay reachable in this selector.
+ */
+function monthOptions(): { value: string; label: string }[] {
+  const [y, m] = todayYangon().split('-').map(Number)
+  const out: { value: string; label: string }[] = [{ value: 'all', label: 'အားလုံး' }]
+  let yy = y
+  let mm = m + 1
+  if (mm === 13) {
+    mm = 1
+    yy += 1
+  }
+  while (yy > 2020 || (yy === 2020 && mm >= 1)) {
+    out.push({
+      value: `${yy}-${String(mm).padStart(2, '0')}`,
+      label: `${MONTH_NAMES[mm - 1]} ${yy}`,
+    })
+    mm -= 1
+    if (mm === 0) {
+      mm = 12
+      yy -= 1
+    }
+  }
+  return out
+}
+
 export default function PaymentsPage() {
   const { profile } = useAuth()
   const canWrite = profile?.role === 'owner' || profile?.role === 'manager' || profile?.role === 'staff'
   const [agents, setAgents] = useState<Agent[]>([])
   const [rows, setRows] = useState<PaymentRow[]>([])
+  const [monthFilter, setMonthFilter] = useState(() => todayYangon().slice(0, 7))
+  const [shown, setShown] = useState(200)
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -81,18 +119,29 @@ export default function PaymentsPage() {
     return (id: string) => m.get(id) ?? '—'
   }, [agents])
 
+  const filteredRows = useMemo(
+    () =>
+      monthFilter === 'all'
+        ? rows
+        : rows.filter((r) => r.payment_date.startsWith(monthFilter)),
+    [rows, monthFilter],
+  )
+  const visibleRows = filteredRows.slice(0, shown)
+
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: ag }, { data: pm }] = await Promise.all([
+    const [{ data: ag }, pm] = await Promise.all([
       supabase.from('agents').select('*').order('created_at'),
-      supabase
-        .from('agent_payments')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100),
+      fetchAll<PaymentRow>((from, to) =>
+        supabase
+          .from('agent_payments')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(from, to),
+      ),
     ])
     setAgents((ag ?? []) as Agent[])
-    setRows((pm ?? []) as PaymentRow[])
+    setRows(pm)
     setLoading(false)
   }, [])
 
@@ -412,15 +461,39 @@ export default function PaymentsPage() {
         </form>
       )}
 
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={monthFilter}
+          onChange={(e) => {
+            setMonthFilter(e.target.value)
+            setShown(200)
+          }}
+          className={`${inputCls} w-auto`}
+          aria-label="လ ရွေးရန်"
+        >
+          {monthOptions().map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <span className="text-sm text-stone-500 dark:text-neutral-400">{filteredRows.length} ခု</span>
+      </div>
+      <p className="text-xs text-stone-500 dark:text-neutral-400">
+        ပြင်/ဖျက် လုပ်ခွင့်က ထည့်သွင်းသည့် နေ့ တစ်နေ့တည်းသာ ရပါမယ် (ပိုင်ရှင် အပါအဝင် အားလုံး)။
+      </p>
+
       {loading ? (
         <LoadingState />
-      ) : rows.length === 0 ? (
-        <EmptyState text="မှတ်တမ် မရှိသေးပါ" />
+      ) : filteredRows.length === 0 ? (
+        <EmptyState
+          text={monthFilter === 'all' ? 'မှတ်တမ် မရှိသေးပါ' : 'ရွေးထားသော လတွင် မှတ်တမ် မရှိပါ'}
+        />
       ) : (
         <>
           {/* Phone / tablet: one card per record. */}
           <ul className="space-y-3 lg:hidden">
-            {rows.map((r) => (
+            {visibleRows.map((r) => (
               <li key={r.id} className={`${cardCls} p-3.5`}>
                 <div className="flex items-center justify-between gap-2">
                   <div className="font-semibold">
@@ -454,7 +527,7 @@ export default function PaymentsPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => {
+                {visibleRows.map((r) => {
                   const panel = rowPanel(r)
                   return (
                     <Fragment key={r.id}>
@@ -484,6 +557,13 @@ export default function PaymentsPage() {
               </tbody>
             </table>
           </div>
+          {filteredRows.length > shown && (
+            <div className="pt-1 text-center">
+              <SecondaryButton size="sm" onClick={() => setShown((n) => n + 200)}>
+                ထပ်ပြမည် ({shown}/{filteredRows.length})
+              </SecondaryButton>
+            </div>
+          )}
         </>
       )}
     </div>

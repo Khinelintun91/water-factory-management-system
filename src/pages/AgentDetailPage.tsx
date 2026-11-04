@@ -74,6 +74,8 @@ export function SettlementSummary({ s }: { s: AgentSettlement }) {
 
 const METHOD_LABELS: Record<string, string> = {
   cash: 'ငွေသား',
+  kpay: 'KBZPay',
+  wave: 'WavePay',
   kbzpay: 'KBZPay',
   wavepay: 'WavePay',
   bank: 'ဘဏ်',

@@ -19,6 +19,8 @@ import {
 // PaymentsPage form's <option> labels).
 const METHOD_LABELS: Record<string, string> = {
   cash: 'ငွေသား',
+  kpay: 'KBZPay',
+  wave: 'WavePay',
   kbzpay: 'KBZPay',
   wavepay: 'WavePay',
   bank: 'ဘဏ်',
@@ -159,6 +161,15 @@ export default function CollectionsPage() {
   const [fFrom, setFFrom] = useState('')
   const [fTo, setFTo] = useState('')
   const [fBy, setFBy] = useState('')
+  const [reportShown, setReportShown] = useState(100)
+  const [ledgerShown, setLedgerShown] = useState(100)
+
+  useEffect(() => {
+    setReportShown(100)
+  }, [fAgent, fFrom, fTo, fBy])
+  useEffect(() => {
+    setLedgerShown(100)
+  }, [expandedId])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -354,6 +365,7 @@ export default function CollectionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [expandedId, ledger],
   )
+  const visibleLedger = expandedLedger.slice(-ledgerShown)
 
   const visibleAgents = agents.filter((a) => {
     if (a.active) return true
@@ -367,6 +379,8 @@ export default function CollectionsPage() {
   // The payments state is already filtered and ordered by the server
   // query, so the report list reads it directly.
   const filteredPayments = payments
+
+  const visiblePayments = filteredPayments.slice(0, reportShown)
 
   const reportTotal = filteredPayments.reduce((s, p) => s + p.amount, 0)
 
@@ -455,13 +469,29 @@ export default function CollectionsPage() {
                       {formatMMK(t.outstanding)}
                     </span>
                   </div>
+                  {t.outstanding < 0 && (
+                    <p className="mt-1 text-right text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                      ပိုကောက်ထားသောငွေ ဖြစ်ပါတယ် (အမှား မဟုတ်ပါ)
+                    </p>
+                  )}
                   {expanded && !ledger[a.id] ? (
                     <div className="mt-3 border-t border-stone-100 pt-3 dark:border-neutral-800">
                       <LoadingState />
                     </div>
                   ) : expanded ? (
-                    <ul className="mt-3 divide-y divide-stone-100 border-t border-stone-100 dark:divide-neutral-800 dark:border-neutral-800">
-                      {expandedLedger.map(({ line, balance }) => (
+                    <>
+                      {expandedLedger.length > ledgerShown && (
+                        <div className="mt-3 border-t border-stone-100 pt-3 text-center dark:border-neutral-800">
+                          <SecondaryButton
+                            size="sm"
+                            onClick={() => setLedgerShown((n) => n + 100)}
+                          >
+                            မှတ်တမ်း အဟောင်းများ ထပ်ပြမည်
+                          </SecondaryButton>
+                        </div>
+                      )}
+                      <ul className="mt-3 divide-y divide-stone-100 border-t border-stone-100 dark:divide-neutral-800 dark:border-neutral-800">
+                      {visibleLedger.map(({ line, balance }) => (
                         <li key={line.key} className="flex items-center justify-between gap-2 py-2.5 text-sm">
                           <div>
                             <span className="font-medium">{line.label}</span>{' '}
@@ -486,7 +516,8 @@ export default function CollectionsPage() {
                           စာရင်း မရှိသေးပါ
                         </li>
                       )}
-                    </ul>
+                      </ul>
+                    </>
                   ) : null}
                 </div>
               )
@@ -542,6 +573,19 @@ export default function CollectionsPage() {
                 />
               </Field>
             </div>
+            {(fFrom || fTo) && (
+              <div>
+                <SecondaryButton
+                  size="sm"
+                  onClick={() => {
+                    setFFrom('')
+                    setFTo('')
+                  }}
+                >
+                  ရက်အပိုင်း ရှင်းရန်
+                </SecondaryButton>
+              </div>
+            )}
             <p className="rounded-xl bg-brand-50 px-3.5 py-2.5 text-sm font-medium dark:bg-brand-950/40">
               စုစုပေါင်း {filteredPayments.length} ခု ·{' '}
               <span className="tabular-nums">{formatMMK(reportTotal)}</span>
@@ -554,7 +598,7 @@ export default function CollectionsPage() {
             <>
               {/* Phone / tablet: one card per record. */}
               <ul className="space-y-3 lg:hidden">
-                {filteredPayments.map((p) => (
+                {visiblePayments.map((p) => (
                   <li key={p.id} className={`${cardCls} p-3.5`}>
                     <div className="flex items-center justify-between gap-2">
                       <div className="font-semibold">{p.agent_name ?? agentName(p.agent_id)}</div>
@@ -582,7 +626,7 @@ export default function CollectionsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredPayments.map((p) => (
+                    {visiblePayments.map((p) => (
                       <tr
                         key={p.id}
                         className="border-b border-stone-100 align-top last:border-0 dark:border-neutral-800/70"
@@ -602,6 +646,13 @@ export default function CollectionsPage() {
                   </tbody>
                 </table>
               </div>
+              {filteredPayments.length > reportShown && (
+                <div className="pt-1 text-center">
+                  <SecondaryButton size="sm" onClick={() => setReportShown((n) => n + 100)}>
+                    ထပ်ပြမည် ({reportShown}/{filteredPayments.length})
+                  </SecondaryButton>
+                </div>
+              )}
             </>
           )}
         </>
