@@ -286,7 +286,10 @@ export default function DataQualityPage() {
               <>
                 <div className="flex flex-wrap gap-2">
                   <button
-                    onClick={() => setSeverityFilter('all')}
+                    onClick={() => {
+                      setSeverityFilter('all')
+                      setKindFilter(null)
+                    }}
                     className={`inline-flex min-h-[44px] items-center rounded-full px-3.5 text-sm font-semibold ${
                       severityFilter === 'all'
                         ? 'bg-brand-700 text-white'
@@ -298,7 +301,10 @@ export default function DataQualityPage() {
                   {severitiesPresent.map((s) => (
                     <button
                       key={s}
-                      onClick={() => setSeverityFilter(severityFilter === s ? 'all' : s)}
+                      onClick={() => {
+                        setKindFilter(null)
+                        setSeverityFilter(severityFilter === s ? 'all' : s)
+                      }}
                       className={`inline-flex min-h-[44px] items-center rounded-full px-3.5 text-sm font-semibold ${
                         severityFilter === s
                           ? 'bg-brand-700 text-white'
@@ -326,7 +332,19 @@ export default function DataQualityPage() {
                     return (
                       <button
                         key={g.kind}
-                        onClick={() => setKindFilter(active ? null : g.kind)}
+                        onClick={() => {
+                          if (active) {
+                            setKindFilter(null)
+                          } else {
+                            // A kind card must always show its own issues:
+                            // clear the severity filter and the reviewed-hide
+                            // toggle so the two filter axes can never combine
+                            // into a silently empty list.
+                            setKindFilter(g.kind)
+                            setSeverityFilter('all')
+                            setHideReviewed(false)
+                          }
+                        }}
                         className={`rounded-xl border p-3 text-left transition ${
                           active
                             ? 'border-brand-500 bg-brand-50 dark:border-brand-700 dark:bg-brand-950/40'
@@ -357,6 +375,17 @@ export default function DataQualityPage() {
               <p className="mt-1 text-sm text-stone-500 dark:text-neutral-400">
                 စစ်ပြီး ဝှက်ထားခြင်း သို့မဟုတ် အဆင့်/အမျိုးအစား စစ်ထုတ်မှုကြောင့် ဖြစ်နိုင်ပါတယ်။
               </p>
+              <SecondaryButton
+                size="sm"
+                className="mt-3"
+                onClick={() => {
+                  setSeverityFilter('all')
+                  setKindFilter(null)
+                  setHideReviewed(false)
+                }}
+              >
+                စစ်ထုတ်မှု အားလုံး ရှင်းရန်
+              </SecondaryButton>
             </section>
           ) : (
             grouped.map((g) => {

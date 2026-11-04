@@ -1143,4 +1143,5 @@ export const EN: Record<string, string> = {
   "ကြွေးပယ်ဖျက် မှတ်တမ်း မရှိပါ": "No write-off records",
   "မှတ်တမ်အသစ်": "New record",
   "ဗူး ရွှေ့ပြောင်းမှု အသစ်": "New bottle movement",
+  "စစ်ထုတ်မှု အားလုံး ရှင်းရန်": "Clear all filters",
 };
