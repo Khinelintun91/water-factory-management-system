@@ -211,6 +211,7 @@ export default function MyPage() {
 
   async function submitDispute(target: {
     key: string
+    kind: 'entry' | 'payment'
     recordId: string
     recordDate: string
     summary: string
@@ -224,11 +225,13 @@ export default function MyPage() {
     setDisputeBusy(true)
     setDisputeMsg(null)
     // Same insert path as DisputesPage's agent form (RLS scopes the insert
-    // to this agent); kind 'record' pins the dispute to the specific row so
-    // owner/manager see exactly which record is being questioned.
+    // to this agent); kind 'entry'/'payment' pins the dispute to the
+    // specific row so owner/manager see exactly which record is being
+    // questioned. (The disputes_kind_check constraint allows only those
+    // two values — a generic 'record' kind is rejected by the database.)
     const { error } = await supabase.from('disputes').insert({
       agent_id: agentId,
-      kind: 'record',
+      kind: target.kind,
       record_id: target.recordId,
       record_date: target.recordDate,
       record_summary: target.summary,
@@ -252,6 +255,7 @@ export default function MyPage() {
    *  disabled filed state after a successful submit this session. */
   function renderDispute(target: {
     key: string
+    kind: 'entry' | 'payment'
     recordId: string
     recordDate: string
     summary: string
@@ -456,6 +460,7 @@ export default function MyPage() {
                     </div>
                     {renderDispute({
                       key: `entry:${r.id}`,
+                      kind: 'entry',
                       recordId: r.id,
                       recordDate: r.entry_date,
                       summary: `${r.entry_date} · ပို့ ${r.delivered_qty} · ပြန် ${r.returned_qty} · ${formatMMK(r.amount)} · လက်ခံရရှိငွေ ${formatMMK(r.amount_collected)}`,
@@ -482,6 +487,7 @@ export default function MyPage() {
                   </div>
                   {renderDispute({
                     key: `payment:${r.id}`,
+                    kind: 'payment',
                     recordId: r.id,
                     recordDate: r.payment_date,
                     summary: `${r.payment_date} · ${formatMMK(r.amount)} · ${r.method}`,
