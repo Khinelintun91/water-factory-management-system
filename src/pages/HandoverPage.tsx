@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { dailySummaryCsv } from '../lib/exports'
 import { formatMMK, personName, todayYangon, type Role } from '../lib/types'
 import {
   Card,
@@ -9,6 +10,7 @@ import {
   LoadingState,
   PageHeader,
   PrimaryButton,
+  SecondaryButton,
   StatCard,
   inputCls,
 } from '../components/ui'
@@ -65,6 +67,8 @@ export default function HandoverPage() {
   const [noteIn, setNoteIn] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
+  const [csvBusy, setCsvBusy] = useState(false)
+  const [csvMsg, setCsvMsg] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
   const [rowMsg, setRowMsg] = useState<Record<string, string>>({})
 
@@ -123,7 +127,16 @@ export default function HandoverPage() {
 
       const savedMap = new Map(handoverRows.map((h) => [h.employee_id, h]))
       setSaved(savedMap)
-      setReceivedIn(Object.fromEntries(handoverRows.map((h) => [h.employee_id, String(h.received)])))
+      // Live behavior: the received input starts prefilled — the saved
+      // received amount when a handover already exists for the employee,
+      // otherwise the day's expected amount (OM edits it only when the
+      // cash actually handed over differs).
+      const recInit: Record<string, string> = {}
+      for (const e of emps) {
+        const h = savedMap.get(e.id)
+        recInit[e.id] = h ? String(h.received) : String(exp.get(e.id) ?? 0)
+      }
+      setReceivedIn(recInit)
       setNoteIn(Object.fromEntries(handoverRows.map((h) => [h.employee_id, h.note ?? ''])))
       setRowMsg({})
     } catch (err) {
@@ -135,6 +148,20 @@ export default function HandoverPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Daily CSV export for the page's selected date, wired the same way as
+  // HomePage's button.
+  async function onDailyCsv() {
+    setCsvBusy(true)
+    setCsvMsg(null)
+    try {
+      const filename = await dailySummaryCsv(date)
+      setCsvMsg(`${filename} ကို ဒေါင်းလုပ် လုပ်ပြီးပါပြီ`)
+    } catch (e) {
+      setCsvMsg(e instanceof Error ? e.message : 'CSV ထုတ်၍ မရပါ')
+    }
+    setCsvBusy(false)
+  }
 
   async function onSave(emp: EmployeeLite) {
     if (!profile) return
@@ -216,6 +243,13 @@ export default function HandoverPage() {
         />
       </Field>
 
+      <div>
+        <SecondaryButton onClick={onDailyCsv} disabled={csvBusy}>
+          {csvBusy ? 'ထုတ်နေပါတယ်…' : 'နေ့စဉ် CSV ထုတ်မည်'}
+        </SecondaryButton>
+        {csvMsg && <p className="mt-2 text-sm">{csvMsg}</p>}
+      </div>
+
       {msg && <p className="text-sm text-red-600">{msg}</p>}
 
       {loading ? (
@@ -273,7 +307,7 @@ export default function HandoverPage() {
                   )}
                   <div className="mt-3 flex items-center gap-3">
                     <PrimaryButton onClick={() => onSave(emp)} disabled={savingId === emp.id}>
-                      {savingId === emp.id ? 'သိမ်းနေပါတယ်…' : savedRow ? 'ပြန်သိမ်းရန်' : 'သိမ်းရန်'}
+                      {savingId === emp.id ? 'သိမ်းနေပါတယ်…' : savedRow ? 'ပြင်မည်' : 'လက်ခံမည်'}
                     </PrimaryButton>
                     {rowMsg[emp.id] && (
                       <span className="text-sm text-stone-500 dark:text-neutral-400">{rowMsg[emp.id]}</span>

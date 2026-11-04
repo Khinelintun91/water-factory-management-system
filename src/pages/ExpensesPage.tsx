@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchAll } from '../lib/fetchAll'
+import { downloadCsv, toCsv } from '../lib/exports'
 import { formatMMK, isTodayYangon, todayYangon } from '../lib/types'
 import {
   DangerButton,
@@ -29,6 +30,9 @@ interface Category {
   name: string
 }
 
+/** Auto-booked by the close-out flow; never offered as a manual form choice. */
+const AUTO_CATEGORY = 'ဗူးအပေါင် ဈေးကွာ'
+
 export default function ExpensesPage() {
   const [rows, setRows] = useState<ExpenseRow[]>([])
   const [cats, setCats] = useState<Category[]>([])
@@ -39,7 +43,7 @@ export default function ExpensesPage() {
 
   const [title, setTitle] = useState('')
   const [amount, setAmount] = useState('')
-  const [categoryName, setCategoryName] = useState('')
+  const [categoryId, setCategoryId] = useState('')
   const [notes, setNotes] = useState('')
 
   const load = useCallback(async () => {
@@ -66,34 +70,41 @@ export default function ExpensesPage() {
 
   const catName = (id: string | null) => cats.find((c) => c.id === id)?.name ?? ''
 
+  // Manual choices: existing categories only, minus the auto-booked one.
+  const manualCats = cats.filter((c) => c.name !== AUTO_CATEGORY)
+
+  // This month's per-category breakdown, from the rows already loaded.
+  const thisMonth = todayYangon().slice(0, 7)
+  const monthCatTotals = new Map<string, number>()
+  let monthTotal = 0
+  for (const r of rows) {
+    if (!r.expense_date.startsWith(thisMonth)) continue
+    const name = catName(r.category_id) || 'အမျိုးအစား မသတ်မှတ်'
+    monthCatTotals.set(name, (monthCatTotals.get(name) ?? 0) + r.amount)
+    monthTotal += r.amount
+  }
+  const monthBreakdown = [...monthCatTotals.entries()]
+    .map(([name, total]) => ({ name, total }))
+    .sort((a, b) => b.total - a.total)
+
+  function onExportCsv() {
+    downloadCsv(
+      `expenses-${todayYangon()}.csv`,
+      toCsv(
+        ['ရက်စွဲ', 'အမျိုးအစား', 'အကြောင်းအရာ', 'ငွေပမာဏ', 'မှတ်ချက်'],
+        rows.map((r) => [r.expense_date, catName(r.category_id), r.title, r.amount, r.notes ?? '']),
+      ),
+    )
+  }
+
   async function onAdd(e: FormEvent) {
     e.preventDefault()
     if (busy) return
     setBusy(true)
     setMsg(null)
-    let categoryId: string | null = null
-    const name = categoryName.trim()
-    if (name) {
-      const existing = cats.find((c) => c.name === name)
-      if (existing) {
-        categoryId = existing.id
-      } else {
-        const { data, error } = await supabase
-          .from('expense_categories')
-          .insert({ name })
-          .select('id')
-          .single()
-        if (error) {
-          setMsg(error.message)
-          setBusy(false)
-          return
-        }
-        categoryId = (data as { id: string }).id
-      }
-    }
     const { error } = await supabase.from('expenses').insert({
       expense_date: todayYangon(),
-      category_id: categoryId,
+      category_id: categoryId || null,
       title: title.trim(),
       amount: Number(amount) || 0,
       notes: notes.trim() || null,
@@ -160,6 +171,15 @@ export default function ExpensesPage() {
       <PageHeader
         title="အသုံးစရိတ်များ"
         subtitle="နေ့စဉ် ကုန်ကျစရိတ်များ မှတ်တမ်း ထည့်ရန်"
+        action={
+          <SecondaryButton
+            onClick={onExportCsv}
+            disabled={loading || rows.length === 0}
+            className="shrink-0"
+          >
+            CSV ထုတ်မည်
+          </SecondaryButton>
+        }
       />
 
       <form onSubmit={onAdd} className={`${cardCls} space-y-3 p-4 lg:p-5`}>
@@ -184,19 +204,19 @@ export default function ExpensesPage() {
             />
           </Field>
           <Field label="အမျိုးအစား">
-            <input
-              value={categoryName}
-              onChange={(e) => setCategoryName(e.target.value)}
-              list="expense-cats"
-              placeholder="ရွေးရန် / အသစ်ရေးရန်"
+            <select
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
               className={inputCls}
-            />
+            >
+              <option value="">ရွေးပါ</option>
+              {manualCats.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
           </Field>
-          <datalist id="expense-cats">
-            {cats.map((c) => (
-              <option key={c.id} value={c.name} />
-            ))}
-          </datalist>
         </div>
         <input
           value={notes}
@@ -222,6 +242,35 @@ export default function ExpensesPage() {
         <EmptyState text="မှတ်တမ် မရှိသေးပါ" />
       ) : (
         <>
+          <div className={`${cardCls} space-y-2.5 p-4 lg:p-5`}>
+            <div className="text-base font-semibold">
+              ဤလအတွက် အမျိုးအစားအလိုက် ခွဲခြမ်းစိတ်ဖြာမှု
+            </div>
+            {monthBreakdown.length === 0 ? (
+              <p className="text-sm text-stone-500 dark:text-neutral-400">မှတ်တမ် မရှိသေးပါ</p>
+            ) : (
+              monthBreakdown.map((c) => {
+                const pct = monthTotal > 0 ? (c.total / monthTotal) * 100 : 0
+                return (
+                  <div key={c.name} className="text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span>{c.name}</span>
+                      <span className="font-medium tabular-nums">
+                        {formatMMK(c.total)} · {pct.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="mt-1 h-2 rounded-full bg-stone-200 dark:bg-neutral-800">
+                      <div
+                        className="h-2 rounded-full bg-brand-600"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+
           {/* Phone / tablet: one card per record. */}
           <ul className="space-y-3 lg:hidden">
             {rows.map((r) => (

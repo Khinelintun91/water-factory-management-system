@@ -2,7 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { fetchAll } from '../lib/fetchAll'
-import { formatMMK, todayYangon, type Agent } from '../lib/types'
+import { formatMMK, personName, todayYangon, type Agent } from '../lib/types'
 import {
   Card,
   CardTitle,
@@ -30,6 +30,7 @@ interface EntryLite {
   returned_qty: number
   amount: number
   amount_collected: number
+  created_by: string | null
   created_at: string
 }
 
@@ -39,6 +40,7 @@ interface PaymentLite {
   agent_name: string | null
   payment_date: string
   amount: number
+  created_by: string | null
 }
 
 interface WriteOffLite {
@@ -47,6 +49,15 @@ interface WriteOffLite {
   agent_name: string | null
   writeoff_date: string
   amount: number
+  note: string
+  created_by: string | null
+  created_at: string
+}
+
+interface ProfileLite {
+  id: string
+  username: string
+  display_name: string | null
 }
 
 interface DepositLite {
@@ -237,6 +248,80 @@ const BRIEF_SEVERITY: Record<
   },
 }
 
+/**
+ * Month close, also exposed here as on the old app's reports page. Same
+ * behavior as HomePage's MonthLockCard (reproduced locally — that component
+ * is not exported): same month_locks rows and lock/unlock calls.
+ */
+function MonthLockSection() {
+  const { profile } = useAuth()
+  const [locks, setLocks] = useState<string[]>([])
+  const [month, setMonth] = useState('')
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    const { data } = await supabase.from('month_locks').select('month').order('month', { ascending: false })
+    setLocks(((data ?? []) as { month: string }[]).map((r) => r.month))
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  async function onLock() {
+    if (!month) return
+    setMsg(null)
+    const { error } = await supabase
+      .from('month_locks')
+      .insert({ month: `${month}-01`, locked_by: profile?.id ?? null })
+    if (error) setMsg(error.message)
+    await load()
+  }
+
+  async function onUnlock(m: string) {
+    if (!confirm(`${m.slice(0, 7)} ကို lock ပြန်ဖွင့်မှာ သေချာပါသလား?`)) return
+    setMsg(null)
+    const { error } = await supabase.from('month_locks').delete().eq('month', m)
+    if (error) setMsg(error.message)
+    await load()
+  }
+
+  return (
+    <Card className="print:hidden">
+      <CardTitle>လ ပိတ်ခြင်း (Month Lock)</CardTitle>
+      <p className="mt-1 text-sm opacity-80">
+        ပိတ်ထားသော လအတွင်း မည်သည့် မှတ်တမ်ကိုမှ ပြင်/ဖျက်/ထည့် လုပ်၍ မရပါ (ပိုင်ရှင် အပါအဝင်)။
+      </p>
+      <div className="mt-3 flex gap-2">
+        <input
+          type="month"
+          value={month}
+          onChange={(e) => setMonth(e.target.value)}
+          className={`${inputCls} min-w-0 flex-1`}
+        />
+        <PrimaryButton onClick={onLock} className="shrink-0">
+          ပိတ်ရန်
+        </PrimaryButton>
+      </div>
+      {msg && <p className="mt-2 text-sm text-red-600">{msg}</p>}
+      {locks.length > 0 && (
+        <ul className="mt-3 space-y-1.5 text-sm">
+          {locks.map((m) => (
+            <li key={m} className="flex items-center justify-between gap-2">
+              <span>🔒 {m.slice(0, 7)}</span>
+              {profile?.role === 'owner' && (
+                <SecondaryButton size="sm" onClick={() => onUnlock(m)}>
+                  ပြန်ဖွင့်ရန်
+                </SecondaryButton>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  )
+}
+
 export default function ReportsPage() {
   const { profile } = useAuth()
   const today = todayYangon()
@@ -245,6 +330,7 @@ export default function ReportsPage() {
   const [applied, setApplied] = useState({ from, to })
 
   const [agents, setAgents] = useState<Agent[]>([])
+  const [profiles, setProfiles] = useState<ProfileLite[]>([])
   const [entries, setEntries] = useState<EntryLite[]>([])
   const [expenses, setExpenses] = useState<ExpenseLite[]>([])
   const [categories, setCategories] = useState<CategoryLite[]>([])
@@ -291,13 +377,13 @@ export default function ReportsPage() {
       const trendMonths = monthList(t.slice(0, 7), 24)
       const trendFrom = `${trendMonths[0]}-01`
       const [
-        ag, en, ex, ct, wo, rn, pm, dp, st, tEx, tRn, dsp, bEn, bPm, bWo,
+        ag, en, ex, ct, wo, rn, pm, dp, st, tEx, tRn, dsp, bEn, bPm, bWo, pf,
       ] = await Promise.all([
         supabase.from('agents').select('*').order('name'),
         fetchAll<EntryLite>((a, b) =>
           supabase
             .from('daily_entries')
-            .select('id, agent_id, agent_name, entry_date, delivered_qty, returned_qty, amount, amount_collected, created_at')
+            .select('id, agent_id, agent_name, entry_date, delivered_qty, returned_qty, amount, amount_collected, created_by, created_at')
             .lte('entry_date', t)
             .order('entry_date', { ascending: true })
             .order('created_at', { ascending: true })
@@ -317,7 +403,7 @@ export default function ReportsPage() {
         fetchAll<WriteOffLite>((a, b) =>
           supabase
             .from('write_offs')
-            .select('id, agent_id, agent_name, writeoff_date, amount')
+            .select('id, agent_id, agent_name, writeoff_date, amount, note, created_by, created_at')
             .lte('writeoff_date', t)
             .order('writeoff_date', { ascending: true })
             .order('created_at', { ascending: true })
@@ -336,7 +422,7 @@ export default function ReportsPage() {
         fetchAll<PaymentLite>((a, b) =>
           supabase
             .from('agent_payments')
-            .select('id, agent_id, agent_name, payment_date, amount')
+            .select('id, agent_id, agent_name, payment_date, amount, created_by')
             .lte('payment_date', t)
             .order('payment_date', { ascending: true })
             .order('created_at', { ascending: true })
@@ -416,9 +502,12 @@ export default function ReportsPage() {
             .order('created_at', { ascending: true })
             .range(a, b),
         ),
+        supabase.from('profiles').select('id, username, display_name').order('username'),
       ])
       if (ag.error) throw new Error(ag.error.message)
       if (ct.error) throw new Error(ct.error.message)
+      if (pf.error) throw new Error(pf.error.message)
+      setProfiles((pf.data ?? []) as ProfileLite[])
       setAgents((ag.data ?? []) as Agent[])
       setCategories((ct.data ?? []) as CategoryLite[])
       setEntries(en)
@@ -588,6 +677,58 @@ export default function ReportsPage() {
       perAgent,
     }
   }, [agents, entries, expenses, categories, writeOffs, runs, payments, deposits, settlements, applied])
+
+  // Display names for created_by lookups (write-off list, employee table).
+  const profileNameById = useMemo(
+    () => new Map(profiles.map((p) => [p.id, personName(p)])),
+    [profiles],
+  )
+
+  // Per-employee performance for the applied range, grouped by who recorded
+  // the work: entries give bottles delivered + cash collected at delivery,
+  // payments give debt collected afterwards.
+  const employeePerf = useMemo(() => {
+    const { from: f, to: t } = applied
+    const inRange = (d: string) => d >= f && d <= t
+    const acc = new Map<
+      string,
+      { id: string; bottles: number; cash: number; debtCollected: number }
+    >()
+    const row = (id: string) => {
+      let r = acc.get(id)
+      if (!r) {
+        r = { id, bottles: 0, cash: 0, debtCollected: 0 }
+        acc.set(id, r)
+      }
+      return r
+    }
+    for (const e of entries) {
+      if (!e.created_by || !inRange(e.entry_date)) continue
+      const r = row(e.created_by)
+      r.bottles += e.delivered_qty
+      r.cash += e.amount_collected
+    }
+    for (const p of payments) {
+      if (!p.created_by || !inRange(p.payment_date)) continue
+      row(p.created_by).debtCollected += p.amount
+    }
+    return [...acc.values()]
+      .map((r) => ({ ...r, total: r.cash + r.debtCollected }))
+      .sort((a, b) => b.total - a.total)
+  }, [entries, payments, applied])
+
+  // Write-offs inside the applied range, newest first (the form's list).
+  const rangeWriteOffs = useMemo(
+    () =>
+      writeOffs
+        .filter((w) => w.writeoff_date >= applied.from && w.writeoff_date <= applied.to)
+        .sort(
+          (a, b) =>
+            b.writeoff_date.localeCompare(a.writeoff_date) ||
+            b.created_at.localeCompare(a.created_at),
+        ),
+    [writeOffs, applied],
+  )
 
   // Port of buildMonthlyTrend (monthly-trend.ts) for the 24 months ending at
   // the applied `to` month; the UI shows a 6/12/24-month slice of it.
@@ -1191,6 +1332,47 @@ export default function ReportsPage() {
             </div>
           </Card>
 
+          <Card className="space-y-3">
+            <CardTitle>ဝန်ထမ်းအလိုက် စွမ်းဆောင်ရည်</CardTitle>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-sm">
+                <thead>
+                  <tr className="border-b border-stone-200 text-left text-stone-500 dark:border-neutral-800 dark:text-neutral-400">
+                    <th className="py-2 pr-2 font-medium">ဝန်ထမ်း</th>
+                    <th className="py-2 pr-2 text-right font-medium">ပို့ဘူး</th>
+                    <th className="py-2 pr-2 text-right font-medium">ကောက်ငွေ</th>
+                    <th className="py-2 pr-2 text-right font-medium">ကြွေးကောက်ငွေ</th>
+                    <th className="py-2 text-right font-medium">စုစုပေါင်း</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {employeePerf.map((r) => (
+                    <tr key={r.id} className="border-b border-stone-100 last:border-0 dark:border-neutral-800/70">
+                      <td className="py-2 pr-2 font-medium">
+                        {profileNameById.get(r.id) ?? '—'}
+                      </td>
+                      <td className="py-2 pr-2 text-right tabular-nums">{r.bottles}</td>
+                      <td className="py-2 pr-2 text-right tabular-nums">{formatMMK(r.cash)}</td>
+                      <td className="py-2 pr-2 text-right tabular-nums">
+                        {formatMMK(r.debtCollected)}
+                      </td>
+                      <td className="py-2 text-right font-semibold tabular-nums">
+                        {formatMMK(r.total)}
+                      </td>
+                    </tr>
+                  ))}
+                  {employeePerf.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-2 text-stone-500 dark:text-neutral-400">
+                        မှတ်တမ်း မရှိပါ
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
           <Card className="space-y-3 print:hidden">
             <CardTitle>ကြွေးပယ်ဖျက် မှတ်တမ်းသစ်</CardTitle>
             <div className="grid gap-2.5 md:grid-cols-3">
@@ -1237,6 +1419,43 @@ export default function ReportsPage() {
             <PrimaryButton onClick={onAddWriteOff} disabled={woBusy} className="w-full md:w-auto">
               {woBusy ? 'သိမ်းနေပါတယ်…' : 'သိမ်းရန်'}
             </PrimaryButton>
+          </Card>
+
+          <Card className="space-y-3">
+            <CardTitle>ကြွေးပယ်ဖျက် မှတ်တမ်း</CardTitle>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-sm">
+                <thead>
+                  <tr className="border-b border-stone-200 text-left text-stone-500 dark:border-neutral-800 dark:text-neutral-400">
+                    <th className="py-2 pr-2 font-medium">ရက်စွဲ</th>
+                    <th className="py-2 pr-2 font-medium">ကိုယ်စားလှယ်</th>
+                    <th className="py-2 pr-2 text-right font-medium">ပမာဏ</th>
+                    <th className="py-2 pr-2 font-medium">အကြောင်းအရင်း</th>
+                    <th className="py-2 text-right font-medium">လုပ်ဆောင်သူ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rangeWriteOffs.map((w) => (
+                    <tr key={w.id} className="border-b border-stone-100 last:border-0 dark:border-neutral-800/70">
+                      <td className="py-2 pr-2 whitespace-nowrap">{w.writeoff_date}</td>
+                      <td className="py-2 pr-2 font-medium">{w.agent_name ?? '—'}</td>
+                      <td className="py-2 pr-2 text-right tabular-nums">{formatMMK(w.amount)}</td>
+                      <td className="py-2 pr-2">{w.note}</td>
+                      <td className="py-2 text-right">
+                        {w.created_by ? (profileNameById.get(w.created_by) ?? '—') : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                  {rangeWriteOffs.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-2 text-stone-500 dark:text-neutral-400">
+                        ကြွေးပယ်ဖျက် မှတ်တမ်း မရှိပါ
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </Card>
 
           <Card className="space-y-3">
@@ -1357,6 +1576,8 @@ export default function ReportsPage() {
           </Card>
         </>
       )}
+
+      {(profile?.role === 'owner' || profile?.role === 'manager') && <MonthLockSection />}
     </div>
   )
 }

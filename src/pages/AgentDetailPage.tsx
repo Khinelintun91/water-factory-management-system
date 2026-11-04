@@ -28,6 +28,12 @@ import {
   inputCls,
 } from '../components/ui'
 
+/** agents.trip_qty / agents.notes are not on the shared Agent type yet. */
+type AgentFull = Agent & { trip_qty: number | null; notes: string | null }
+
+/** agent_payments.kind is not on the shared AgentPayment type yet. */
+type PaymentFull = AgentPayment & { kind: 'regular' | 'old_debt' | null }
+
 export function SettlementSummary({ s }: { s: AgentSettlement }) {
   const rows: [string, string][] = [
     ['စာရင်းပိတ်ရက်', s.settle_date],
@@ -72,10 +78,10 @@ export default function AgentDetailPage() {
   const navigate = useNavigate()
   const isOwner = profile?.role === 'owner'
 
-  const [agent, setAgent] = useState<Agent | null>(null)
+  const [agent, setAgent] = useState<AgentFull | null>(null)
   const [phone, setPhone] = useState<string | null>(null)
   const [entries, setEntries] = useState<DailyEntry[]>([])
-  const [payments, setPayments] = useState<AgentPayment[]>([])
+  const [payments, setPayments] = useState<PaymentFull[]>([])
   const [deposits, setDeposits] = useState<AgentDeposit[]>([])
   const [writeOffs, setWriteOffs] = useState<WriteOff[]>([])
   const [settlement, setSettlement] = useState<AgentSettlement | null>(null)
@@ -128,11 +134,12 @@ export default function AgentDetailPage() {
         supabase.from('agent_settlements').select('*').eq('agent_id', id).maybeSingle(),
         supabase.rpc('agent_outstanding', { p_agent: id }),
       ])
-    const a = (ag as Agent | null) ?? null
+    const a = (ag as AgentFull | null) ?? null
     setAgent(a)
     setPhone((ct as { phone: string } | null)?.phone ?? null)
     setEntries((en ?? []) as DailyEntry[])
-    setPayments((pm ?? []) as AgentPayment[])
+    // The payments select('*') above includes the kind column.
+    setPayments((pm ?? []) as PaymentFull[])
     setDeposits((dp ?? []) as AgentDeposit[])
     setWriteOffs((wo ?? []) as WriteOff[])
     setSettlement((st as AgentSettlement | null) ?? null)
@@ -283,6 +290,8 @@ export default function AgentDetailPage() {
             ဘူး ကန့်သတ်: {agent.bottle_limit > 0 ? `${agent.bottle_limit.toLocaleString('en-US')} လုံး` : 'မကန့်သတ်'} ·
             ကြွေး ကန့်သတ်: {agent.credit_limit > 0 ? formatMMK(agent.credit_limit) : 'မကန့်သတ်'}
           </div>
+          <div>တစ်ခါပို့ ဘူးအရေအတွက်: {(agent.trip_qty ?? 0).toLocaleString('en-US')} လုံး</div>
+          {agent.notes && <div>မှတ်ချက်: {agent.notes}</div>}
           <div>
             အခြေအနေ:{' '}
             {closed ? (
@@ -346,6 +355,29 @@ export default function AgentDetailPage() {
             </li>
           ))}
           {payments.length === 0 && <li className={`${listItemCls} text-sm opacity-70`}>မှတ်တမ် မရှိသေးပါ</li>}
+        </ul>
+      </div>
+
+      <div className="space-y-2.5">
+        <h2 className="px-0.5 font-semibold">ကြွေးဟောင်းကောက်ငွေ မှတ်တမ်း</h2>
+        <ul className={`${cardCls} divide-y divide-stone-100 overflow-hidden dark:divide-neutral-800`}>
+          {payments
+            .filter((p) => p.kind === 'old_debt')
+            .map((p) => (
+              <li key={p.id} className={listItemCls}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-medium">{p.payment_date}</div>
+                  <div className="font-bold tabular-nums">{formatMMK(p.amount)}</div>
+                </div>
+                <div className={listMetaCls}>
+                  {p.method}
+                  {p.notes ? ` · ${p.notes}` : ''}
+                </div>
+              </li>
+            ))}
+          {payments.every((p) => p.kind !== 'old_debt') && (
+            <li className={`${listItemCls} text-sm opacity-70`}>ကြွေးဟောင်းကောက်ငွေ မှတ်တမ်း မရှိပါ</li>
+          )}
         </ul>
       </div>
 

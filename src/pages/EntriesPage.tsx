@@ -46,13 +46,21 @@ const MONTH_NAMES = [
   'ဇူလိုင်', 'ဩဂုတ်', 'စက်တင်ဘာ', 'အောက်တိုဘာ', 'နိုဝင်ဘာ', 'ဒီဇင်ဘာ',
 ]
 
-/** Month filter options: "all" + current month and the 12 before it. */
+/**
+ * Month filter options: "all" + every month from the 2020-01 floor through
+ * next month, newest first. The business keeps ALL history, so any past
+ * month must stay reachable in this selector.
+ */
 function monthOptions(): { value: string; label: string }[] {
   const [y, m] = todayYangon().split('-').map(Number)
   const out: { value: string; label: string }[] = [{ value: 'all', label: 'အားလုံး' }]
   let yy = y
-  let mm = m
-  for (let i = 0; i < 13; i++) {
+  let mm = m + 1
+  if (mm === 13) {
+    mm = 1
+    yy += 1
+  }
+  while (yy > 2020 || (yy === 2020 && mm >= 1)) {
     out.push({
       value: `${yy}-${String(mm).padStart(2, '0')}`,
       label: `${MONTH_NAMES[mm - 1]} ${yy}`,
@@ -65,6 +73,9 @@ function monthOptions(): { value: string; label: string }[] {
   }
   return out
 }
+
+/** Rows rendered at a time in the entries list; "load more" adds another page. */
+const RENDER_PAGE_SIZE = 200
 
 const compactSelectCls =
   'min-h-[44px] rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/40 dark:border-neutral-700 dark:bg-neutral-900'
@@ -80,12 +91,19 @@ export default function EntriesPage() {
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [deleteReason, setDeleteReason] = useState('')
   const [monthFilter, setMonthFilter] = useState(() => todayYangon().slice(0, 7))
+  // Render cap only (data is fully fetched): large sets — "all" mode or a
+  // busy month — would otherwise freeze the tab rendering thousands of rows.
+  const [renderLimit, setRenderLimit] = useState(RENDER_PAGE_SIZE)
 
   // New-entry form.
   const [agentId, setAgentId] = useState('')
   const [delivered, setDelivered] = useState('')
   const [returned, setReturned] = useState('')
   const [cash, setCash] = useState('')
+  // Optional: money the agent pays toward OLD debt during this same visit.
+  // On save it becomes a separate agent_payments row (kind 'old_debt'),
+  // never part of this entry's amount/amount_collected.
+  const [oldDebt, setOldDebt] = useState('')
   const [notes, setNotes] = useState('')
   const [confirming, setConfirming] = useState(false)
 
@@ -208,9 +226,13 @@ export default function EntriesPage() {
   const due = qty * price
   const cashNum = Number(cash) || 0
   const remaining = due - cashNum
+  const oldDebtNum = Number(oldDebt) || 0
 
   // Rows arrive already scoped to the selected month (see load()).
+  // visibleRows is the FULL set (summaries/counts use it); displayRows is
+  // only what gets rendered, capped by renderLimit with a load-more button.
   const visibleRows = rows
+  const displayRows = visibleRows.slice(0, renderLimit)
 
   function onAdd(e: FormEvent) {
     e.preventDefault()
@@ -243,6 +265,10 @@ export default function EntriesPage() {
       created_by: profile?.id ?? null,
     }
     // Offline right now: queue the exact payload instead of losing the form.
+    // The queue stores daily_entries payloads only (lib/offlineQueue), so a
+    // ကြွေးကောက် amount cannot ride along safely — it is excluded from
+    // queued submissions and afterQueued tells the user to record it
+    // separately on the Payments page once reconnected.
     if (!navigator.onLine) {
       enqueue(payload)
       afterQueued()
@@ -268,26 +294,64 @@ export default function EntriesPage() {
       setBusy(false)
       return
     }
+    // Entry saved. A ကြွေးကောက် amount typed with this visit is money
+    // toward the agent's OLD debt, so it lands as its own payments row
+    // (kind 'old_debt') for the same agent and day — the entry's own
+    // amount/amount_collected are untouched. If this second write fails,
+    // say so plainly (entry kept, collection missing) in the AgentsPage
+    // partial-failure style instead of pretending a full success.
+    let partialMsg: string | null = null
+    if (oldDebtNum > 0) {
+      let pFailure: unknown = null
+      try {
+        const { error } = await supabase.from('agent_payments').insert({
+          payment_date: payload.entry_date,
+          agent_id: agentId,
+          agent_name: selectedAgent?.name ?? null,
+          amount: oldDebtNum,
+          method: 'cash',
+          kind: 'old_debt',
+          notes: 'ရေပို့မှတ်တမ်းနှင့်အတူ ကောက်ခံသည်',
+          created_by: profile?.id ?? null,
+        })
+        pFailure = error
+      } catch (err) {
+        pFailure = err
+      }
+      if (pFailure) {
+        const m = (pFailure as { message?: unknown }).message
+        partialMsg = `ရေပို့မှတ်တမ် သိမ်းပြီးပါပြီ၊ ကြွေးကောက်ငွေ သိမ်း၍ မရပါ: ${typeof m === 'string' ? m : String(pFailure)}`
+      }
+    }
     setDelivered('')
     setReturned('')
     setCash('')
+    setOldDebt('')
     setNotes('')
     setConfirming(false)
     await load()
+    if (partialMsg) setMsg(partialMsg)
     setBusy(false)
   }
 
   // Shared tail for "saved to the offline queue": clear the form and tell
-  // the user it will upload itself when the connection returns.
+  // the user it will upload itself when the connection returns. A
+  // ကြွေးကောက် amount never enters the queue (the queue holds entry
+  // payloads only), so when one was typed the message says it was NOT
+  // saved and must be recorded separately after reconnecting.
   function afterQueued() {
+    const hadOldDebt = oldDebtNum > 0
     setDelivered('')
     setReturned('')
     setCash('')
+    setOldDebt('')
     setNotes('')
     setConfirming(false)
     setQueued(queueCount())
     setMsg(
-      'အင်တာနက် မရှိသေးလို့ သိမ်းထားပါတယ် — ပြန်ချိတ်ရင် အလိုအလျောက် တင်ပေးပါမယ်',
+      hadOldDebt
+        ? 'အင်တာနက် မရှိသေးလို့ ရေပို့မှတ်တမ်းကို သိမ်းထားပါတယ် — ပြန်ချိတ်ရင် အလိုအလျောက် တင်ပေးပါမယ်။ ကြွေးကောက်ငွေ ကိုတော့ မသိမ်းရသေးပါ — ပြန်ချိတ်ပြီးရင် ငွေကောက်ခံမှုများ စာမျက်နှာမှာ သီးခြား မှတ်ပေးပါ'
+        : 'အင်တာနက် မရှိသေးလို့ သိမ်းထားပါတယ် — ပြန်ချိတ်ရင် အလိုအလျောက် တင်ပေးပါမယ်',
     )
     setBusy(false)
   }
@@ -575,6 +639,21 @@ export default function EntriesPage() {
               </div>
             </Field>
           </div>
+          <Field label="ကြွေးကောက်ငွေ (ကျပ်)">
+            <input
+              value={oldDebt}
+              onChange={(e) => {
+                setOldDebt(e.target.value.replace(/\D/g, ''))
+                setConfirming(false)
+              }}
+              inputMode="numeric"
+              placeholder="0"
+              className={inputCls}
+            />
+            <span className="mt-1 block text-xs opacity-60">
+              ကြွေးကောက်ငွေသည် ကြွေးကျန်မှ နုတ်မည်
+            </span>
+          </Field>
           <input
             value={notes}
             onChange={(e) => {
@@ -630,6 +709,12 @@ export default function EntriesPage() {
                   <dt className="opacity-70">လက်ခံရရှိငွေ (ကျပ်)</dt>
                   <dd className="font-medium tabular-nums">{formatMMK(cashNum)}</dd>
                 </div>
+                {oldDebtNum > 0 && (
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="opacity-70">ကြွေးကောက်ငွေ (ကျပ်)</dt>
+                    <dd className="font-medium tabular-nums">{formatMMK(oldDebtNum)}</dd>
+                  </div>
+                )}
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="opacity-70">ကျန်ကြွေး</dt>
                   <dd className={`font-bold tabular-nums ${remaining > 0 ? 'text-red-600 dark:text-red-400' : ''}`}>
@@ -666,7 +751,10 @@ export default function EntriesPage() {
         <select
           id="entries-month-filter"
           value={monthFilter}
-          onChange={(e) => setMonthFilter(e.target.value)}
+          onChange={(e) => {
+            setMonthFilter(e.target.value)
+            setRenderLimit(RENDER_PAGE_SIZE)
+          }}
           className={compactSelectCls}
         >
           {monthOptions().map((o) => (
@@ -691,7 +779,7 @@ export default function EntriesPage() {
         <>
           {/* Phone / tablet: one card per record. */}
           <ul className="space-y-3 lg:hidden">
-            {visibleRows.map((r) => (
+            {displayRows.map((r) => (
               <li key={r.id} className={`${cardCls} p-3.5`}>
                 <div className="flex items-center justify-between gap-2">
                   <div className="font-semibold">{r.agent_name ?? agentName(r.agent_id)}</div>
@@ -739,7 +827,7 @@ export default function EntriesPage() {
                 </tr>
               </thead>
               <tbody>
-                {visibleRows.map((r) => {
+                {displayRows.map((r) => {
                   const panel = rowPanel(r)
                   return (
                     <Fragment key={r.id}>
@@ -778,6 +866,22 @@ export default function EntriesPage() {
               </tbody>
             </table>
           </div>
+
+          {visibleRows.length > RENDER_PAGE_SIZE && (
+            <div className="space-y-2">
+              <p className="text-center text-sm text-stone-500 dark:text-neutral-400">
+                {displayRows.length} / {visibleRows.length} မှတ်တမ်း
+              </p>
+              {displayRows.length < visibleRows.length && (
+                <SecondaryButton
+                  onClick={() => setRenderLimit((n) => n + RENDER_PAGE_SIZE)}
+                  className="w-full"
+                >
+                  နောက်ထပ် ၂၀၀ ကြည့်ရန်
+                </SecondaryButton>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>

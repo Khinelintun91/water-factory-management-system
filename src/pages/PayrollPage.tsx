@@ -29,13 +29,21 @@ const MONTH_NAMES = [
   'ဇူလိုင်', 'ဩဂုတ်', 'စက်တင်ဘာ', 'အောက်တိုဘာ', 'နိုဝင်ဘာ', 'ဒီဇင်ဘာ',
 ]
 
-/** Month options: current Yangon month + the 12 before it. */
+/**
+ * Month options: every month from the 2020-01 floor through next month,
+ * newest first. The business keeps ALL history, so any past month must
+ * stay reachable in this selector.
+ */
 function monthOptions(): { value: string; label: string }[] {
   const [y, m] = todayYangon().split('-').map(Number)
   const out: { value: string; label: string }[] = []
   let yy = y
-  let mm = m
-  for (let i = 0; i < 13; i++) {
+  let mm = m + 1
+  if (mm === 13) {
+    mm = 1
+    yy += 1
+  }
+  while (yy > 2020 || (yy === 2020 && mm >= 1)) {
     out.push({
       value: `${yy}-${String(mm).padStart(2, '0')}`,
       label: `${MONTH_NAMES[mm - 1]} ${yy}`,

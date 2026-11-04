@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { formatMMK, personName, type Agent, type Profile } from '../lib/types'
+import { dailySummaryCsv } from '../lib/exports'
+import { formatMMK, personName, todayYangon, type Agent, type Profile } from '../lib/types'
 import {
   Banner,
   Card,
@@ -9,6 +10,7 @@ import {
   Field,
   LoadingState,
   PageHeader,
+  SecondaryButton,
   cardCls,
   inputCls,
 } from '../components/ui'
@@ -100,6 +102,8 @@ export default function CollectionsPage() {
   const [profiles, setProfiles] = useState<Pick<Profile, 'id' | 'username' | 'display_name'>[]>([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
+  const [csvBusy, setCsvBusy] = useState(false)
+  const [csvMsg, setCsvMsg] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   // Collections-report filters.
@@ -142,6 +146,21 @@ export default function CollectionsPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Daily CSV export, wired the same way as HomePage's button. This page
+  // has no single selected date (only report range filters), so the export
+  // always covers today (Asia/Yangon).
+  async function onDailyCsv() {
+    setCsvBusy(true)
+    setCsvMsg(null)
+    try {
+      const filename = await dailySummaryCsv(todayYangon())
+      setCsvMsg(`${filename} ကို ဒေါင်းလုပ် လုပ်ပြီးပါပြီ`)
+    } catch (e) {
+      setCsvMsg(e instanceof Error ? e.message : 'CSV ထုတ်၍ မရပါ')
+    }
+    setCsvBusy(false)
+  }
 
   const agentName = useMemo(() => {
     const m = new Map(agents.map((a) => [a.id, a.name]))
@@ -295,6 +314,13 @@ export default function CollectionsPage() {
         title="ကောက်ခံမှုနှင့် ကြွေးစာရင်း"
         subtitle="ကိုယ်စားလှယ်အလိုက် ရောင်းအား၊ ကောက်ခံငွေနှင့် ကျန်ကြွေး ကြည့်ရန်"
       />
+
+      <div>
+        <SecondaryButton onClick={onDailyCsv} disabled={csvBusy}>
+          {csvBusy ? 'ထုတ်နေပါတယ်…' : 'နေ့စဉ် CSV ထုတ်မည်'}
+        </SecondaryButton>
+        {csvMsg && <p className="mt-2 text-sm">{csvMsg}</p>}
+      </div>
 
       {msg && (
         <Banner tone="red">

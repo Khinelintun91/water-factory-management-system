@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { personName, ROLE_LABELS, type Agent, type Profile, type Role } from '../lib/types'
+import {
+  formatMMK,
+  personName,
+  ROLE_LABELS,
+  type Agent,
+  type Profile,
+  type Role,
+} from '../lib/types'
 import {
   Card,
   CardTitle,
@@ -44,6 +51,7 @@ export default function UsersPage() {
   const [loginLogs, setLoginLogs] = useState<LoginLogRow[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [extras, setExtras] = useState<Record<string, Role[]>>({})
+  const [salaries, setSalaries] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
@@ -57,16 +65,21 @@ export default function UsersPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: p }, { data: a }, { data: ur }, { data: ll }] = await Promise.all([
-      supabase.from('profiles').select('id, username, display_name, role, agent_id, active').order('created_at', { ascending: true }),
-      supabase.from('agents').select('*').order('created_at', { ascending: true }),
-      supabase.from('user_roles').select('profile_id, role'),
-      supabase
-        .from('login_logs')
-        .select('id, username, success, user_agent, created_at')
-        .order('created_at', { ascending: false })
-        .limit(100),
-    ])
+    const [{ data: p }, { data: a }, { data: ur }, { data: ss }, { data: ll }] =
+      await Promise.all([
+        supabase
+          .from('profiles')
+          .select('id, username, display_name, role, agent_id, active')
+          .order('created_at', { ascending: true }),
+        supabase.from('agents').select('*').order('created_at', { ascending: true }),
+        supabase.from('user_roles').select('profile_id, role'),
+        supabase.from('salary_settings').select('user_id, monthly_salary'),
+        supabase
+          .from('login_logs')
+          .select('id, username, success, user_agent, created_at')
+          .order('created_at', { ascending: false })
+          .limit(100),
+      ])
     setRows((p ?? []) as Profile[])
     setLoginLogs((ll ?? []) as LoginLogRow[])
     setAgents((a ?? []) as Agent[])
@@ -75,6 +88,11 @@ export default function UsersPage() {
       ;(map[r.profile_id] ??= []).push(r.role)
     }
     setExtras(map)
+    const salMap: Record<string, number> = {}
+    for (const s of (ss ?? []) as { user_id: string; monthly_salary: number }[]) {
+      salMap[s.user_id] = s.monthly_salary
+    }
+    setSalaries(salMap)
     setLoading(false)
   }, [])
 
@@ -241,6 +259,9 @@ export default function UsersPage() {
                     )}
                     <div className="text-sm text-stone-500 dark:text-neutral-400">
                       {ROLE_LABELS[p.role]} (အဓိက)
+                    </div>
+                    <div className="text-sm text-stone-500 dark:text-neutral-400">
+                      လစာ: {salaries[p.id] != null ? formatMMK(salaries[p.id]) : '—'}
                     </div>
                   </div>
                   <SecondaryButton size="sm" onClick={() => toggleActive(p)} className="shrink-0">

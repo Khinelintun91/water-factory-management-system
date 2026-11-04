@@ -15,6 +15,8 @@ import {
 } from '../components/ui'
 
 interface AgentRow extends Agent {
+  /** Bottles sent per trip (agents.trip_qty, added after the shared Agent type). */
+  trip_qty: number
   phone: string | null
   held: number
   outstanding: number
@@ -27,7 +29,7 @@ interface LinkableProfile {
   display_name: string | null
 }
 
-type EditableField = 'default_unit_price' | 'deposit_per_bottle' | 'bottle_limit' | 'credit_limit'
+type EditableField = 'default_unit_price' | 'deposit_per_bottle' | 'bottle_limit' | 'credit_limit' | 'trip_qty'
 
 /** Inline numeric field for owner/manager: saves on blur when changed. */
 function InlineNumber({
@@ -69,6 +71,9 @@ export default function AgentsPage() {
   const [unitPrice, setUnitPrice] = useState('0')
   const [bottleLimit, setBottleLimit] = useState('0')
   const [creditLimit, setCreditLimit] = useState('0')
+  // Bottles per trip — the live app's default is 10.
+  const [tripQty, setTripQty] = useState('10')
+  const [agentNotes, setAgentNotes] = useState('')
   const [initDepBottles, setInitDepBottles] = useState('')
   const [initDepPrice, setInitDepPrice] = useState('')
   const [linkUserId, setLinkUserId] = useState('')
@@ -131,7 +136,9 @@ export default function AgentsPage() {
     }[]) {
       heldByAgent.set(e.agent_id, (heldByAgent.get(e.agent_id) ?? 0) + e.delivered_qty - e.returned_qty)
     }
-    const list = (agents ?? []) as Agent[]
+    // agents.trip_qty arrives with select('*'); it is not on the shared
+    // Agent type yet, so widen the row type locally.
+    const list = (agents ?? []) as (Agent & { trip_qty: number | null })[]
     // Outstanding comes from the server RPC (single source of truth for the
     // sales − cash − payments − write-offs balance).
     const outstanding = await Promise.all(
@@ -143,6 +150,7 @@ export default function AgentsPage() {
     setRows(
       list.map((a, i) => ({
         ...a,
+        trip_qty: a.trip_qty ?? 0,
         phone: phoneByAgent.get(a.id) ?? null,
         held: heldByAgent.get(a.id) ?? 0,
         outstanding: outstanding[i] ?? 0,
@@ -186,6 +194,8 @@ export default function AgentsPage() {
         default_unit_price: Number(unitPrice) || 0,
         bottle_limit: Number(bottleLimit) || 0,
         credit_limit: Number(creditLimit) || 0,
+        trip_qty: Number(tripQty) || 0,
+        notes: agentNotes.trim() || null,
       })
       .select('id')
       .single()
@@ -249,6 +259,8 @@ export default function AgentsPage() {
     setUnitPrice(defaultPrice || '0')
     setBottleLimit('0')
     setCreditLimit('0')
+    setTripQty('10')
+    setAgentNotes('')
     setInitDepBottles('')
     setInitDepPrice('')
     setLinkUserId('')
@@ -375,6 +387,14 @@ export default function AgentsPage() {
               <span>{a.credit_limit > 0 ? formatMMK(a.credit_limit) : 'မကန့်သတ်'}</span>
             )}
           </label>
+          <label className="flex items-center justify-between gap-1">
+            <span className="opacity-75">တစ်ခါပို့</span>
+            {canManage && !a.closed_at ? (
+              <InlineNumber value={a.trip_qty} onSave={(v) => saveField(a, 'trip_qty', v)} />
+            ) : (
+              <span>{a.trip_qty.toLocaleString('en-US')} လုံး</span>
+            )}
+          </label>
         </div>
       </li>
     )
@@ -468,6 +488,14 @@ export default function AgentsPage() {
                 className={inputCls}
               />
             </Field>
+            <Field label="တစ်ခါပို့ ဘူးအရေအတွက်">
+              <input
+                value={tripQty}
+                onChange={(e) => setTripQty(e.target.value.replace(/\D/g, ''))}
+                inputMode="numeric"
+                className={inputCls}
+              />
+            </Field>
             <Field label="ဗူး ကန့်သတ်ချက် (လုံး၊ 0 = မကန့်သတ်)">
               <input
                 value={bottleLimit}
@@ -517,6 +545,9 @@ export default function AgentsPage() {
                 </option>
               ))}
             </select>
+          </Field>
+          <Field label="မှတ်ချက်">
+            <input value={agentNotes} onChange={(e) => setAgentNotes(e.target.value)} className={inputCls} />
           </Field>
           <PrimaryButton type="submit" className="w-full">
             ထည့်ရန်

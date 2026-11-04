@@ -551,9 +551,15 @@ function Dashboard() {
         )}
       </Card>
 
-      {staffView && !loading && empRows.length > 0 && (
+      {staffView && !loading && (
         <Card>
           <CardTitle>ဝန်ထမ်းအလိုက် အကျဉ်းချုပ်</CardTitle>
+          {empRows.length === 0 ? (
+            <p className="mt-3 text-sm text-stone-500 dark:text-neutral-400">
+              ဤရက်တွင် မှတ်တမ်း မရှိပါ
+            </p>
+          ) : (
+            <>
           {/* Phone: one card per employee. */}
           <div className="mt-3 space-y-2.5 md:hidden">
             {empRows.map((r) => (
@@ -624,6 +630,8 @@ function Dashboard() {
               </tbody>
             </table>
           </div>
+            </>
+          )}
         </Card>
       )}
     </>

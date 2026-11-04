@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { fetchAll } from '../lib/fetchAll'
@@ -9,8 +9,19 @@ import {
   type Agent,
   type AgentPayment,
   type DailyEntry,
+  type WriteOff,
 } from '../lib/types'
-import { Banner, Card, LoadingState, PageHeader, StatCard, cardCls } from '../components/ui'
+import {
+  Banner,
+  Card,
+  LoadingState,
+  PageHeader,
+  PrimaryButton,
+  SecondaryButton,
+  StatCard,
+  cardCls,
+  inputCls,
+} from '../components/ui'
 
 const MONTH_NAMES = [
   'ဇန်နဝါရီ', 'ဖေဖော်ဝါရီ', 'မတ်', 'ဧပြီ', 'မေ', 'ဇွန်',
@@ -31,59 +42,92 @@ export default function MyPage() {
   const agentId = profile?.agent_id ?? null
   const [entries, setEntries] = useState<DailyEntry[]>([])
   const [payments, setPayments] = useState<AgentPayment[]>([])
+  const [writeOffTotal, setWriteOffTotal] = useState(0)
   const [depositTotal, setDepositTotal] = useState(0)
   const [agent, setAgent] = useState<Agent | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [monthFilter, setMonthFilter] = useState('all')
+  // Per-record dispute filing (live old-app parity): an agent can flag one
+  // specific delivery/payment row from this page. filedKeys is session-only
+  // state — a successful insert flips that row's button to its filed state.
+  const [disputeKey, setDisputeKey] = useState<string | null>(null)
+  const [disputeText, setDisputeText] = useState('')
+  const [disputeMsg, setDisputeMsg] = useState<string | null>(null)
+  const [disputeBusy, setDisputeBusy] = useState(false)
+  const [disputeOk, setDisputeOk] = useState<string | null>(null)
+  const [filedKeys, setFiledKeys] = useState<ReadonlySet<string>>(new Set())
+  const runRef = useRef(0)
 
-  useEffect(() => {
-    // RLS scopes every row to this agent automatically; no agent_id filter
-    // is needed in the client for entries/payments (and adding one would not
-    // widen access anyway). Deposits and the agent row are fetched by the
-    // profile's linked agent_id.
+  const load = useCallback(async () => {
     if (!agentId) {
       setLoading(false)
       return
     }
-    let cancelled = false
+    const run = ++runRef.current
     setLoading(true)
-    Promise.all([
-      fetchAll<DailyEntry>((from, to) =>
-        supabase
-          .from('daily_entries')
-          .select('*')
-          .order('entry_date', { ascending: false })
-          .order('created_at', { ascending: false })
-          .range(from, to),
-      ),
-      fetchAll<AgentPayment>((from, to) =>
-        supabase
-          .from('agent_payments')
-          .select('*')
-          .order('payment_date', { ascending: false })
-          .order('created_at', { ascending: false })
-          .range(from, to),
-      ),
-      supabase.from('agent_deposits').select('amount').eq('agent_id', agentId),
-      supabase.from('agents').select('*').eq('id', agentId).maybeSingle(),
-    ])
-      .then(([en, pm, dep, ag]) => {
-        if (cancelled) return
-        setEntries(en)
-        setPayments(pm)
-        setDepositTotal(
-          ((dep.data ?? []) as { amount: number }[]).reduce((s, d) => s + d.amount, 0),
-        )
-        setAgent((ag.data ?? null) as Agent | null)
-        setLoading(false)
-      })
-      .catch(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
+    setLoadError(false)
+    try {
+      // The explicit agent_id filter is REQUIRED, not just an optimisation:
+      // RLS scopes the rows, but its policy helpers (app_role / app_agent_id)
+      // are security-definer functions Postgres evaluates once per scanned
+      // row. Without the filter the query scans EVERY agent's history
+      // (~12k rows) before discarding all but this agent's, which overruns
+      // the API timeout — the request errors, and the old catch-all silently
+      // left every total at zero. With the filter, Postgres drives the query
+      // from the (agent_id, date) index and only this agent's rows are ever
+      // touched. RLS still applies on top, so access is unchanged.
+      const [en, pm, wo, dep, ag] = await Promise.all([
+        fetchAll<DailyEntry>((from, to) =>
+          supabase
+            .from('daily_entries')
+            .select('*')
+            .eq('agent_id', agentId)
+            .order('entry_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .range(from, to),
+        ),
+        fetchAll<AgentPayment>((from, to) =>
+          supabase
+            .from('agent_payments')
+            .select('*')
+            .eq('agent_id', agentId)
+            .order('payment_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .range(from, to),
+        ),
+        fetchAll<Pick<WriteOff, 'amount'>>((from, to) =>
+          supabase
+            .from('write_offs')
+            .select('amount')
+            .eq('agent_id', agentId)
+            .order('writeoff_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .range(from, to),
+        ),
+        supabase.from('agent_deposits').select('amount').eq('agent_id', agentId),
+        supabase.from('agents').select('*').eq('id', agentId).maybeSingle(),
+      ])
+      if (runRef.current !== run) return
+      setEntries(en)
+      setPayments(pm)
+      setWriteOffTotal(wo.reduce((s, w) => s + w.amount, 0))
+      setDepositTotal(
+        ((dep.data ?? []) as { amount: number }[]).reduce((s, d) => s + d.amount, 0),
+      )
+      setAgent((ag.data ?? null) as Agent | null)
+    } catch {
+      // Never fail silently into plausible-looking zeroes again: surface the
+      // failure with a retry instead.
+      if (runRef.current === run) setLoadError(true)
+    } finally {
+      if (runRef.current === run) setLoading(false)
     }
   }, [agentId])
+
+  useEffect(() => {
+    void load()
+  }, [load])
 
   // Month filter options: "all" + every month present in the loaded data,
   // newest first (the EntriesPage monthOptions pattern).
@@ -116,7 +160,10 @@ export default function MyPage() {
 
   const lifetimeDue = entries.reduce((s, r) => s + (r.amount - r.amount_collected), 0)
   const totalPayments = payments.reduce((s, r) => s + r.amount, 0)
-  const owed = Math.max(0, lifetimeDue - totalPayments)
+  // Owner-side debt ledger (CollectionsPage) nets write-offs against the
+  // balance, so the agent's own card must too — otherwise the two sides
+  // disagree by exactly the written-off amount.
+  const owed = Math.max(0, lifetimeDue - totalPayments - writeOffTotal)
   const held = entries.reduce((s, r) => s + (r.delivered_qty - r.returned_qty), 0)
 
   // A closed (settled) agent keeps their history visible, but balances are
@@ -125,6 +172,113 @@ export default function MyPage() {
   const shownOwed = closed ? 0 : owed
   const shownHeld = closed ? 0 : held
   const settledNote = closed ? 'စာရင်းပိတ် ပြီး ဖြစ်ပါသည်' : undefined
+
+  function openDispute(key: string) {
+    setDisputeKey(key)
+    setDisputeText('')
+    setDisputeMsg(null)
+    setDisputeOk(null)
+  }
+
+  function closeDispute() {
+    setDisputeKey(null)
+    setDisputeText('')
+    setDisputeMsg(null)
+  }
+
+  async function submitDispute(target: {
+    key: string
+    recordId: string
+    recordDate: string
+    summary: string
+  }) {
+    if (!agentId) return
+    const text = disputeText.trim()
+    if (!text) {
+      setDisputeMsg('အမှား အသေးစိတ် စာသား ရေးပါ')
+      return
+    }
+    setDisputeBusy(true)
+    setDisputeMsg(null)
+    // Same insert path as DisputesPage's agent form (RLS scopes the insert
+    // to this agent); kind 'record' pins the dispute to the specific row so
+    // owner/manager see exactly which record is being questioned.
+    const { error } = await supabase.from('disputes').insert({
+      agent_id: agentId,
+      kind: 'record',
+      record_id: target.recordId,
+      record_date: target.recordDate,
+      record_summary: target.summary,
+      message: text,
+    })
+    setDisputeBusy(false)
+    if (error) {
+      setDisputeMsg(
+        error.code === '23505'
+          ? 'ဒီမှတ်တမ်အတွက် အမှားတင်ပြချက် ဖွင့်ထားပြီး ဖြစ်ပါတယ်'
+          : `တင်ပြ၍ မရပါ: ${error.message}`,
+      )
+      return
+    }
+    setFiledKeys((s) => new Set(s).add(target.key))
+    closeDispute()
+    setDisputeOk('အမှားတင်ပြချက် ပို့ပြီးပါပြီ')
+  }
+
+  /** The per-row dispute button, or its inline compose when open, or the
+   *  disabled filed state after a successful submit this session. */
+  function renderDispute(target: {
+    key: string
+    recordId: string
+    recordDate: string
+    summary: string
+  }) {
+    if (filedKeys.has(target.key)) {
+      return (
+        <div className="mt-1.5">
+          <SecondaryButton size="sm" disabled>
+            အမှားတင်ပြပြီး
+          </SecondaryButton>
+        </div>
+      )
+    }
+    return (
+      <div className="mt-1.5">
+        {disputeKey === target.key ? (
+          <div className="space-y-2">
+            <textarea
+              value={disputeText}
+              onChange={(e) => setDisputeText(e.target.value)}
+              rows={2}
+              placeholder="အမှား အသေးစိတ် ရေးပါ"
+              className={inputCls}
+            />
+            {disputeMsg && (
+              <p className="text-sm text-red-600" role="alert">
+                {disputeMsg}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <PrimaryButton
+                size="sm"
+                disabled={disputeBusy}
+                onClick={() => void submitDispute(target)}
+              >
+                တင်ပြရန်
+              </PrimaryButton>
+              <SecondaryButton size="sm" onClick={closeDispute}>
+                မလုပ်တော့ပါ
+              </SecondaryButton>
+            </div>
+          </div>
+        ) : (
+          <SecondaryButton size="sm" onClick={() => openDispute(target.key)}>
+            အမှားတင်ပြ
+          </SecondaryButton>
+        )}
+      </div>
+    )
+  }
 
   const header = (
     <PageHeader
@@ -157,6 +311,21 @@ export default function MyPage() {
       {closed && (
         <Banner tone="brand">ဒီ ကိုယ်စားလှယ် အကောင့်ကို စာရင်းပိတ် ပြီးပါပြီ</Banner>
       )}
+
+      {loadError && !loading && (
+        <Banner
+          tone="red"
+          action={
+            <SecondaryButton onClick={() => void load()} className="shrink-0">
+              ပြန်စမ်းကြည့်ပါ
+            </SecondaryButton>
+          }
+        >
+          မှတ်တမ်းများ ဖွင့်၍ မရပါ
+        </Banner>
+      )}
+
+      {disputeOk && !loading && <Banner tone="brand">{disputeOk}</Banner>}
 
       <section className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         <StatCard label="ဒီနေ့" value={`${todayDelivered} ဗူး`} sub={formatMMK(todayAmount)} />
@@ -215,6 +384,12 @@ export default function MyPage() {
                         {formatMMK(due)}
                       </span>
                     </div>
+                    {renderDispute({
+                      key: `entry:${r.id}`,
+                      recordId: r.id,
+                      recordDate: r.entry_date,
+                      summary: `${r.entry_date} · ပို့ ${r.delivered_qty} · ပြန် ${r.returned_qty} · ${formatMMK(r.amount)} · လက်ခံရရှိငွေ ${formatMMK(r.amount_collected)}`,
+                    })}
                   </li>
                 )
               })}
@@ -232,7 +407,15 @@ export default function MyPage() {
             <ul className={`${cardCls} divide-y divide-stone-100 overflow-hidden dark:divide-neutral-800/70`}>
               {visiblePayments.map((r) => (
                 <li key={r.id} className="p-3.5 text-sm">
-                  {r.payment_date} · {formatMMK(r.amount)} · {r.method}
+                  <div>
+                    {r.payment_date} · {formatMMK(r.amount)} · {r.method}
+                  </div>
+                  {renderDispute({
+                    key: `payment:${r.id}`,
+                    recordId: r.id,
+                    recordDate: r.payment_date,
+                    summary: `${r.payment_date} · ${formatMMK(r.amount)} · ${r.method}`,
+                  })}
                 </li>
               ))}
               {visiblePayments.length === 0 && (

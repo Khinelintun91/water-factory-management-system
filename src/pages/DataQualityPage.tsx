@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { fetchAll } from '../lib/fetchAll'
 import { getLastBackupAt } from '../lib/backup'
 import { dataQualityCsv } from '../lib/exports'
 import { personName, todayYangon } from '../lib/types'
@@ -25,7 +26,16 @@ import {
 // stale. Checks run on live data every time the page opens.
 
 type Severity = 'high' | 'medium' | 'low'
-type IssueKind = 'duplicate' | 'impossible' | 'mismatch' | 'debt' | 'suspicious' | 'snapshot' | 'dispute' | 'system'
+type IssueKind =
+  | 'duplicate'
+  | 'impossible'
+  | 'mismatch'
+  | 'debt'
+  | 'suspicious'
+  | 'snapshot'
+  | 'dispute'
+  | 'system'
+  | 'collection_anomaly'
 
 interface DqIssue {
   kind: IssueKind
@@ -94,6 +104,14 @@ interface MoneyLite {
   amount: number
 }
 
+/** agent_payments rows as the anomaly check needs them: who collected, when. */
+interface PaymentRow {
+  agent_id: string | null
+  amount: number
+  payment_date: string
+  created_by: string | null
+}
+
 interface DisputeLite {
   id: string
   agent_id: string
@@ -106,22 +124,27 @@ const MAX_DAILY_BOTTLES = 2000
 const n = Number
 const fmt = (x: number) => Math.round(x).toLocaleString('en-US')
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 86400e3)
+const shiftDay = (d: string, delta: number) =>
+  new Date(Date.parse(d) + delta * 86400e3).toISOString().slice(0, 10)
 
-async function fetchAll<T>(table: string, columns: string, orderBy = 'created_at'): Promise<T[]> {
-  const pageSize = 1000
-  const out: T[] = []
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await supabase
-      .from(table)
-      .select(columns)
-      .order(orderBy, { ascending: true })
-      .range(from, from + pageSize - 1)
-    if (error) throw new Error(`${table}: ${error.message}`)
-    const page = (data ?? []) as T[]
-    out.push(...page)
-    if (page.length < pageSize) break
+/**
+ * Full-table paginated load via the shared helper (src/lib/fetchAll.ts) —
+ * the same loader Reports/Entries use. The requested order column gets a
+ * unique `id` tiebreak (`month` on month_locks is already unique): ordering
+ * by `created_at` alone is not a stable page order when many rows share one
+ * timestamp (bulk imports), so pages could repeat or skip rows. Errors keep
+ * the `<table>: <message>` shape this page has always shown.
+ */
+async function fetchTable<T>(table: string, columns: string, orderBy = 'created_at'): Promise<T[]> {
+  try {
+    return await fetchAll<T>((from, to) => {
+      let q = supabase.from(table).select(columns).order(orderBy, { ascending: true })
+      if (orderBy !== 'month') q = q.order('id', { ascending: true })
+      return q.range(from, to)
+    })
+  } catch (err) {
+    throw new Error(`${table}: ${err instanceof Error ? err.message : String(err)}`)
   }
-  return out
 }
 
 function runChecks(input: {
@@ -130,7 +153,7 @@ function runChecks(input: {
   deposits: DepositRow[]
   payroll: PayrollLite[]
   expenses: ExpenseLite[]
-  payments: MoneyLite[]
+  payments: PaymentRow[]
   writeOffs: MoneyLite[]
   disputes: DisputeLite[]
   usernameOf: (id: string | null) => string
@@ -147,7 +170,9 @@ function runChecks(input: {
   for (const e of input.entries) {
     if (!e.agent_id) continue
     const k = `${e.agent_id}|${e.entry_date}`
-    byKey.set(k, [...(byKey.get(k) ?? []), e])
+    const arr = byKey.get(k)
+    if (arr) arr.push(e)
+    else byKey.set(k, [e])
   }
   for (const rows of byKey.values()) {
     if (rows.length < 2) continue
@@ -271,7 +296,17 @@ function runChecks(input: {
   for (const p of [...input.payments, ...input.writeOffs])
     if (p.agent_id) credit.set(p.agent_id, (credit.get(p.agent_id) ?? 0) + n(p.amount))
   const trips = new Map<string, EntryRow[]>()
-  for (const e of input.entries) if (e.agent_id) trips.set(e.agent_id, [...(trips.get(e.agent_id) ?? []), e])
+  for (const e of input.entries) {
+    if (!e.agent_id) continue
+    const arr = trips.get(e.agent_id)
+    if (arr) arr.push(e)
+    else trips.set(e.agent_id, [e])
+  }
+  // Deposit bottles per agent, summed once (the per-agent loop below used
+  // to re-filter the whole deposits array for every agent).
+  const depBottlesByAgent = new Map<string, number>()
+  for (const d of input.deposits)
+    if (d.agent_id) depBottlesByAgent.set(d.agent_id, (depBottlesByAgent.get(d.agent_id) ?? 0) + n(d.bottles))
 
   // Negative total balance per agent (over-collected).
   const balance = new Map<string, number>()
@@ -330,7 +365,7 @@ function runChecks(input: {
         })
     }
     const a = agents.get(aid)
-    const depBottles = input.deposits.filter((d) => d.agent_id === aid).reduce((s, d) => s + n(d.bottles), 0)
+    const depBottles = depBottlesByAgent.get(aid) ?? 0
     const h = held.get(aid) ?? 0
     if (a && depBottles > 0 && h > depBottles)
       issues.push({
@@ -367,6 +402,65 @@ function runChecks(input: {
           suggestion: 'အချိန်လွန်ထည့်ရသည့် အကြောင်းကို စစ်ပါ',
         })
       }
+    }
+  }
+
+  // --- Collection anomalies (the live old app's signature check) -------------
+  // What each collector (agent_payments.created_by) took in, grouped by day.
+  // A day is flagged only against a baseline that exists in the fetched data:
+  // (a) the day reaches 3x the collector's trailing-7-day daily average, or
+  // (b) the day reaches 1.5x the collector's previous-day total — and in
+  // both rules the day's total must be at least 100,000.
+  const ANOMALY_MIN_TOTAL = 100000
+  const byCollector = new Map<string, Map<string, number>>()
+  for (const p of input.payments) {
+    if (!p.created_by || !p.payment_date) continue
+    let daysMap = byCollector.get(p.created_by)
+    if (!daysMap) byCollector.set(p.created_by, (daysMap = new Map()))
+    daysMap.set(p.payment_date, (daysMap.get(p.payment_date) ?? 0) + n(p.amount))
+  }
+  for (const [collectorId, daysMap] of byCollector) {
+    const collector = input.usernameOf(collectorId)
+    if (!collector) continue
+    for (const [date, total] of daysMap) {
+      if (total < ANOMALY_MIN_TOTAL) continue
+      const base = {
+        kind: 'collection_anomaly' as const,
+        severity: 'high' as const,
+        table: 'agent_payments',
+        recordId: collectorId,
+        date,
+        name: collector,
+      }
+      // (a) Trailing-7-day daily average: the 7 calendar days before this
+      // day; days without payments count as 0, but at least one of them
+      // must exist in the fetched data (otherwise no baseline).
+      let windowSum = 0
+      let windowSeen = false
+      for (let k = 1; k <= 7; k++) {
+        const prevTotal = daysMap.get(shiftDay(date, -k))
+        if (prevTotal !== undefined) {
+          windowSeen = true
+          windowSum += prevTotal
+        }
+      }
+      if (windowSeen) {
+        const avg = windowSum / 7
+        if (avg > 0 && total >= 3 * avg)
+          issues.push({
+            ...base,
+            problem: `${collector} သည် ပုံမှန်ထက် ၃ ဆပိုများသော ငွေကို ကောက်ခံခဲ့သည်`,
+            suggestion: `ကောက်ငွေ ${fmt(total)} ကျပ် · ပုံမှန်ငွေ ${fmt(avg)} ကျပ် — ကောက်ခံမှု မှတ်တမ်းများကို စစ်ပါ`,
+          })
+      }
+      // (b) Previous-day total, when that day exists in the fetched data.
+      const prevDayTotal = daysMap.get(shiftDay(date, -1))
+      if (prevDayTotal !== undefined && prevDayTotal > 0 && total >= 1.5 * prevDayTotal)
+        issues.push({
+          ...base,
+          problem: `${collector} ကောက်ခံသောငွေသည် ယမန်နေ့၏ ${Math.round((total / prevDayTotal) * 100)}% ရှိသည်`,
+          suggestion: `ကောက်ငွေ ${fmt(total)} ကျပ် · ယမန်နေ့ငွေ ${fmt(prevDayTotal)} ကျပ် — ကောက်ခံမှု မှတ်တမ်းများကို စစ်ပါ`,
+        })
     }
   }
 
@@ -426,6 +520,7 @@ const GROUP_TITLES: { kind: IssueKind; title: string }[] = [
   { kind: 'debt', title: 'ကြွေးနှင့် လက်ကျန် သတိပေးချက်များ' },
   { kind: 'dispute', title: 'ဖြေရှင်းရန် ကျန်နေသော အငြင်းပွားမှုများ' },
   { kind: 'system', title: 'စနစ် စစ်ဆေးချက်များ' },
+  { kind: 'collection_anomaly', title: 'သံသယရှိ (ကောက်ငွေ)' },
   { kind: 'suspicious', title: 'သံသယဖြစ်ဖွယ် မှတ်တမ်းများ' },
 ]
 
@@ -436,6 +531,16 @@ const SEVERITY_BADGE: Record<Severity, { label: string; cls: string }> = {
 }
 
 const REVIEWED_KEY = 'wfms-dq-reviewed'
+
+/**
+ * Issue rows mounted per group before the "show more" button. With
+ * multi-year data the checks legitimately produce 10k+ issues (e.g. an
+ * entry priced off the agent's current default, or held bottles over the
+ * limit, fire per entry), and mounting every row in one render blocks the
+ * tab for minutes. Counts, filters and the CSV export still cover the
+ * full issue list — only the initial DOM is windowed.
+ */
+const GROUP_PAGE = 100
 
 /** Stable per-issue identity used for the per-device reviewed set. */
 function issueKey(i: DqIssue): string {
@@ -457,6 +562,7 @@ function fixPath(i: DqIssue): string {
   if (i.table === 'disputes' || i.kind === 'dispute') return '/disputes'
   if (i.table === 'app_settings') return '/'
   if (i.table === 'payroll_runs') return '/payroll'
+  if (i.table === 'agent_payments') return '/payments'
   if (i.table === 'daily_entries') return '/entries'
   if (i.table === 'expenses') return '/expenses'
   if (i.table === 'agents' || i.table === 'agent_deposits') return '/agents'
@@ -474,6 +580,12 @@ export default function DataQualityPage() {
   const [kindFilter, setKindFilter] = useState<IssueKind | null>(null)
   const [reviewed, setReviewed] = useState<Set<string>>(loadReviewed)
   const [hideReviewed, setHideReviewed] = useState(false)
+  const [shownCounts, setShownCounts] = useState<Partial<Record<IssueKind, number>>>({})
+
+  // Render windowing restarts whenever the visible issue set changes.
+  useEffect(() => {
+    setShownCounts({})
+  }, [severityFilter, kindFilter, hideReviewed])
 
   const toggleReviewed = useCallback((key: string) => {
     setReviewed((prev) => {
@@ -495,23 +607,23 @@ export default function DataQualityPage() {
     try {
       const [entries, agents, deposits, payroll, expenses, payments, writeOffs, disputes, profiles, locks, lastBackupAt] =
         await Promise.all([
-          fetchAll<EntryRow>(
+          fetchTable<EntryRow>(
             'daily_entries',
             'id, entry_date, agent_id, agent_name, delivered_qty, returned_qty, unit_price, amount, amount_collected, notes, created_by, created_at',
           ),
-          fetchAll<AgentLite>('agents', 'id, name, default_unit_price, bottle_limit', 'name'),
-          fetchAll<DepositRow>('agent_deposits', 'id, agent_id, deposit_date, agent_name, bottles, price_per_bottle, amount'),
-          fetchAll<PayrollLite>('payroll_runs', 'id, month, user_id, base, bonus, deduction, net'),
-          fetchAll<ExpenseLite>('expenses', 'id, expense_date, category_id, title, amount'),
-          fetchAll<MoneyLite & { payment_date: string }>('agent_payments', 'agent_id, amount, payment_date'),
-          fetchAll<MoneyLite & { writeoff_date: string }>('write_offs', 'agent_id, amount, writeoff_date'),
-          fetchAll<DisputeLite>('disputes', 'id, agent_id, message, status, created_at'),
-          fetchAll<{ id: string; username: string; display_name?: string | null }>(
+          fetchTable<AgentLite>('agents', 'id, name, default_unit_price, bottle_limit', 'name'),
+          fetchTable<DepositRow>('agent_deposits', 'id, agent_id, deposit_date, agent_name, bottles, price_per_bottle, amount'),
+          fetchTable<PayrollLite>('payroll_runs', 'id, month, user_id, base, bonus, deduction, net'),
+          fetchTable<ExpenseLite>('expenses', 'id, expense_date, category_id, title, amount'),
+          fetchTable<PaymentRow>('agent_payments', 'agent_id, amount, payment_date, created_by'),
+          fetchTable<MoneyLite & { writeoff_date: string }>('write_offs', 'agent_id, amount, writeoff_date'),
+          fetchTable<DisputeLite>('disputes', 'id, agent_id, message, status, created_at'),
+          fetchTable<{ id: string; username: string; display_name?: string | null }>(
             'profiles',
             'id, username, display_name',
             'username',
           ),
-          fetchAll<{ month: string }>('month_locks', 'month', 'month'),
+          fetchTable<{ month: string }>('month_locks', 'month', 'month'),
           getLastBackupAt(),
         ])
       const usernames = new Map(profiles.map((p) => [p.id, personName(p)]))
@@ -733,14 +845,17 @@ export default function DataQualityPage() {
               </p>
             </section>
           ) : (
-            grouped.map((g) => (
+            grouped.map((g) => {
+              const shownItems = g.items.slice(0, shownCounts[g.kind] ?? GROUP_PAGE)
+              const hasMore = g.items.length > shownItems.length
+              return (
               <section key={g.kind} className="space-y-2">
                 <h2 className="px-0.5 text-base font-bold">
                   {g.title}{' '}
                   <span className="text-stone-400 dark:text-neutral-500">({g.items.length})</span>
                 </h2>
                 <ul className={`${cardCls} divide-y divide-stone-100 overflow-hidden dark:divide-neutral-800/70`}>
-                  {g.items.map((i, idx) => {
+                  {shownItems.map((i, idx) => {
                     const key = issueKey(i)
                     const isReviewed = reviewed.has(key)
                     return (
@@ -784,8 +899,24 @@ export default function DataQualityPage() {
                     )
                   })}
                 </ul>
+                {hasMore && (
+                  <div>
+                    <button
+                      onClick={() =>
+                        setShownCounts((prev) => ({
+                          ...prev,
+                          [g.kind]: (prev[g.kind] ?? GROUP_PAGE) + GROUP_PAGE,
+                        }))
+                      }
+                      className="inline-flex min-h-[44px] items-center rounded-full bg-stone-200 px-4 text-sm font-semibold text-stone-700 dark:bg-neutral-800 dark:text-neutral-300"
+                    >
+                      ထပ်ပြမည်
+                    </button>
+                  </div>
+                )}
               </section>
-            ))
+              )
+            })
           )}
           <p className="text-xs text-stone-400 dark:text-neutral-500">
             ပြဿနာများကို အရေးကြီး အဆင့်မှ အစဉ်လိုက် ပြထားပါသည်။

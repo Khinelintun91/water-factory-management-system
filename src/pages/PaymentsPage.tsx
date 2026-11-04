@@ -29,11 +29,29 @@ const METHOD_LABELS: Record<string, string> = {
   bank: 'ဘဏ်',
 }
 
+// The kind column (regular vs old-debt collection) is not in lib/types
+// AgentPayment yet, so the page reads it locally like other pages do for
+// later-migration columns.
+type PaymentKind = 'regular' | 'old_debt'
+
+interface PaymentRow extends AgentPayment {
+  kind: PaymentKind | null
+}
+
+function kindChip(r: PaymentRow) {
+  if (r.kind !== 'old_debt') return null
+  return (
+    <span className="ml-2 rounded-full bg-accent-100 px-2 py-0.5 align-middle text-xs font-semibold text-accent-800 dark:bg-amber-900 dark:text-amber-200">
+      ကြွေးဟောင်း
+    </span>
+  )
+}
+
 export default function PaymentsPage() {
   const { profile } = useAuth()
   const canWrite = profile?.role === 'owner' || profile?.role === 'manager' || profile?.role === 'staff'
   const [agents, setAgents] = useState<Agent[]>([])
-  const [rows, setRows] = useState<AgentPayment[]>([])
+  const [rows, setRows] = useState<PaymentRow[]>([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -44,12 +62,14 @@ export default function PaymentsPage() {
   const [editId, setEditId] = useState<string | null>(null)
   const [eAmount, setEAmount] = useState('')
   const [eMethod, setEMethod] = useState('cash')
+  const [eKind, setEKind] = useState<PaymentKind>('regular')
   const [eNotes, setENotes] = useState('')
   const [eReason, setEReason] = useState('')
 
   const [agentId, setAgentId] = useState('')
   const [amount, setAmount] = useState('')
   const [method, setMethod] = useState('cash')
+  const [kind, setKind] = useState<PaymentKind>('regular')
   const [notes, setNotes] = useState('')
 
   const agentName = useMemo(() => {
@@ -68,7 +88,7 @@ export default function PaymentsPage() {
         .limit(100),
     ])
     setAgents((ag ?? []) as Agent[])
-    setRows((pm ?? []) as AgentPayment[])
+    setRows((pm ?? []) as PaymentRow[])
     setLoading(false)
   }, [])
 
@@ -91,6 +111,7 @@ export default function PaymentsPage() {
       agent_id: agentId,
       amount: Number(amount) || 0,
       method,
+      kind,
       notes: notes.trim() || null,
       created_by: profile?.id ?? null,
     })
@@ -100,23 +121,25 @@ export default function PaymentsPage() {
       return
     }
     setAmount('')
+    setKind('regular')
     setNotes('')
     await load()
     setBusy(false)
   }
 
-  function startEdit(row: AgentPayment) {
+  function startEdit(row: PaymentRow) {
     setConfirmId(null)
     setDeleteReason('')
     setMsg(null)
     setEditId(row.id)
     setEAmount(String(row.amount))
     setEMethod(row.method)
+    setEKind(row.kind === 'old_debt' ? 'old_debt' : 'regular')
     setENotes(row.notes ?? '')
     setEReason('')
   }
 
-  async function saveEdit(row: AgentPayment) {
+  async function saveEdit(row: PaymentRow) {
     if (busy) return
     const reason = eReason.trim()
     if (reason.length < 2) {
@@ -134,6 +157,7 @@ export default function PaymentsPage() {
       .update({
         amount: Number(eAmount) || 0,
         method: eMethod,
+        kind: eKind,
         notes: eNotes.trim() || null,
         change_reason: reason,
       })
@@ -148,7 +172,7 @@ export default function PaymentsPage() {
     setBusy(false)
   }
 
-  async function onDelete(row: AgentPayment) {
+  async function onDelete(row: PaymentRow) {
     const reason = deleteReason.trim()
     if (reason.length < 2) {
       setMsg('ဖျက်ရသည့် အကြောင်းအရင်း (အနည်းဆုံး ၂ လုံး) ရေးပါ')
@@ -175,7 +199,7 @@ export default function PaymentsPage() {
   // --- Row pieces shared by the card list (phone/tablet) and the table
   // (desktop), following EntriesPage's pattern. ------------------------------
 
-  function rowButtons(r: AgentPayment) {
+  function rowButtons(r: PaymentRow) {
     if (!canWrite || !isTodayYangon(r.created_at) || editId === r.id || confirmId === r.id) {
       return null
     }
@@ -200,7 +224,7 @@ export default function PaymentsPage() {
     )
   }
 
-  function rowPanel(r: AgentPayment) {
+  function rowPanel(r: PaymentRow) {
     if (!canWrite || !isTodayYangon(r.created_at)) return null
     if (confirmId === r.id) {
       return (
@@ -251,6 +275,16 @@ export default function PaymentsPage() {
                 <option value="kbzpay">KBZPay</option>
                 <option value="wavepay">WavePay</option>
                 <option value="bank">ဘဏ်</option>
+              </select>
+            </Field>
+            <Field label="အမျိုးအစား">
+              <select
+                value={eKind}
+                onChange={(e) => setEKind(e.target.value as PaymentKind)}
+                className={inputCls}
+              >
+                <option value="regular">ပုံမှန် ကောက်ငွေ</option>
+                <option value="old_debt">ကြွေးဟောင်း</option>
               </select>
             </Field>
           </div>
@@ -332,6 +366,16 @@ export default function PaymentsPage() {
                 <option value="bank">ဘဏ်</option>
               </select>
             </Field>
+            <Field label="အမျိုးအစား">
+              <select
+                value={kind}
+                onChange={(e) => setKind(e.target.value as PaymentKind)}
+                className={inputCls}
+              >
+                <option value="regular">ပုံမှန် ကောက်ငွေ</option>
+                <option value="old_debt">ကြွေးဟောင်း</option>
+              </select>
+            </Field>
           </div>
           <input
             value={notes}
@@ -363,7 +407,10 @@ export default function PaymentsPage() {
             {rows.map((r) => (
               <li key={r.id} className={`${cardCls} p-3.5`}>
                 <div className="flex items-center justify-between gap-2">
-                  <div className="font-semibold">{agentName(r.agent_id)}</div>
+                  <div className="font-semibold">
+                    {agentName(r.agent_id)}
+                    {kindChip(r)}
+                  </div>
                   <div className="font-bold tabular-nums">{formatMMK(r.amount)}</div>
                 </div>
                 <div className="mt-0.5 text-sm text-stone-500 dark:text-neutral-400">
@@ -397,7 +444,10 @@ export default function PaymentsPage() {
                     <Fragment key={r.id}>
                       <tr className="border-b border-stone-100 align-top last:border-0 dark:border-neutral-800/70">
                         <td className="px-3 py-3 pl-4">
-                          <div className="font-medium">{agentName(r.agent_id)}</div>
+                          <div className="font-medium">
+                            {agentName(r.agent_id)}
+                            {kindChip(r)}
+                          </div>
                           {r.notes && <div className="text-xs opacity-60">{r.notes}</div>}
                         </td>
                         <td className={`${tdCls} whitespace-nowrap`}>{r.payment_date}</td>

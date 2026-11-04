@@ -40,7 +40,7 @@ const KIND_LABELS: Record<string, string> = {
   damage: 'ပျက်စီး',
   in: 'အဝင်',
   out: 'အထွက်',
-  adjust: 'ပြင်ဆင်',
+  adjust: 'စာရင်းညှိ',
 }
 
 const fmtQty = (n: number) => `${n.toLocaleString('en-US')} လုံး`
@@ -96,22 +96,27 @@ export default function InventoryPage() {
   }, [load])
 
   // Stock formulas (identical to the old app):
-  //   full  = produced - out
+  //   full  = produced - out + adjustments
   //   empty = purchased + in - produced - damaged
   //   withAgents = out - in ; total = full + empty + withAgents
+  // Stock corrections (kind 'adjust', စာရင်းညှိ) carry a SIGNED quantity from
+  // a dated physical count: the correction applies to the full bottles
+  // physically at the factory, so the signed adjust sum is added to `full`
+  // (and therefore flows into `total`).
   const stock = useMemo(() => {
     const sumKind = (k: string) =>
       moves.filter((m) => m.kind === k).reduce((s, m) => s + m.bottles, 0)
     const produced = sumKind('produce')
     const purchased = sumKind('purchase')
     const damaged = sumKind('damage')
+    const adjustments = sumKind('adjust')
     const out = entryQty.reduce((s, e) => s + e.delivered_qty, 0)
     const inn = entryQty.reduce((s, e) => s + e.returned_qty, 0)
-    const full = produced - out
+    const full = produced - out + adjustments
     const empty = purchased + inn - produced - damaged
     const withAgents = out - inn
     const total = full + empty + withAgents
-    return { produced, purchased, damaged, out, inn, full, empty, withAgents, total }
+    return { produced, purchased, damaged, adjustments, out, inn, full, empty, withAgents, total }
   }, [moves, entryQty])
 
   const latestMoves = useMemo(() => [...moves].reverse().slice(0, 100), [moves])
@@ -119,8 +124,19 @@ export default function InventoryPage() {
   async function onAdd(e: FormEvent) {
     e.preventDefault()
     if (busy) return
-    const n = Number(bottles) || 0
-    if (n <= 0) {
+    const qty = Number(bottles)
+    if (kind === 'adjust') {
+      // Corrections are signed: any non-zero quantity, and a reason is
+      // required (stored in notes) so the correction stays explainable.
+      if (!qty) {
+        setMsg('ဗူး အရေအတွက် ထည့်ပါ')
+        return
+      }
+      if (!note.trim()) {
+        setMsg('စာရင်းညှိရန် အကြောင်းရင်း ထည့်ပါ')
+        return
+      }
+    } else if (!(qty > 0)) {
       setMsg('ဗူး အရေအတွက် ထည့်ပါ')
       return
     }
@@ -129,7 +145,7 @@ export default function InventoryPage() {
     // No move_date: the database defaults it to today (and requires today).
     const { error } = await supabase.from('inventory_movements').insert({
       kind,
-      bottles: n,
+      bottles: qty,
       notes: note.trim() || null,
     })
     if (error) {
@@ -242,6 +258,12 @@ export default function InventoryPage() {
               <span className="text-stone-500 dark:text-neutral-400">ပျက်စီး:</span>
               <span className="font-medium tabular-nums">{fmtQty(stock.damaged)}</span>
             </div>
+            {stock.adjustments !== 0 && (
+              <div className="flex items-baseline justify-between gap-3 py-0.5">
+                <span className="text-stone-500 dark:text-neutral-400">စာရင်းညှိ:</span>
+                <span className="font-medium tabular-nums">{fmtQty(stock.adjustments)}</span>
+              </div>
+            )}
             <div className="flex items-baseline justify-between gap-3 py-0.5">
               <span className="text-stone-500 dark:text-neutral-400">ကိုယ်စားလှယ်များထံ ပို့ပြီး:</span>
               <span className="font-medium tabular-nums">{fmtQty(stock.out)}</span>
@@ -258,7 +280,8 @@ export default function InventoryPage() {
         <div className="text-base font-semibold">ဗူး ရွှေ့ပြောင်းမှု အသစ် (ယနေ့)</div>
         <p className="text-sm text-stone-500 dark:text-neutral-400">
           ဝယ်ယူ = ဗူးအလွတ် ဝယ်ထည့်ခြင်း · ထုတ်လုပ် = ဗူးအလွတ်ကို ရေဖြည့်ပြီး အပြည့် ပြောင်းခြင်း ·
-          ပျက်စီး = သုံးမရတော့သော ဗူးများ
+          ပျက်စီး = သုံးမရတော့သော ဗူးများ · စာရင်းညှိ = လက်ကျန် ပြန်စစ်ပြီး ကွာဟချက်ကို ညှိခြင်း
+          (အနှုတ် ဂဏန်း ရိုက်နိုင်သည်)
         </p>
         <div className="grid grid-cols-2 gap-2.5">
           <Field label="အမျိုးအစား">
@@ -270,24 +293,37 @@ export default function InventoryPage() {
               <option value="produce">ထုတ်လုပ်</option>
               <option value="purchase">ဝယ်ယူ</option>
               <option value="damage">ပျက်စီး</option>
+              <option value="adjust">စာရင်းညှိ</option>
             </select>
           </Field>
           <Field label="ဗူး အရေအတွက်">
             <input
               value={bottles}
-              onChange={(e) => setBottles(e.target.value.replace(/\D/g, ''))}
-              inputMode="numeric"
+              onChange={(e) => {
+                const v = e.target.value
+                // 'adjust' quantities are signed — allow a single leading
+                // minus; every other kind stays digits-only.
+                setBottles(
+                  kind === 'adjust'
+                    ? v.replace(/[^\d-]/g, '').replace(/(?!^)-/g, '')
+                    : v.replace(/\D/g, ''),
+                )
+              }}
+              inputMode={kind === 'adjust' ? 'text' : 'numeric'}
               required
               className={inputCls}
             />
           </Field>
         </div>
-        <input
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="မှတ်ချက် (ရှိလျှင်)"
-          className={inputCls}
-        />
+        <Field label={kind === 'adjust' ? 'အကြောင်းရင်း' : 'မှတ်ချက် (ရှိလျှင်)'}>
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder={kind === 'adjust' ? 'စာရင်းညှိရသည့် အကြောင်းရင်း ရေးပါ' : undefined}
+            required={kind === 'adjust'}
+            className={inputCls}
+          />
+        </Field>
         <div className="max-md:sticky max-md:bottom-[calc(70px_+_env(safe-area-inset-bottom))] max-md:z-10 max-md:-mx-4 max-md:border-t max-md:border-stone-200/90 max-md:bg-white/95 max-md:px-4 max-md:py-2.5 max-md:backdrop-blur dark:max-md:border-neutral-800 dark:max-md:bg-neutral-900/95">
           <PrimaryButton type="submit" disabled={busy} className="w-full">
             သိမ်းရန်

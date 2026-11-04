@@ -34,6 +34,44 @@ function asNumber(v: unknown): string {
   return ''
 }
 
+/** One labelled on/off row in the notification prefs card. */
+function ToggleRow({
+  label,
+  sub,
+  checked,
+  onToggle,
+}: {
+  label: string
+  sub: string
+  checked: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div className="flex min-h-[44px] items-center justify-between gap-3">
+      <span className="text-sm">
+        {label}
+        <span className="block text-xs text-stone-500 dark:text-neutral-400">{sub}</span>
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        onClick={onToggle}
+        className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
+          checked ? 'bg-brand-700' : 'bg-stone-300 dark:bg-neutral-700'
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-6 w-6 rounded-full bg-white transition-all ${
+            checked ? 'left-[1.375rem]' : 'left-0.5'
+          }`}
+        />
+      </button>
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const { profile, roles } = useAuth()
   const isOwner = roles.includes('owner')
@@ -45,6 +83,7 @@ export default function SettingsPage() {
   const [factoryAddress, setFactoryAddress] = useState('')
   const [defaultPrice, setDefaultPrice] = useState('')
   const [defaultDeposit, setDefaultDeposit] = useState('')
+  const [debtAlertDays, setDebtAlertDays] = useState('')
   const [refreshSeconds, setRefreshSeconds] = useState('')
   const [factoryBusy, setFactoryBusy] = useState(false)
   const [factoryMsg, setFactoryMsg] = useState<string | null>(null)
@@ -53,6 +92,10 @@ export default function SettingsPage() {
   // ---- Notification prefs (all roles) ----
   const [mode, setMode] = useState<'all' | 'important'>('all')
   const [quietNight, setQuietNight] = useState(true)
+  const [alertOldDebt, setAlertOldDebt] = useState(true)
+  const [alertDigest, setAlertDigest] = useState(true)
+  const [alertStock, setAlertStock] = useState(true)
+  const [alertCollection, setAlertCollection] = useState(true)
   const [prefsBusy, setPrefsBusy] = useState(false)
   const [prefsMsg, setPrefsMsg] = useState<string | null>(null)
   const [prefsErr, setPrefsErr] = useState(false)
@@ -84,7 +127,9 @@ export default function SettingsPage() {
         supabase.from('app_settings').select('key, value'),
         supabase
           .from('notify_prefs')
-          .select('mode, quiet_night')
+          .select(
+            'mode, quiet_night, alert_old_debt, alert_digest, alert_stock, alert_collection',
+          )
           .eq('user_id', profile.id)
           .maybeSingle(),
         supabase
@@ -101,11 +146,24 @@ export default function SettingsPage() {
       setFactoryAddress(asString(map.get('factory_address')))
       setDefaultPrice(asNumber(map.get('default_price_per_bottle')))
       setDefaultDeposit(asNumber(map.get('default_deposit_per_bottle')))
+      setDebtAlertDays(asNumber(map.get('debt_alert_days')) || '30')
       setRefreshSeconds(asNumber(map.get('refresh_seconds')) || '30')
-      const p = prefs as { mode: string; quiet_night: boolean } | null
+      const p = prefs as {
+        mode: string
+        quiet_night: boolean
+        alert_old_debt: boolean | null
+        alert_digest: boolean | null
+        alert_stock: boolean | null
+        alert_collection: boolean | null
+      } | null
       if (p) {
         setMode(p.mode === 'important' ? 'important' : 'all')
         setQuietNight(Boolean(p.quiet_night))
+        // Alert columns default true (schema default); null keeps the default.
+        setAlertOldDebt(p.alert_old_debt ?? true)
+        setAlertDigest(p.alert_digest ?? true)
+        setAlertStock(p.alert_stock ?? true)
+        setAlertCollection(p.alert_collection ?? true)
       }
       setTokenCount(count ?? 0)
       setLoading(false)
@@ -131,6 +189,7 @@ export default function SettingsPage() {
       { key: 'factory_address', value: factoryAddress.trim() },
       { key: 'default_price_per_bottle', value: Number(defaultPrice) || 0 },
       { key: 'default_deposit_per_bottle', value: Number(defaultDeposit) || 0 },
+      { key: 'debt_alert_days', value: Math.floor(Number(debtAlertDays)) || 30 },
       { key: 'refresh_seconds', value: Math.floor(secs) },
     ]
     const { error } = await supabase
@@ -145,12 +204,18 @@ export default function SettingsPage() {
     if (!profile || prefsBusy) return
     setPrefsBusy(true)
     setPrefsMsg(null)
-    const { error } = await supabase
-      .from('notify_prefs')
-      .upsert(
-        { user_id: profile.id, mode, quiet_night: quietNight },
-        { onConflict: 'user_id' },
-      )
+    const { error } = await supabase.from('notify_prefs').upsert(
+      {
+        user_id: profile.id,
+        mode,
+        quiet_night: quietNight,
+        alert_old_debt: alertOldDebt,
+        alert_digest: alertDigest,
+        alert_stock: alertStock,
+        alert_collection: alertCollection,
+      },
+      { onConflict: 'user_id' },
+    )
     setPrefsBusy(false)
     setPrefsErr(Boolean(error))
     setPrefsMsg(error ? error.message : 'သိမ်းပြီးပါပြီ')
@@ -220,6 +285,14 @@ export default function SettingsPage() {
               />
             </Field>
           </div>
+          <Field label="ကြွေးသတိပေးရက် (ရက်)">
+            <input
+              value={debtAlertDays}
+              onChange={(e) => setDebtAlertDays(e.target.value.replace(/\D/g, ''))}
+              inputMode="numeric"
+              className={inputCls}
+            />
+          </Field>
           <Field label="Dashboard အလိုအလျောက် ပြန်ဖွင့် (စက္ကန့်, အနည်းဆုံး ၅)">
             <input
               value={refreshSeconds}
@@ -251,30 +324,36 @@ export default function SettingsPage() {
             <option value="important">အရေးကြီးတာပဲ</option>
           </select>
         </Field>
-        <div className="flex min-h-[44px] items-center justify-between gap-3">
-          <span className="text-sm">
-            ညဘက် အသံတိတ်
-            <span className="block text-xs text-stone-500 dark:text-neutral-400">
-              ၂၂:၀၀–၀၆:၀၀ အတွင်း ပုံမှန် အသိပေးချက်များ မပို့ပါ
-            </span>
-          </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={quietNight}
-            aria-label="ညဘက် အသံတိတ်"
-            onClick={() => setQuietNight((q) => !q)}
-            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
-              quietNight ? 'bg-brand-700' : 'bg-stone-300 dark:bg-neutral-700'
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 h-6 w-6 rounded-full bg-white transition-all ${
-                quietNight ? 'left-[1.375rem]' : 'left-0.5'
-              }`}
-            />
-          </button>
-        </div>
+        <ToggleRow
+          label="ညဘက် အသံတိတ်"
+          sub="၂၂:၀၀–၀၆:၀၀ အတွင်း ပုံမှန် အသိပေးချက်များ မပို့ပါ"
+          checked={quietNight}
+          onToggle={() => setQuietNight((q) => !q)}
+        />
+        <ToggleRow
+          label="ကြွေးကြာနေသတိပေးချက်"
+          sub="ကြွေးကြာနေသော ကိုယ်စားလှယ်များကို သတိပေးမည်"
+          checked={alertOldDebt}
+          onToggle={() => setAlertOldDebt((v) => !v)}
+        />
+        <ToggleRow
+          label="နေ့စဉ်အနှစ်ချုပ် သတိပေးချက်"
+          sub="နေ့စဉ်အနှစ်ချုပ်ကို အသိပေးမည်"
+          checked={alertDigest}
+          onToggle={() => setAlertDigest((v) => !v)}
+        />
+        <ToggleRow
+          label="စတော့သတိပေးချက်"
+          sub="စတော့နည်းလာလျှင် သတိပေးမည်"
+          checked={alertStock}
+          onToggle={() => setAlertStock((v) => !v)}
+        />
+        <ToggleRow
+          label="ကြွေးကောက်ငွေသတိပေးချက်"
+          sub="ကြွေးကောက်ငွေရရှိလျှင် သတိပေးမည်"
+          checked={alertCollection}
+          onToggle={() => setAlertCollection((v) => !v)}
+        />
         {prefsMsg && (
           <p className={`text-sm ${prefsErr ? 'text-red-600' : 'text-brand-700 dark:text-brand-400'}`}>
             {prefsMsg}
