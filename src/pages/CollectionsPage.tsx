@@ -450,8 +450,11 @@ export default function CollectionsPage() {
                       <path d="m6 9 6 6 6-6" />
                     </svg>
                   </button>
-                  {open && (
-                    <>
+                  <div
+                    aria-hidden={!open}
+                    className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${open ? '[grid-template-rows:1fr]' : '[grid-template-rows:0fr]'}`}
+                  >
+                    <div className="min-h-0 overflow-hidden">
                       <div className="mt-3 flex justify-end">
                         <button
                           onClick={() => setExpandedId(expanded ? null : a.id)}
@@ -544,8 +547,8 @@ export default function CollectionsPage() {
                       </ul>
                     </>
                   ) : null}
-                    </>
-                  )}
+                    </div>
+                  </div>
                 </div>
               )
             })}
