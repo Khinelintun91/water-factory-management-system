@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { formatMMK, personName, todayYangon, type Agent } from '../lib/types'
+import { FACE_TIERS } from '../lib/cardFace'
 import {
   EmptyState,
   Field,
@@ -61,6 +62,7 @@ export default function AgentsPage() {
   const [msg, setMsg] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [openId, setOpenId] = useState<string | null>(null)
 
   // Add-agent form
   const [name, setName] = useState('')
@@ -303,99 +305,169 @@ export default function AgentsPage() {
   const miniLabel = 'text-[11px] font-medium text-stone-500 dark:text-neutral-400'
   const miniValue = 'mt-0.5 text-sm font-bold tabular-nums'
 
-  function renderCard(a: AgentRow) {
+  function renderCard(a: AgentRow, idx: number, arr: AgentRow[]) {
+    const open = openId === a.id
+    // Wallet stack in the owner's chosen style, one silver-white face per
+    // agent (FACE_TIERS.white): each face slides over the one above so only
+    // its strip — name + outstanding — shows; the last face shows in full.
+    // Tapping opens the detail body (contact, stat chips, inline edit
+    // fields, detail-page link) below the face.
+    const prevOpen = idx > 0 && openId === arr[idx - 1]?.id
+    const stacked = !open && idx > 0 && !prevOpen
+    const tier = FACE_TIERS.white
     return (
-      <li key={a.id} className={`${cardCls} p-4`}>
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="font-semibold">
-              {canManage ? (
-                <Link to={`/agents/${a.id}`} className="text-brand-700 underline underline-offset-2 dark:text-brand-300">
-                  {a.name}
-                </Link>
-              ) : (
-                a.name
-              )}{' '}
-              {a.code && <span className="text-xs font-normal opacity-60">({a.code})</span>}
-            </div>
-            {(!a.active && !a.closed_at) || a.closed_at ? (
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {!a.active && !a.closed_at && <span className={chipCls}>ပိတ်ထားသည်</span>}
-                {a.closed_at && <span className={chipCls}>စာရင်းပိတ်ပြီး</span>}
-              </div>
-            ) : null}
-            <div className="mt-1 text-sm text-stone-500 dark:text-neutral-400">
-              ဖုန်း: {a.phone ?? '—'}
-              {a.address ? ` · ${a.address}` : ''}
-            </div>
-          </div>
-          {canManage && !a.closed_at && (
-            <SecondaryButton size="sm" onClick={() => toggleActive(a)} className="shrink-0">
-              {a.active ? 'ပိတ်' : 'ဖွင့်'}
-            </SecondaryButton>
-          )}
-        </div>
-
-        <div className="mt-3 grid grid-cols-3 gap-2">
-          <div className="rounded-xl bg-stone-50 p-2.5 dark:bg-neutral-800/70">
-            <div className={miniLabel}>ကိုင်ထားဘူး</div>
-            <div className={miniValue}>{a.held.toLocaleString('en-US')} ဗူး</div>
-          </div>
-          <div className="rounded-xl bg-stone-50 p-2.5 dark:bg-neutral-800/70">
-            <div className={miniLabel}>ရရန်ကျန်</div>
-            <div className={`${miniValue} ${a.outstanding > 0 ? 'text-red-600 dark:text-red-400' : ''}`}>
+      <div
+        key={a.id}
+        style={{ marginTop: idx === 0 ? 0 : stacked ? -108 : 12 }}
+        className="transition-all duration-300 ease-out motion-reduce:transition-none"
+      >
+        <button
+          type="button"
+          onClick={() => setOpenId(open ? null : a.id)}
+          aria-expanded={open}
+          style={{ background: tier.bg }}
+          className={`relative flex h-[168px] w-full flex-col justify-between p-4 text-left shadow-[0_-8px_18px_rgba(0,0,0,0.35)] lg:h-[184px] ${tier.text} ${tier.extra} ${open ? 'rounded-t-2xl' : 'rounded-2xl'}`}
+        >
+          <span className="flex items-start justify-between gap-2">
+            <span className="min-w-0 font-semibold">
+              {a.name}
+              {a.code && <span className={`ml-2 text-xs font-normal ${tier.sub}`}>({a.code})</span>}
+              {!a.active && !a.closed_at && (
+                <span className="ml-2 rounded-full bg-stone-900/10 px-2 py-0.5 text-[11px] font-medium text-stone-700">
+                  ပိတ်ထားသည်
+                </span>
+              )}
+            </span>
+            <span className="flex shrink-0 items-center gap-1.5">
+              <span
+                className={`font-bold tabular-nums ${a.outstanding > 0 ? 'text-red-600' : a.outstanding < 0 ? tier.neg : ''}`}
+              >
+                {formatMMK(a.outstanding)}
+              </span>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={`h-5 w-5 shrink-0 opacity-70 transition-transform ${open ? 'rotate-180' : ''}`}
+                aria-hidden="true"
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </span>
+          </span>
+          <span className="block">
+            <span className={`block text-xs ${tier.faint}`}>ရရန်ကျန်</span>
+            <span className="block text-[28px] font-bold leading-tight tabular-nums">
               {formatMMK(a.outstanding)}
+            </span>
+            <span className={`mt-0.5 block text-xs ${tier.sub}`}>
+              ကိုင်ထားဘူး {a.held.toLocaleString('en-US')} ဗူး · အပေါင်ငွေ/ဗူး{' '}
+              {formatMMK(a.deposit_per_bottle)}
+            </span>
+          </span>
+          <span
+            aria-hidden="true"
+            className={`pointer-events-none absolute bottom-4 right-4 opacity-25 ${tier.text}`}
+          >
+            <svg width="52" height="36" viewBox="0 0 52 36" fill="none">
+              <circle cx="18" cy="18" r="15" stroke="currentColor" strokeWidth="2" />
+              <circle cx="34" cy="18" r="15" stroke="currentColor" strokeWidth="2" />
+            </svg>
+          </span>
+        </button>
+        <div
+          aria-hidden={!open}
+          className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${open ? '[grid-template-rows:1fr]' : '[grid-template-rows:0fr]'}`}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className="rounded-b-2xl border border-t-0 border-stone-200/90 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 text-sm text-stone-500 dark:text-neutral-400">
+                  ဖုန်း: {a.phone ?? '—'}
+                  {a.address ? ` · ${a.address}` : ''}
+                  {a.closed_at && <span className={`ml-2 ${chipCls}`}>စာရင်းပိတ်ပြီး</span>}
+                </div>
+                {canManage && !a.closed_at && (
+                  <SecondaryButton size="sm" onClick={() => toggleActive(a)} className="shrink-0">
+                    {a.active ? 'ပိတ်' : 'ဖွင့်'}
+                  </SecondaryButton>
+                )}
+              </div>
+              {canManage && (
+                <div className="mt-2">
+                  <Link
+                    to={`/agents/${a.id}`}
+                    className="text-sm font-medium text-brand-700 underline underline-offset-2 dark:text-brand-300"
+                  >
+                    အသေးစိတ် စာမျက်နှာ
+                  </Link>
+                </div>
+              )}
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <div className="rounded-xl bg-stone-50 p-2.5 dark:bg-neutral-800/70">
+                  <div className={miniLabel}>ကိုင်ထားဘူး</div>
+                  <div className={miniValue}>{a.held.toLocaleString('en-US')} ဗူး</div>
+                </div>
+                <div className="rounded-xl bg-stone-50 p-2.5 dark:bg-neutral-800/70">
+                  <div className={miniLabel}>ရရန်ကျန်</div>
+                  <div className={`${miniValue} ${a.outstanding > 0 ? 'text-red-600 dark:text-red-400' : ''}`}>
+                    {formatMMK(a.outstanding)}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-stone-50 p-2.5 dark:bg-neutral-800/70">
+                  <div className={miniLabel}>အပေါင်ငွေ/ဗူး</div>
+                  <div className={miniValue}>{formatMMK(a.deposit_per_bottle)}</div>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-stone-100 pt-3 text-sm dark:border-neutral-800">
+                <label className="flex items-center justify-between gap-1">
+                  <span className="opacity-75">ဈေးနှုန်း/ဗူး</span>
+                  {canManage && !a.closed_at ? (
+                    <InlineNumber value={a.default_unit_price} onSave={(v) => saveField(a, 'default_unit_price', v)} />
+                  ) : (
+                    <span>{formatMMK(a.default_unit_price)}</span>
+                  )}
+                </label>
+                <label className="flex items-center justify-between gap-1">
+                  <span className="opacity-75">အပေါင်ငွေ/ဗူး</span>
+                  {canManage && !a.closed_at ? (
+                    <InlineNumber value={a.deposit_per_bottle} onSave={(v) => saveField(a, 'deposit_per_bottle', v)} />
+                  ) : (
+                    <span>{formatMMK(a.deposit_per_bottle)}</span>
+                  )}
+                </label>
+                <label className="flex items-center justify-between gap-1">
+                  <span className="opacity-75">ဘူး ကန့်သတ်</span>
+                  {canManage && !a.closed_at ? (
+                    <InlineNumber value={a.bottle_limit} onSave={(v) => saveField(a, 'bottle_limit', v)} />
+                  ) : (
+                    <span>{a.bottle_limit > 0 ? `${a.bottle_limit.toLocaleString('en-US')} ဗူး` : 'မကန့်သတ်'}</span>
+                  )}
+                </label>
+                <label className="flex items-center justify-between gap-1">
+                  <span className="opacity-75">ကြွေး ကန့်သတ်</span>
+                  {canManage && !a.closed_at ? (
+                    <InlineNumber value={a.credit_limit} onSave={(v) => saveField(a, 'credit_limit', v)} />
+                  ) : (
+                    <span>{a.credit_limit > 0 ? formatMMK(a.credit_limit) : 'မကန့်သတ်'}</span>
+                  )}
+                </label>
+                <label className="flex items-center justify-between gap-1">
+                  <span className="opacity-75">တစ်ခါပို့</span>
+                  {canManage && !a.closed_at ? (
+                    <InlineNumber value={a.trip_qty} onSave={(v) => saveField(a, 'trip_qty', v)} />
+                  ) : (
+                    <span>{a.trip_qty.toLocaleString('en-US')} ဗူး</span>
+                  )}
+                </label>
+              </div>
             </div>
           </div>
-          <div className="rounded-xl bg-stone-50 p-2.5 dark:bg-neutral-800/70">
-            <div className={miniLabel}>အပေါင်ငွေ/ဗူး</div>
-            <div className={miniValue}>{formatMMK(a.deposit_per_bottle)}</div>
-          </div>
         </div>
-
-        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-stone-100 pt-3 text-sm dark:border-neutral-800">
-          <label className="flex items-center justify-between gap-1">
-            <span className="opacity-75">ဈေးနှုန်း/ဗူး</span>
-            {canManage && !a.closed_at ? (
-              <InlineNumber value={a.default_unit_price} onSave={(v) => saveField(a, 'default_unit_price', v)} />
-            ) : (
-              <span>{formatMMK(a.default_unit_price)}</span>
-            )}
-          </label>
-          <label className="flex items-center justify-between gap-1">
-            <span className="opacity-75">အပေါင်ငွေ/ဗူး</span>
-            {canManage && !a.closed_at ? (
-              <InlineNumber value={a.deposit_per_bottle} onSave={(v) => saveField(a, 'deposit_per_bottle', v)} />
-            ) : (
-              <span>{formatMMK(a.deposit_per_bottle)}</span>
-            )}
-          </label>
-          <label className="flex items-center justify-between gap-1">
-            <span className="opacity-75">ဘူး ကန့်သတ်</span>
-            {canManage && !a.closed_at ? (
-              <InlineNumber value={a.bottle_limit} onSave={(v) => saveField(a, 'bottle_limit', v)} />
-            ) : (
-              <span>{a.bottle_limit > 0 ? `${a.bottle_limit.toLocaleString('en-US')} ဗူး` : 'မကန့်သတ်'}</span>
-            )}
-          </label>
-          <label className="flex items-center justify-between gap-1">
-            <span className="opacity-75">ကြွေး ကန့်သတ်</span>
-            {canManage && !a.closed_at ? (
-              <InlineNumber value={a.credit_limit} onSave={(v) => saveField(a, 'credit_limit', v)} />
-            ) : (
-              <span>{a.credit_limit > 0 ? formatMMK(a.credit_limit) : 'မကန့်သတ်'}</span>
-            )}
-          </label>
-          <label className="flex items-center justify-between gap-1">
-            <span className="opacity-75">တစ်ခါပို့</span>
-            {canManage && !a.closed_at ? (
-              <InlineNumber value={a.trip_qty} onSave={(v) => saveField(a, 'trip_qty', v)} />
-            ) : (
-              <span>{a.trip_qty.toLocaleString('en-US')} ဗူး</span>
-            )}
-          </label>
-        </div>
-      </li>
+      </div>
     )
   }
 
@@ -543,13 +615,13 @@ export default function AgentsPage() {
           ) : displayOpen.length === 0 ? (
             <EmptyState text="ရှာတွေ့ခြင်း မရှိပါ" />
           ) : (
-            <ul className="grid gap-3 lg:grid-cols-2">{displayOpen.map(renderCard)}</ul>
+            <div>{displayOpen.map((a, i) => renderCard(a, i, displayOpen))}</div>
           )}
 
           {closed.length > 0 && displayClosed.length > 0 && (
             <div className="space-y-2.5">
               <h2 className="font-semibold opacity-80">စာရင်းပိတ်ပြီး ကိုယ်စားလှယ်များ</h2>
-              <ul className="grid gap-3 opacity-80 lg:grid-cols-2">{displayClosed.map(renderCard)}</ul>
+              <div className="opacity-80">{displayClosed.map((a, i) => renderCard(a, i, displayClosed))}</div>
             </div>
           )}
         </>
