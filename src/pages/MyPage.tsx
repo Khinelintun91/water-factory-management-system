@@ -12,6 +12,7 @@ import {
   type DailyEntry,
   type WriteOff,
 } from '../lib/types'
+import { FACE_TIERS, type FaceTier } from '../lib/cardFace'
 import {
   Banner,
   Card,
@@ -46,6 +47,7 @@ export default function MyPage() {
   const [writeOffTotal, setWriteOffTotal] = useState(0)
   const [depositTotal, setDepositTotal] = useState(0)
   const [agent, setAgent] = useState<Agent | null>(null)
+  const [cardTier, setCardTier] = useState<{ tier: FaceTier; rank: number; count: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [monthFilter, setMonthFilter] = useState('all')
@@ -78,7 +80,7 @@ export default function MyPage() {
       // left every total at zero. With the filter, Postgres drives the query
       // from the (agent_id, date) index and only this agent's rows are ever
       // touched. RLS still applies on top, so access is unchanged.
-      const [en, pm, wo, dep, ag] = await Promise.all([
+      const [en, pm, wo, dep, ag, ct] = await Promise.all([
         fetchAll<DailyEntry>((from, to) =>
           supabase
             .from('daily_entries')
@@ -115,6 +117,7 @@ export default function MyPage() {
             .range(from, to),
         ),
         supabase.from('agents').select('*').eq('id', agentId).maybeSingle(),
+        supabase.rpc('my_card_tier'),
       ])
       if (runRef.current !== run) return
       setEntries(en)
@@ -122,6 +125,12 @@ export default function MyPage() {
       setWriteOffTotal(wo.reduce((s, w) => s + w.amount, 0))
       setDepositTotal(dep.reduce((s, d) => s + d.amount, 0))
       setAgent((ag.data ?? null) as Agent | null)
+      const tierRows = (ct.data ?? []) as { tier: FaceTier; sales_rank: number; agent_count: number }[]
+      setCardTier(
+        tierRows[0]
+          ? { tier: tierRows[0].tier, rank: tierRows[0].sales_rank, count: tierRows[0].agent_count }
+          : null,
+      )
     } catch {
       // Never fail silently into plausible-looking zeroes again: surface the
       // failure with a retry instead.
@@ -178,6 +187,14 @@ export default function MyPage() {
   const shownOwed = closed ? 0 : owed
   const shownHeld = closed ? 0 : held
   const settledNote = closed ? 'စာရင်းပိတ် ပြီး ဖြစ်ပါသည်' : undefined
+
+  // The agent's own wallet face (same card as the owner's Collections
+  // stack): lifetime sales / collected from this page's loaded rows, the
+  // outstanding kept signed so both sides show the same figure.
+  const salesTotal = entries.reduce((s, r) => s + r.amount, 0)
+  const collectedTotal = entries.reduce((s, r) => s + r.amount_collected, 0) + totalPayments
+  const faceOutstanding = closed ? 0 : lifetimeDue - totalPayments - writeOffTotal
+  const faceTier = cardTier ? FACE_TIERS[cardTier.tier] : null
 
   function openDispute(key: string) {
     setDisputeKey(key)
@@ -332,6 +349,53 @@ export default function MyPage() {
       )}
 
       {disputeOk && !loading && <Banner tone="brand">{disputeOk}</Banner>}
+
+      {cardTier && faceTier && agent && (
+        <div>
+          <div
+            style={{ background: faceTier.bg }}
+            className={`relative flex h-[168px] w-full flex-col justify-between rounded-2xl p-4 shadow-card lg:h-[184px] ${faceTier.text} ${faceTier.extra}`}
+          >
+            <span className="flex items-start justify-between gap-2">
+              <span className="min-w-0 font-semibold">
+                {agent.name}
+                {agent.code && (
+                  <span className={`ml-2 text-xs font-normal ${faceTier.sub}`}>({agent.code})</span>
+                )}
+                {!agent.active && !agent.closed_at && (
+                  <span className={`ml-2 text-xs ${faceTier.sub}`}>(ပိတ်ထားသည်)</span>
+                )}
+              </span>
+              <span
+                className={`shrink-0 font-bold tabular-nums ${faceOutstanding < 0 ? faceTier.neg : ''}`}
+              >
+                {formatMMK(faceOutstanding)}
+              </span>
+            </span>
+            <span className="block">
+              <span className={`block text-xs ${faceTier.faint}`}>ကျန်ကြွေ</span>
+              <span className="block text-[28px] font-bold leading-tight tabular-nums">
+                {formatMMK(faceOutstanding)}
+              </span>
+              <span className={`mt-0.5 block text-xs ${faceTier.sub}`}>
+                ရောင်းအား {formatMMK(salesTotal)} · ကောက်ခံပြီး {formatMMK(collectedTotal)}
+              </span>
+            </span>
+            <span
+              aria-hidden="true"
+              className={`pointer-events-none absolute bottom-4 right-4 opacity-25 ${faceTier.text}`}
+            >
+              <svg width="52" height="36" viewBox="0 0 52 36" fill="none">
+                <circle cx="18" cy="18" r="15" stroke="currentColor" strokeWidth="2" />
+                <circle cx="34" cy="18" r="15" stroke="currentColor" strokeWidth="2" />
+              </svg>
+            </span>
+          </div>
+          <p className="mt-1.5 px-0.5 text-xs text-stone-500 dark:text-neutral-400">
+            ရောင်းအား အဆင့်: {cardTier.rank} / {cardTier.count}
+          </p>
+        </div>
+      )}
 
       <section className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         <StatCard label="ဒီနေ့" value={`${todayDelivered} ဗူး`} sub={formatMMK(todayAmount)} />
