@@ -141,6 +141,24 @@ interface LedgerSource {
   writeOffs: WriteOffLite[]
 }
 
+// Wallet-style face colours for the agent card stack. The colour is hashed
+// from the agent id, so a card keeps its colour when the list reorders.
+const WALLET_COLORS = [
+  '#0F766E',
+  '#5B21B6',
+  '#C2410C',
+  '#334155',
+  '#1E40AF',
+  '#9F1239',
+  '#166534',
+  '#3730A3',
+]
+function colorIndexFor(id: string): number {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
+  return h % WALLET_COLORS.length
+}
+
 export default function CollectionsPage() {
   const [agents, setAgents] = useState<Agent[]>([])
   // Per-agent all-time totals from the collections_summary RPC (0021).
@@ -425,152 +443,177 @@ export default function CollectionsPage() {
               }
               const expanded = expandedId === a.id
               const open = openId === a.id
-              // Collapsed cards form a deck: each tucks under the card above
-              // (negative top margin) and steps inward on both sides, so the
-              // pile slopes down like stairs. An open card leaves the deck at
-              // full width, and the card below an open one does not tuck, so
-              // nothing ever covers the open card's content.
+              // Wallet stack (the owner's reference video): every agent is a
+              // full-height coloured card face. Each face slides up over the
+              // one above, so only its top strip — name + outstanding — shows;
+              // the last face shows in full. Tapping a face opens its detail
+              // body below it, and the card under an open one never slides
+              // over that body.
               const prevOpen = idx > 0 && openId === visibleAgents[idx - 1]?.id
               const stacked = !open && idx > 0 && !prevOpen
-              const inset = stacked ? Math.min(idx * 4, 20) : 0
-              const depthTint = open ? 0 : Math.max(0, 0.16 - idx * 0.02)
+              const faceColor = WALLET_COLORS[colorIndexFor(a.id)]
               return (
                 <div
                   key={a.id}
-                  style={{
-                    marginTop: idx === 0 ? 0 : stacked ? -8 : 12,
-                    marginLeft: inset,
-                    marginRight: inset,
-                  }}
-                  className={`${cardCls} relative transition-all duration-300 ease-out motion-reduce:transition-none ${stacked ? 'shadow-[0_-8px_18px_rgba(0,0,0,0.35)]' : ''} ${open ? 'p-4 lg:p-5' : 'px-4 pb-2.5 pt-2.5 lg:px-5'}`}
+                  style={{ marginTop: idx === 0 ? 0 : stacked ? -108 : 12 }}
+                  className="transition-all duration-300 ease-out motion-reduce:transition-none"
                 >
-                  {depthTint > 0 && (
-                    <div
-                      aria-hidden="true"
-                      className="pointer-events-none absolute inset-0 rounded-[inherit] bg-white"
-                      style={{ opacity: depthTint }}
-                    />
-                  )}
                   <button
                     type="button"
                     onClick={() => setOpenId(open ? null : a.id)}
                     aria-expanded={open}
-                    className="flex w-full items-center justify-between gap-2 text-left"
+                    style={{ backgroundColor: faceColor }}
+                    className={`relative flex h-[168px] w-full flex-col justify-between p-4 text-left text-white shadow-[0_-8px_18px_rgba(0,0,0,0.35)] lg:h-[184px] ${open ? 'rounded-t-2xl' : 'rounded-2xl'}`}
                   >
-                    <span className="font-semibold">
-                      {a.name}
-                      {!a.active && <span className="ml-2 text-xs opacity-60">(ပိတ်ထားသည်)</span>}
+                    <span className="flex items-start justify-between gap-2">
+                      <span className="min-w-0 font-semibold">
+                        {a.name}
+                        {a.code && (
+                          <span className="ml-2 text-xs font-normal text-white/70">{a.code}</span>
+                        )}
+                        {!a.active && (
+                          <span className="ml-2 text-xs text-white/70">(ပိတ်ထားသည်)</span>
+                        )}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        <span
+                          className={`font-bold tabular-nums ${t.outstanding < 0 ? 'text-emerald-200' : ''}`}
+                        >
+                          {formatMMK(t.outstanding)}
+                        </span>
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className={`h-5 w-5 shrink-0 opacity-70 transition-transform ${open ? 'rotate-180' : ''}`}
+                          aria-hidden="true"
+                        >
+                          <path d="m6 9 6 6 6-6" />
+                        </svg>
+                      </span>
                     </span>
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className={`h-5 w-5 shrink-0 opacity-60 transition-transform ${open ? 'rotate-180' : ''}`}
+                    <span className="block">
+                      <span className="block text-xs text-white/75">ကျန်ကြွေ</span>
+                      <span className="block text-[28px] font-bold leading-tight tabular-nums">
+                        {formatMMK(t.outstanding)}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-white/85">
+                        ရောင်းအား {formatMMK(t.sales)} · ကောက်ခံပြီး{' '}
+                        {formatMMK(t.cash + t.payments)}
+                      </span>
+                    </span>
+                    <span
                       aria-hidden="true"
+                      className="pointer-events-none absolute bottom-4 right-4 opacity-25"
                     >
-                      <path d="m6 9 6 6 6-6" />
-                    </svg>
+                      <svg width="52" height="36" viewBox="0 0 52 36" fill="none">
+                        <circle cx="18" cy="18" r="15" stroke="white" strokeWidth="2" />
+                        <circle cx="34" cy="18" r="15" stroke="white" strokeWidth="2" />
+                      </svg>
+                    </span>
                   </button>
                   <div
                     aria-hidden={!open}
                     className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${open ? '[grid-template-rows:1fr]' : '[grid-template-rows:0fr]'}`}
                   >
                     <div className="min-h-0 overflow-hidden">
-                      <div className="mt-3 flex justify-end">
-                        <button
-                          onClick={() => setExpandedId(expanded ? null : a.id)}
-                          className={detailBtnCls}
-                        >
-                          {expanded ? 'ပိတ်ရန်' : 'အသေးစိတ် စာရင်း'}
-                        </button>
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm lg:grid-cols-4">
-                    <div>
-                      <div className="text-xs font-medium text-stone-500 dark:text-neutral-400">
-                        စုစုပေါင်း ရောင်းအား
-                      </div>
-                      <div className="mt-0.5 font-semibold tabular-nums">{formatMMK(t.sales)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-stone-500 dark:text-neutral-400">
-                        ပို့ချိန် လက်ခံရရှိငွေ
-                      </div>
-                      <div className="mt-0.5 font-semibold tabular-nums">{formatMMK(t.cash)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-stone-500 dark:text-neutral-400">
-                        နောက်မှ ကောက်ခံငွေ
-                      </div>
-                      <div className="mt-0.5 font-semibold tabular-nums">{formatMMK(t.payments)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-stone-500 dark:text-neutral-400">
-                        ကြွေးပယ်ဖျက်
-                      </div>
-                      <div className="mt-0.5 font-semibold tabular-nums">{formatMMK(t.writeOffs)}</div>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex items-center justify-between border-t border-stone-100 pt-3 dark:border-neutral-800">
-                    <span className="text-sm font-semibold">ကျန်ကြွေး</span>
-                    <span
-                      className={`font-bold tabular-nums ${t.outstanding > 0 ? 'text-red-600 dark:text-red-400' : ''}`}
-                    >
-                      {formatMMK(t.outstanding)}
-                    </span>
-                  </div>
-                  {t.outstanding < 0 && (
-                    <p className="mt-1 text-right text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                      ပိုကောက်ထားသောငွေ ဖြစ်ပါတယ် (အမှား မဟုတ်ပါ)
-                    </p>
-                  )}
-                  {expanded && !ledger[a.id] ? (
-                    <div className="mt-3 border-t border-stone-100 pt-3 dark:border-neutral-800">
-                      <LoadingState />
-                    </div>
-                  ) : expanded ? (
-                    <>
-                      {expandedLedger.length > ledgerShown && (
-                        <div className="mt-3 border-t border-stone-100 pt-3 text-center dark:border-neutral-800">
-                          <SecondaryButton
-                            size="sm"
-                            onClick={() => setLedgerShown((n) => n + 100)}
+                      <div className="rounded-b-2xl border border-t-0 border-stone-200/90 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900 lg:p-5">
+                        <div className="flex justify-end">
+                          <button
+                            onClick={() => setExpandedId(expanded ? null : a.id)}
+                            className={detailBtnCls}
                           >
-                            မှတ်တမ်း အဟောင်းများ ထပ်ပြမည်
-                          </SecondaryButton>
+                            {expanded ? 'ပိတ်ရန်' : 'အသေးစိတ် စာရင်း'}
+                          </button>
                         </div>
-                      )}
-                      <ul className="mt-3 divide-y divide-stone-100 border-t border-stone-100 dark:divide-neutral-800 dark:border-neutral-800">
-                      {visibleLedger.map(({ line, balance }) => (
-                        <li key={line.key} className="flex items-center justify-between gap-2 py-2.5 text-sm">
+                        <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm lg:grid-cols-4">
                           <div>
-                            <span className="font-medium">{line.label}</span>{' '}
-                            <span className="text-stone-500 dark:text-neutral-400">
-                              {line.date}
-                              {line.detail ? ` · ${line.detail}` : ''}
-                            </span>
-                          </div>
-                          <div className="text-right">
-                            <div className="font-medium tabular-nums">
-                              {line.delta >= 0 ? '+' : ''}
-                              {formatMMK(line.delta)}
+                            <div className="text-xs font-medium text-stone-500 dark:text-neutral-400">
+                              စုစုပေါင်း ရောင်းအား
                             </div>
-                            <div className="text-xs text-stone-500 tabular-nums dark:text-neutral-400">
-                              ကျန် {formatMMK(balance)}
-                            </div>
+                            <div className="mt-0.5 font-semibold tabular-nums">{formatMMK(t.sales)}</div>
                           </div>
-                        </li>
-                      ))}
-                      {expandedLedger.length === 0 && (
-                        <li className="py-2.5 text-sm text-stone-500 dark:text-neutral-400">
-                          စာရင်း မရှိသေးပါ
-                        </li>
-                      )}
-                      </ul>
-                    </>
-                  ) : null}
+                          <div>
+                            <div className="text-xs font-medium text-stone-500 dark:text-neutral-400">
+                              ပို့ချိန် လက်ခံရရှိငွေ
+                            </div>
+                            <div className="mt-0.5 font-semibold tabular-nums">{formatMMK(t.cash)}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs font-medium text-stone-500 dark:text-neutral-400">
+                              နောက်မှ ကောက်ခံငွေ
+                            </div>
+                            <div className="mt-0.5 font-semibold tabular-nums">{formatMMK(t.payments)}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs font-medium text-stone-500 dark:text-neutral-400">
+                              ကြွေးပယ်ဖျက်
+                            </div>
+                            <div className="mt-0.5 font-semibold tabular-nums">{formatMMK(t.writeOffs)}</div>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between border-t border-stone-100 pt-3 dark:border-neutral-800">
+                          <span className="text-sm font-semibold">ကျန်ကြွေ</span>
+                          <span
+                            className={`font-bold tabular-nums ${t.outstanding > 0 ? 'text-red-600 dark:text-red-400' : ''}`}
+                          >
+                            {formatMMK(t.outstanding)}
+                          </span>
+                        </div>
+                        {t.outstanding < 0 && (
+                          <p className="mt-1 text-right text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                            ပိုကောက်ထားသောငွေ ဖြစ်ပါတယ် (အမှား မဟုတ်ပါ)
+                          </p>
+                        )}
+                        {expanded && !ledger[a.id] ? (
+                          <div className="mt-3 border-t border-stone-100 pt-3 dark:border-neutral-800">
+                            <LoadingState />
+                          </div>
+                        ) : expanded ? (
+                          <>
+                            {expandedLedger.length > ledgerShown && (
+                              <div className="mt-3 border-t border-stone-100 pt-3 text-center dark:border-neutral-800">
+                                <SecondaryButton
+                                  size="sm"
+                                  onClick={() => setLedgerShown((n) => n + 100)}
+                                >
+                                  မှတ်တမ်း အဟောင်းများ ထပ်ပြမည်
+                                </SecondaryButton>
+                              </div>
+                            )}
+                            <ul className="mt-3 divide-y divide-stone-100 border-t border-stone-100 dark:divide-neutral-800 dark:border-neutral-800">
+                              {visibleLedger.map(({ line, balance }) => (
+                                <li key={line.key} className="flex items-center justify-between gap-2 py-2.5 text-sm">
+                                  <div>
+                                    <span className="font-medium">{line.label}</span>{' '}
+                                    <span className="text-stone-500 dark:text-neutral-400">
+                                      {line.date}
+                                      {line.detail ? ` · ${line.detail}` : ''}
+                                    </span>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="font-medium tabular-nums">
+                                      {line.delta >= 0 ? '+' : ''}
+                                      {formatMMK(line.delta)}
+                                    </div>
+                                    <div className="text-xs text-stone-500 tabular-nums dark:text-neutral-400">
+                                      ကျန် {formatMMK(balance)}
+                                    </div>
+                                  </div>
+                                </li>
+                              ))}
+                              {expandedLedger.length === 0 && (
+                                <li className="py-2.5 text-sm text-stone-500 dark:text-neutral-400">
+                                  စာရင်း မရှိသေးပါ
+                                </li>
+                              )}
+                            </ul>
+                          </>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 </div>
