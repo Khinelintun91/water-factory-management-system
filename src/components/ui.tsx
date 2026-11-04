@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from 'react'
+import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
 // ---------------------------------------------------------------------------
 // Phase D shared UI kit. All pages should build from these pieces so the
@@ -124,69 +124,22 @@ export const btnPrimaryCls = `${btnBase} ${btnSize.md} bg-brand-700 text-white s
 export const btnSecondaryCls = `${btnBase} ${btnSize.md} border border-stone-300 bg-white text-stone-800 shadow-sm hover:bg-stone-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800`
 export const btnDangerCls = `${btnBase} ${btnSize.md} bg-red-600 text-white shadow-sm hover:bg-red-700`
 
-type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & { size?: 'md' | 'sm'; glass?: boolean }
+type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & { size?: 'md' | 'sm' }
 
-// Glass pill (owner's reference photo): fully rounded frosted-light glass
-// with a specular highlight band and a pale rim — layered gradients only,
-// no backdrop-blur, so it stays smooth everywhere. Opt-in per button so
-// the style can be trialled page by page before any app-wide rollout.
-const glassFill: CSSProperties = {
-  background:
-    'radial-gradient(130% 95% at 50% -10%, rgba(255,255,255,0.95), rgba(255,255,255,0) 55%), linear-gradient(180deg, #F5F8FA 0%, #DCE4EB 48%, #C9D4DE 58%, #E8EEF2 82%, #F2F5F7 100%)',
-}
-const glassFillSecondary: CSSProperties = {
-  background:
-    'radial-gradient(130% 95% at 50% -10%, rgba(255,255,255,0.8), rgba(255,255,255,0) 55%), linear-gradient(180deg, rgba(245,248,250,0.88) 0%, rgba(219,227,234,0.82) 55%, rgba(233,239,243,0.88) 100%)',
-}
-const glassCls =
-  'rounded-full border border-white/70 text-stone-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),inset_0_-10px_16px_rgba(255,255,255,0.35),0_6px_16px_rgba(15,40,60,0.18)]'
-const btnGlassSize = {
-  md: 'min-h-[44px] px-5 py-2.5 text-base',
-  sm: 'min-h-[44px] px-4 py-2 text-sm',
-} as const
-
-// The same glass treatment for <Link> "buttons": pair the class string
-// with the matching fill style.
-export const glassBtnStyle = glassFill
-export const glassBtnSecondaryStyle = glassFillSecondary
-export const btnGlassCls = `${btnBase} ${btnGlassSize.md} ${glassCls}`
-
-export function PrimaryButton({ size = 'md', glass = false, className = '', type = 'button', style, ...props }: BtnProps) {
-  if (glass) {
-    return (
-      <button
-        type={type}
-        style={{ ...glassFill, ...style }}
-        className={`${btnBase} ${btnGlassSize[size]} ${glassCls} ${className}`}
-        {...props}
-      />
-    )
-  }
+export function PrimaryButton({ size = 'md', className = '', type = 'button', ...props }: BtnProps) {
   return (
     <button
       type={type}
-      style={style}
       className={`${btnBase} ${btnSize[size]} bg-brand-700 text-white shadow-sm hover:bg-brand-800 ${className}`}
       {...props}
     />
   )
 }
 
-export function SecondaryButton({ size = 'md', glass = false, className = '', type = 'button', style, ...props }: BtnProps) {
-  if (glass) {
-    return (
-      <button
-        type={type}
-        style={{ ...glassFillSecondary, ...style }}
-        className={`${btnBase} ${btnGlassSize[size]} ${glassCls} ${className}`}
-        {...props}
-      />
-    )
-  }
+export function SecondaryButton({ size = 'md', className = '', type = 'button', ...props }: BtnProps) {
   return (
     <button
       type={type}
-      style={style}
       className={`${btnBase} ${btnSize[size]} border border-stone-300 bg-white text-stone-800 shadow-sm hover:bg-stone-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800 ${className}`}
       {...props}
     />

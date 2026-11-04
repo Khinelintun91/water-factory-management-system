@@ -15,11 +15,8 @@ import {
   PrimaryButton,
   SecondaryButton,
   StatCard,
-  btnGlassCls,
   btnPrimaryCls,
   btnSecondaryCls,
-  glassBtnSecondaryStyle,
-  glassBtnStyle,
   inputCls,
 } from '../components/ui'
 
@@ -77,7 +74,7 @@ function BackupCard() {
           ⚠️ Backup လုပ်ရန် ကျန်နေပါတယ် — တစ်ပတ်မှာ တစ်ကြိမ်တော့ လုပ်ပေးပါ
         </p>
       )}
-      <PrimaryButton glass onClick={onExport} disabled={busy} className="mt-3 w-full">
+      <PrimaryButton onClick={onExport} disabled={busy} className="mt-3 w-full">
         {busy ? 'ထုတ်နေပါတယ်…' : '⬇ Backup ဒေါင်းလုပ်'}
       </PrimaryButton>
       <p className="mt-2 text-xs opacity-70">
@@ -92,10 +89,10 @@ function BackupCard() {
             onChange={(e) => setBkMonth(e.target.value)}
             className={`${inputCls} min-w-0 flex-1`}
           />
-          <SecondaryButton glass size="sm" onClick={() => onMonthly('xlsx')} disabled={bkBusy}>
+          <SecondaryButton size="sm" onClick={() => onMonthly('xlsx')} disabled={bkBusy}>
             Excel
           </SecondaryButton>
-          <SecondaryButton glass size="sm" onClick={() => onMonthly('csv')} disabled={bkBusy}>
+          <SecondaryButton size="sm" onClick={() => onMonthly('csv')} disabled={bkBusy}>
             CSV
           </SecondaryButton>
         </div>
@@ -155,7 +152,7 @@ function MonthLockCard() {
           onChange={(e) => setMonth(e.target.value)}
           className={`${inputCls} min-w-0 flex-1`}
         />
-        <PrimaryButton glass onClick={onLock} className="shrink-0">
+        <PrimaryButton onClick={onLock} className="shrink-0">
           ပိတ်ရန်
         </PrimaryButton>
       </div>
@@ -192,7 +189,7 @@ function MonthLockCard() {
                   <li key={m} className="flex items-center justify-between gap-2">
                     <span>🔒 {m.slice(0, 7)}</span>
                     {profile?.role === 'owner' && (
-                      <SecondaryButton glass size="sm" onClick={() => onUnlock(m)}>
+                      <SecondaryButton size="sm" onClick={() => onUnlock(m)}>
                         ပြန်ဖွင့်ရန်
                       </SecondaryButton>
                     )}
@@ -286,7 +283,6 @@ function PinChangeCard() {
           onChange={(e) => setConfirm(e.target.value)}
         />
         <PrimaryButton
-          glass
           className="w-full"
           onClick={onChange}
           disabled={busy || !current || !next || !confirm}
@@ -571,18 +567,18 @@ function Dashboard() {
               />
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2.5">
-              <Link to="/entries" className={btnGlassCls} style={glassBtnStyle}>
+              <Link to="/entries" className={btnPrimaryCls}>
                 <NavIcon to="/entries" className="h-5 w-5" />
                 ပို့ဆောင်မှု ထည့်ရန် / ကြည့်ရန်
               </Link>
-              <Link to="/payments" className={btnGlassCls} style={glassBtnSecondaryStyle}>
+              <Link to="/payments" className={btnSecondaryCls}>
                 <NavIcon to="/payments" className="h-5 w-5" />
                 ငွေကောက်ခံမှု
               </Link>
             </div>
             {staffView && (
               <div className="mt-3">
-                <SecondaryButton glass onClick={onDailyCsv} disabled={csvBusy} className="w-full">
+                <SecondaryButton onClick={onDailyCsv} disabled={csvBusy} className="w-full">
                   {csvBusy ? 'ထုတ်နေပါတယ်…' : `⬇ နေ့စဉ် CSV (${date})`}
                 </SecondaryButton>
                 {csvMsg && <p className="mt-2 text-sm">{csvMsg}</p>}
@@ -693,7 +689,7 @@ export default function HomePage() {
         <Card>
           <CardTitle>ကျွန်ုပ်၏ စာရင်း</CardTitle>
           <p className="mt-1 text-sm opacity-80">သင့်ရဲ့ ကိုယ်ပိုင် မှတ်တမ်းများကိုပဲ မြင်ရပါမယ်။</p>
-          <Link to="/my" className={`${btnGlassCls} mt-3 w-full`} style={glassBtnStyle}>
+          <Link to="/my" className={`${btnPrimaryCls} mt-3 w-full`}>
             ကြည့်ရန်
           </Link>
         </Card>
