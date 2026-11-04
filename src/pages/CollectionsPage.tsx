@@ -432,16 +432,16 @@ export default function CollectionsPage() {
               // nothing ever covers the open card's content.
               const prevOpen = idx > 0 && openId === visibleAgents[idx - 1]?.id
               const stacked = !open && idx > 0 && !prevOpen
-              const inset = stacked ? Math.min(idx * 4, 24) : 0
+              const inset = stacked ? Math.min(idx * 6, 36) : 0
               return (
                 <div
                   key={a.id}
                   style={{
-                    marginTop: idx === 0 ? 0 : stacked ? -14 : 12,
+                    marginTop: idx === 0 ? 0 : stacked ? -26 : 12,
                     marginLeft: inset,
                     marginRight: inset,
                   }}
-                  className={`${cardCls} p-4 lg:p-5 transition-all duration-300 ease-out motion-reduce:transition-none ${stacked ? 'shadow-lg' : ''}`}
+                  className={`${cardCls} p-4 lg:p-5 transition-all duration-300 ease-out motion-reduce:transition-none ${stacked ? 'shadow-xl' : ''} ${open ? '' : 'pb-8 lg:pb-9'}`}
                 >
                   <button
                     type="button"
