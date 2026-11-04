@@ -92,6 +92,7 @@ export default function AgentDetailPage() {
   const [entries, setEntries] = useState<DailyEntry[]>([])
   const [payments, setPayments] = useState<PaymentFull[]>([])
   const [deposits, setDeposits] = useState<AgentDeposit[]>([])
+  const [depShown, setDepShown] = useState(50)
   const [writeOffs, setWriteOffs] = useState<WriteOff[]>([])
   const [settlement, setSettlement] = useState<AgentSettlement | null>(null)
   const [outstanding, setOutstanding] = useState(0)
@@ -429,7 +430,7 @@ export default function AgentDetailPage() {
       <Card>
         <CardTitle>အပေါင် မှတ်တမ်း</CardTitle>
         <ul className="divide-y divide-stone-100 dark:divide-neutral-800">
-          {deposits.map((d) => (
+          {deposits.slice(0, depShown).map((d) => (
             <li key={d.id} className="py-2 text-sm">
               <div className="flex items-center justify-between gap-2">
                 <span>
@@ -443,6 +444,13 @@ export default function AgentDetailPage() {
           ))}
           {deposits.length === 0 && <li className="py-2 text-sm opacity-70">မှတ်တမ် မရှိသေးပါ</li>}
         </ul>
+        {deposits.length > depShown && (
+          <div className="pt-2 text-center">
+            <SecondaryButton size="sm" onClick={() => setDepShown((n) => n + 50)}>
+              ထပ်ပြမည် ({depShown}/{deposits.length})
+            </SecondaryButton>
+          </div>
+        )}
         {!closed && (
           <form onSubmit={onAddDeposit} className="space-y-2.5 pt-3">
             <div className="grid grid-cols-3 gap-2.5">

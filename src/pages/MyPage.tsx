@@ -7,6 +7,7 @@ import {
   personName,
   todayYangon,
   type Agent,
+  type AgentDeposit,
   type AgentPayment,
   type DailyEntry,
   type WriteOff,
@@ -105,16 +106,21 @@ export default function MyPage() {
             .order('created_at', { ascending: false })
             .range(from, to),
         ),
-        supabase.from('agent_deposits').select('amount').eq('agent_id', agentId),
+        fetchAll<Pick<AgentDeposit, 'amount'>>((from, to) =>
+          supabase
+            .from('agent_deposits')
+            .select('amount')
+            .eq('agent_id', agentId)
+            .order('id')
+            .range(from, to),
+        ),
         supabase.from('agents').select('*').eq('id', agentId).maybeSingle(),
       ])
       if (runRef.current !== run) return
       setEntries(en)
       setPayments(pm)
       setWriteOffTotal(wo.reduce((s, w) => s + w.amount, 0))
-      setDepositTotal(
-        ((dep.data ?? []) as { amount: number }[]).reduce((s, d) => s + d.amount, 0),
-      )
+      setDepositTotal(dep.reduce((s, d) => s + d.amount, 0))
       setAgent((ag.data ?? null) as Agent | null)
     } catch {
       // Never fail silently into plausible-looking zeroes again: surface the

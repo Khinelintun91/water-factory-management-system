@@ -29,6 +29,7 @@ export default function HistoryPage() {
       .from('audit_log')
       .select('*')
       .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
       .limit(100)
     setRows((data ?? []) as AuditLogRow[])
     setHasMore((data ?? []).length === 100)
@@ -40,6 +41,7 @@ export default function HistoryPage() {
       .from('audit_log')
       .select('*')
       .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
       .range(rows.length, rows.length + 99)
     const page = (data ?? []) as AuditLogRow[]
     setRows((prev) => [...prev, ...page])

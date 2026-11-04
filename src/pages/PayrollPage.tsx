@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
+import { fetchAll } from '../lib/fetchAll'
 import {
   formatMMK,
   personName,
@@ -120,19 +121,23 @@ export default function PayrollPage() {
         supabase.from('user_roles').select('profile_id, role'),
         supabase.from('salary_settings').select('*'),
         supabase.from('bonuses').select('*').eq('month', month).order('created_at'),
-        supabase.from('advances').select('*').order('advance_date'),
-        supabase.from('advance_repayments').select('*'),
+        fetchAll<Advance>((a, b) =>
+          supabase.from('advances').select('*').order('advance_date').order('id').range(a, b),
+        ),
+        fetchAll<AdvanceRepayment>((a, b) =>
+          supabase.from('advance_repayments').select('*').order('id').range(a, b),
+        ),
         supabase.from('payroll_runs').select('*').eq('month', month),
       ])
-      for (const r of [pf, ur, sal, bon, adv, rep, run]) {
+      for (const r of [pf, ur, sal, bon, run]) {
         if (r.error) throw new Error(r.error.message)
       }
       setProfiles((pf.data ?? []) as Profile[])
       setExtras((ur.data ?? []) as { profile_id: string; role: Role }[])
       setSalaries((sal.data ?? []) as SalarySetting[])
       setBonuses((bon.data ?? []) as Bonus[])
-      setAdvances((adv.data ?? []) as Advance[])
-      setRepayments((rep.data ?? []) as AdvanceRepayment[])
+      setAdvances(adv)
+      setRepayments(rep)
       setRuns((run.data ?? []) as PayrollRun[])
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err))

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { fetchAll } from '../lib/fetchAll'
 import { fmtDateTime12 } from '../lib/types'
 import {
   Card,
@@ -60,12 +61,15 @@ export default function DisputesPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('disputes')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(100)
-    setRows((data ?? []) as Dispute[])
+    const data = await fetchAll<Dispute>((a, b) =>
+      supabase
+        .from('disputes')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(a, b),
+    )
+    setRows(data)
     const { data: ag } = await supabase.from('agents').select('id, name')
     if (ag) {
       setAgentNames(
