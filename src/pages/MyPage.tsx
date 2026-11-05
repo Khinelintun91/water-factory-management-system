@@ -378,9 +378,9 @@ export default function MyPage() {
                 {formatMMK(Math.abs(faceOutstanding))}
               </span>
             </span>
-            <span className="block space-y-1.5">
+            <span className="block space-y-2">
               <span className={`block text-xs ${faceTier.faint}`}>{faceOutstanding < 0 ? 'ပိုပေးထားငွေ' : 'ကျန်ကြွေ'}</span>
-              <span className="block text-[28px] font-bold leading-tight tabular-nums">
+              <span className="block text-[28px] font-bold leading-[1.4] tabular-nums">
                 {formatMMK(Math.abs(faceOutstanding))}
               </span>
               <span className={`block text-xs ${faceTier.sub}`}>
