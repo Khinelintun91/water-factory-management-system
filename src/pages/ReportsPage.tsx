@@ -86,6 +86,7 @@ interface Report {
   refunds: number
   depositLiability: number
   receivable: number
+  receivableRaw: number
   aging: Record<Bucket, number>
   agingRows: AgingRow[]
   perAgent: AgentReport[]
@@ -131,6 +132,7 @@ const EMPTY_REPORT: Report = {
   refunds: 0,
   depositLiability: 0,
   receivable: 0,
+  receivableRaw: 0,
   aging: { d30: 0, d60: 0, d60p: 0 },
   agingRows: [],
   perAgent: [],
@@ -419,6 +421,7 @@ export default function ReportsPage() {
       refunds: reportData.refunds,
       depositLiability: reportData.depositLiability,
       receivable: reportData.receivable,
+      receivableRaw: reportData.receivableRaw,
       aging: reportData.aging,
       agingRows,
       perAgent,
@@ -661,6 +664,7 @@ export default function ReportsPage() {
         ['ရောင်းရငွေ', report.sales],
         ['ကောက်ခံရငွေ', report.collected],
         ['ကြွေးကျန်', report.receivable],
+        ['ပိုပေးထားငွေ', report.receivable - report.receivableRaw],
         ['အသုံးစရိတ်', report.expenseTotal],
         ['လစာ', report.payroll],
         ['လျော်ကြေး/စွန့်ပစ်', report.writeOffs],
@@ -713,6 +717,10 @@ export default function ReportsPage() {
     { label: 'ရောင်းရငွေ', value: report.sales },
     { label: 'ကောက်ခံရငွေ', value: report.collected },
     { label: 'ကြွေးကျန်', value: report.receivable },
+    // Agents who overpaid: floored receivable minus the raw ledger net is
+    // exactly the total credit the factory holds for agents (owner's line —
+    // overpayment is not an error, and it must not net against others' debt).
+    { label: 'ပိုပေးထားငွေ', value: report.receivable - report.receivableRaw },
     { label: 'အသုံးစရိတ်', value: report.expenseTotal },
     { label: 'လစာ', value: report.payroll },
     { label: 'လျော်ကြေး/စွန့်ပစ်', value: report.writeOffs },

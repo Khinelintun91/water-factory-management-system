@@ -471,7 +471,7 @@ export default function CollectionsPage() {
                         <span
                           className={`font-bold tabular-nums ${t.outstanding < 0 ? tier.neg : ''}`}
                         >
-                          {formatMMK(t.outstanding)}
+                          {formatMMK(Math.abs(t.outstanding))}
                         </span>
                         <svg
                           viewBox="0 0 24 24"
@@ -488,9 +488,9 @@ export default function CollectionsPage() {
                       </span>
                     </span>
                     <span className="block">
-                      <span className={`block text-xs ${tier.faint}`}>ကျန်ကြွေ</span>
+                      <span className={`block text-xs ${tier.faint}`}>{t.outstanding < 0 ? 'ပိုပေးထားငွေ' : 'ကျန်ကြွေ'}</span>
                       <span className="block text-[28px] font-bold leading-tight tabular-nums">
-                        {formatMMK(t.outstanding)}
+                        {formatMMK(Math.abs(t.outstanding))}
                       </span>
                       <span className={`mt-0.5 block text-xs ${tier.sub}`}>
                         ရောင်းအား {formatMMK(t.sales)} · ကောက်ခံပြီး{' '}
@@ -548,18 +548,13 @@ export default function CollectionsPage() {
                           </div>
                         </div>
                         <div className="mt-3 flex items-center justify-between border-t border-stone-100 pt-3 dark:border-neutral-800">
-                          <span className="text-sm font-semibold">ကျန်ကြွေ</span>
+                          <span className="text-sm font-semibold">{t.outstanding < 0 ? 'ပိုပေးထားငွေ' : 'ကျန်ကြွေ'}</span>
                           <span
                             className={`font-bold tabular-nums ${t.outstanding > 0 ? 'text-red-600 dark:text-red-400' : ''}`}
                           >
-                            {formatMMK(t.outstanding)}
+                            {formatMMK(Math.abs(t.outstanding))}
                           </span>
                         </div>
-                        {t.outstanding < 0 && (
-                          <p className="mt-1 text-right text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                            ပိုကောက်ထားသောငွေ ဖြစ်ပါတယ် (အမှား မဟုတ်ပါ)
-                          </p>
-                        )}
                         {expanded && !ledger[a.id] ? (
                           <div className="mt-3 border-t border-stone-100 pt-3 dark:border-neutral-800">
                             <LoadingState />

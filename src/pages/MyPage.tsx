@@ -189,8 +189,10 @@ export default function MyPage() {
   const settledNote = closed ? 'စာရင်းပိတ် ပြီး ဖြစ်ပါသည်' : undefined
 
   // The agent's own wallet face (same card as the owner's Collections
-  // stack): lifetime sales / collected from this page's loaded rows, the
-  // outstanding kept signed so both sides show the same figure.
+  // stack): lifetime sales / collected from this page's loaded rows. The
+  // balance is signed internally; when it is negative the agent has
+  // overpaid, and both sides display it as ပိုပေးထားငွေ with a positive
+  // amount (owner's wording rule — overpayment is not a debt or an error).
   const salesTotal = entries.reduce((s, r) => s + r.amount, 0)
   const collectedTotal = entries.reduce((s, r) => s + r.amount_collected, 0) + totalPayments
   const faceOutstanding = closed ? 0 : lifetimeDue - totalPayments - writeOffTotal
@@ -373,13 +375,13 @@ export default function MyPage() {
               <span
                 className={`shrink-0 font-bold tabular-nums ${faceOutstanding < 0 ? faceTier.neg : ''}`}
               >
-                {formatMMK(faceOutstanding)}
+                {formatMMK(Math.abs(faceOutstanding))}
               </span>
             </span>
             <span className="block">
-              <span className={`block text-xs ${faceTier.faint}`}>ကျန်ကြွေ</span>
+              <span className={`block text-xs ${faceTier.faint}`}>{faceOutstanding < 0 ? 'ပိုပေးထားငွေ' : 'ကျန်ကြွေ'}</span>
               <span className="block text-[28px] font-bold leading-tight tabular-nums">
-                {formatMMK(faceOutstanding)}
+                {formatMMK(Math.abs(faceOutstanding))}
               </span>
               <span className={`mt-0.5 block text-xs ${faceTier.sub}`}>
                 ရောင်းအား {formatMMK(salesTotal)} · ကောက်ခံပြီး {formatMMK(collectedTotal)}
@@ -404,8 +406,8 @@ export default function MyPage() {
       <section className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         <StatCard label="ဒီနေ့" value={`${todayDelivered} ဗူး`} sub={formatMMK(todayAmount)} />
         <StatCard
-          label="စုစုပေါင်း ကျန်ကြွေး"
-          value={formatMMK(shownOwed)}
+          label={faceOutstanding < 0 ? 'ပိုပေးထားငွေ' : 'စုစုပေါင်း ကျန်ကြွေး'}
+          value={formatMMK(faceOutstanding < 0 ? -faceOutstanding : shownOwed)}
           sub={settledNote}
           tone={shownOwed > 0 ? 'danger' : 'default'}
         />

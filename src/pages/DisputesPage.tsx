@@ -29,6 +29,12 @@ const STATUS_LABELS: Record<Dispute['status'], string> = {
   closed: 'ပိတ်ပြီး',
 }
 
+// Display order (owner request): disputes still needing a reply first,
+// then answered ones, then closed — newest first inside each group. The
+// query already returns created_at desc and Array.sort is stable, so a
+// rank-only sort keeps the in-group order.
+const STATUS_RANK: Record<Dispute['status'], number> = { open: 0, replied: 1, closed: 2 }
+
 const STATUS_CHIP_CLS: Record<Dispute['status'], string> = {
   open: 'bg-accent-100 text-accent-800 dark:bg-amber-950/40 dark:text-amber-200',
   replied: 'bg-brand-100 text-brand-800 dark:bg-brand-950/50 dark:text-brand-200',
@@ -171,9 +177,9 @@ export default function DisputesPage() {
       ) : rows.length === 0 ? (
         <EmptyState text="မရှိသေးပါ" />
       ) : (
-        <ul className="space-y-3 lg:grid lg:grid-cols-2 lg:items-start lg:gap-3 lg:space-y-0">
-          {rows.map((d) => (
-            <li key={d.id} className={`${cardCls} p-3.5 lg:p-4`}>
+        <ul className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
+          {[...rows].sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status]).map((d) => (
+            <li key={d.id} className={`${cardCls} flex h-full flex-col p-3.5 lg:p-4`}>
               <div className="flex items-start justify-between gap-2">
                 <span className="font-semibold">{agentNames[d.agent_id] ?? ''}</span>
                 <span className="flex shrink-0 flex-col items-end gap-1">
@@ -194,7 +200,7 @@ export default function DisputesPage() {
                 </p>
               )}
               {canManage && d.status !== 'closed' && (
-                <div className="mt-3 space-y-2.5">
+                <div className="mt-auto space-y-2.5 pt-3">
                   <textarea
                     value={replyById[d.id] ?? ''}
                     onChange={(e) => setReplyById((s) => ({ ...s, [d.id]: e.target.value }))}

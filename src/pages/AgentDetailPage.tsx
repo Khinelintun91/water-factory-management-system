@@ -291,7 +291,7 @@ export default function AgentDetailPage() {
     { label: 'အပေါင်ဘူး', value: `${stats.depBottles.toLocaleString('en-US')} ဗူး (${formatMMK(stats.depAmount)})` },
     { label: 'စုစုပေါင်း ရောင်းရ', value: formatMMK(stats.sales) },
     { label: 'ကောက်ခံပြီး', value: formatMMK(stats.collected) },
-    { label: 'ရရန်ကျန်', value: formatMMK(outstanding), tone: outstanding > 0 ? 'danger' : undefined },
+    { label: outstanding < 0 ? 'ပိုပေးထားငွေ' : 'ရရန်ကျန်', value: formatMMK(Math.abs(outstanding)), tone: outstanding > 0 ? 'danger' : undefined },
     { label: 'ဆက်ပို့နိုင်ဘူး', value: closed ? 'စာရင်းပိတ်ပြီး' : canDeliver },
   ]
 

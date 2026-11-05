@@ -363,7 +363,7 @@ export default function AgentsPage() {
               <span
                 className={`font-bold tabular-nums ${a.outstanding > 0 ? (tierName === 'black' ? 'text-red-400' : 'text-red-600') : a.outstanding < 0 ? tier.neg : ''}`}
               >
-                {formatMMK(a.outstanding)}
+                {formatMMK(Math.abs(a.outstanding))}
               </span>
               <svg
                 viewBox="0 0 24 24"
@@ -380,9 +380,9 @@ export default function AgentsPage() {
             </span>
           </span>
           <span className="block">
-            <span className={`block text-xs ${tier.faint}`}>ရရန်ကျန်</span>
+            <span className={`block text-xs ${tier.faint}`}>{a.outstanding < 0 ? 'ပိုပေးထားငွေ' : 'ရရန်ကျန်'}</span>
             <span className="block text-[28px] font-bold leading-tight tabular-nums">
-              {formatMMK(a.outstanding)}
+              {formatMMK(Math.abs(a.outstanding))}
             </span>
             <span className={`mt-0.5 block text-xs ${tier.sub}`}>
               ကိုင်ထားဘူး {a.held.toLocaleString('en-US')} ဗူး · အပေါင်ငွေ/ဗူး{' '}
@@ -433,9 +433,9 @@ export default function AgentsPage() {
                   <div className={miniValue}>{a.held.toLocaleString('en-US')} ဗူး</div>
                 </div>
                 <div className="rounded-xl bg-stone-50 p-2.5 dark:bg-neutral-800/70">
-                  <div className={miniLabel}>ရရန်ကျန်</div>
-                  <div className={`${miniValue} ${a.outstanding > 0 ? 'text-red-600 dark:text-red-400' : ''}`}>
-                    {formatMMK(a.outstanding)}
+                  <div className={miniLabel}>{a.outstanding < 0 ? 'ပိုပေးထားငွေ' : 'ရရန်ကျန်'}</div>
+                  <div className={`${miniValue} ${a.outstanding > 0 ? 'text-red-600 dark:text-red-400' : a.outstanding < 0 ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>
+                    {formatMMK(Math.abs(a.outstanding))}
                   </div>
                 </div>
                 <div className="rounded-xl bg-stone-50 p-2.5 dark:bg-neutral-800/70">
