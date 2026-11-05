@@ -379,9 +379,9 @@ export default function AgentsPage() {
               </svg>
             </span>
           </span>
-          <span className="block space-y-2">
+          <span className="block space-y-1.5">
             <span className={`block text-xs ${tier.faint}`}>{a.outstanding < 0 ? 'ပိုပေးထားငွေ' : 'ရရန်ကျန်'}</span>
-            <span className="block text-[28px] font-bold leading-[1.4] tabular-nums">
+            <span className="block text-[28px] font-bold leading-[1.3] tabular-nums">
               {formatMMK(Math.abs(a.outstanding))}
             </span>
             <span className={`block text-xs ${tier.sub}`}>
