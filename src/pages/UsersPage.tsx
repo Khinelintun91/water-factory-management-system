@@ -9,7 +9,7 @@ import {
   type Profile,
   type Role,
 } from '../lib/types'
-import { fmtDateTime12 } from '../lib/types'
+import { fmtTime12, todayYangon } from '../lib/types'
 import {
   Card,
   CardTitle,
@@ -50,6 +50,9 @@ export default function UsersPage() {
   const { profile: me } = useAuth()
   const [rows, setRows] = useState<Profile[]>([])
   const [loginLogs, setLoginLogs] = useState<LoginLogRow[]>([])
+  const [logsOpen, setLogsOpen] = useState(false)
+  const [logFilter, setLogFilter] = useState<'all' | 'ok' | 'fail'>('all')
+  const [logShown, setLogShown] = useState(20)
   const [agents, setAgents] = useState<Agent[]>([])
   const [extras, setExtras] = useState<Record<string, Role[]>>({})
   const [salaries, setSalaries] = useState<Record<string, number>>({})
@@ -79,7 +82,7 @@ export default function UsersPage() {
           .from('login_logs')
           .select('id, username, success, user_agent, created_at')
           .order('created_at', { ascending: false })
-          .limit(100),
+          .limit(500),
       ])
     setRows((p ?? []) as Profile[])
     setLoginLogs((ll ?? []) as LoginLogRow[])
@@ -166,6 +169,35 @@ export default function UsersPage() {
     setDisplayName('')
     setPin('')
     await load()
+  }
+
+  // Login-history views: Yangon day keys for grouping, the collapsed
+  // card's summary counts, and the filtered, paged, day-grouped rows.
+  const ymdOf = (ts: string) =>
+    new Date(ts).toLocaleDateString('en-CA', { timeZone: 'Asia/Yangon' })
+  const todayKey = todayYangon()
+  const yesterdayKey = new Date(Date.parse(`${todayKey}T00:00:00Z`) - 86_400_000)
+    .toISOString()
+    .slice(0, 10)
+  const dayLabel = (key: string) =>
+    key === todayKey
+      ? 'ဒီနေ့'
+      : key === yesterdayKey
+        ? 'မနေ့က'
+        : `${Number(key.slice(8, 10))}/${Number(key.slice(5, 7))}/${key.slice(0, 4)}`
+  const logsTodayCount = loginLogs.filter((r) => ymdOf(r.created_at) === todayKey).length
+  const logsTodayFailCount = loginLogs.filter(
+    (r) => !r.success && ymdOf(r.created_at) === todayKey,
+  ).length
+  const filteredLogs = loginLogs.filter((r) =>
+    logFilter === 'all' ? true : logFilter === 'ok' ? r.success : !r.success,
+  )
+  const logGroups: { key: string; rows: LoginLogRow[] }[] = []
+  for (const r of filteredLogs.slice(0, logShown)) {
+    const k = ymdOf(r.created_at)
+    const g = logGroups[logGroups.length - 1]
+    if (g && g.key === k) g.rows.push(r)
+    else logGroups.push({ key: k, rows: [r] })
   }
 
   return (
@@ -318,39 +350,124 @@ export default function UsersPage() {
 
       {/* Login history — owner only (this page is already behind the
           owner route guard; the role check keeps the card owner-only
-          even if the page is ever reused elsewhere). Read-only. */}
+          even if the page is ever reused elsewhere). Read-only. The card
+          is collapsed to a one-line summary by default (owner request —
+          the flat 100-row list was too long to scan); expanding shows
+          day-grouped rows with a success filter and 20-at-a-time paging. */}
       {!loading && me?.role === 'owner' && (
         <Card className="space-y-1">
-          <CardTitle>Login မှတ်တမ်း</CardTitle>
           {loginLogs.length === 0 ? (
-            <p className="text-sm text-stone-500 dark:text-neutral-400">မရှိသေးပါ</p>
+            <>
+              <CardTitle>Login မှတ်တမ်း</CardTitle>
+              <p className="text-sm text-stone-500 dark:text-neutral-400">မရှိသေးပါ</p>
+            </>
           ) : (
-            <ul className="divide-y divide-stone-100 dark:divide-neutral-800/70">
-              {loginLogs.map((r) => (
-                <li key={r.id} className="flex items-center gap-2 py-2 text-sm">
-                  <span className="shrink-0 text-xs text-stone-500 dark:text-neutral-400">
-                    {fmtDateTime12(r.created_at)}
+            <>
+              <button
+                type="button"
+                onClick={() => setLogsOpen((o) => !o)}
+                aria-expanded={logsOpen}
+                className="flex w-full items-center justify-between gap-2 text-left"
+              >
+                <span className="text-base font-bold">
+                  Login မှတ်တမ်း{' '}
+                  <span className="text-sm font-medium text-stone-500 dark:text-neutral-400">
+                    · ဒီနေ့ {logsTodayCount} ခု
+                    {logsTodayFailCount > 0 && ` · မအောင်မြင် ${logsTodayFailCount} ခု`}
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">{r.username}</span>
-                    {r.user_agent && (
-                      <span className="block truncate text-xs text-stone-500 dark:text-neutral-400">
-                        {r.user_agent.length > 40 ? `${r.user_agent.slice(0, 40)}…` : r.user_agent}
-                      </span>
-                    )}
-                  </span>
-                  <span
-                    className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                      r.success
-                        ? 'bg-brand-100 text-brand-800 dark:bg-brand-950 dark:text-brand-200'
-                        : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
-                    }`}
-                  >
-                    {r.success ? 'အောင်မြင်' : 'မအောင်မြင်'}
-                  </span>
-                </li>
-              ))}
-            </ul>
+                </span>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={`h-5 w-5 shrink-0 opacity-70 transition-transform ${logsOpen ? 'rotate-180' : ''}`}
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              <div
+                className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${logsOpen ? '[grid-template-rows:1fr]' : '[grid-template-rows:0fr]'}`}
+              >
+                <div className="min-h-0 overflow-hidden">
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    {(
+                      [
+                        { k: 'all', label: 'အားလုံး' },
+                        { k: 'ok', label: 'အောင်မြင်' },
+                        { k: 'fail', label: 'မအောင်မြင်' },
+                      ] as const
+                    ).map((c) => (
+                      <button
+                        key={c.k}
+                        type="button"
+                        onClick={() => {
+                          setLogFilter(c.k)
+                          setLogShown(20)
+                        }}
+                        aria-pressed={logFilter === c.k}
+                        className={`inline-flex min-h-[36px] items-center rounded-full px-3.5 text-sm font-semibold ${
+                          logFilter === c.k
+                            ? 'bg-brand-700 text-white'
+                            : 'bg-stone-200 text-stone-700 dark:bg-neutral-800 dark:text-neutral-300'
+                        }`}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                  {filteredLogs.length === 0 ? (
+                    <p className="pt-2 text-sm text-stone-500 dark:text-neutral-400">မရှိသေးပါ</p>
+                  ) : (
+                    logGroups.map((g) => (
+                      <div key={g.key} className="mt-1">
+                        <div className="pt-2 text-xs font-semibold text-stone-500 dark:text-neutral-400">
+                          {dayLabel(g.key)}
+                        </div>
+                        <ul className="divide-y divide-stone-100 dark:divide-neutral-800/70">
+                          {g.rows.map((r) => (
+                            <li key={r.id} className="flex items-center gap-2 py-2 text-sm">
+                              <span className="shrink-0 text-xs tabular-nums text-stone-500 dark:text-neutral-400">
+                                {fmtTime12(r.created_at)}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate font-medium">{r.username}</span>
+                                {r.user_agent && (
+                                  <span className="block truncate text-xs text-stone-500 dark:text-neutral-400">
+                                    {r.user_agent.length > 40
+                                      ? `${r.user_agent.slice(0, 40)}…`
+                                      : r.user_agent}
+                                  </span>
+                                )}
+                              </span>
+                              <span
+                                className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                                  r.success
+                                    ? 'bg-brand-100 text-brand-800 dark:bg-brand-950 dark:text-brand-200'
+                                    : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+                                }`}
+                              >
+                                {r.success ? 'အောင်မြင်' : 'မအောင်မြင်'}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))
+                  )}
+                  {filteredLogs.length > logShown && (
+                    <div className="pt-3 text-center">
+                      <SecondaryButton size="sm" onClick={() => setLogShown((n) => n + 20)}>
+                        ထပ်ပြမည်
+                      </SecondaryButton>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
           )}
         </Card>
       )}
