@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { fetchAll } from '../lib/fetchAll'
 import { dataQualityCsv } from '../lib/exports'
-import { fmtDateTime12, todayYangon } from '../lib/types'
+import { fmtDateTime12, fmtTime12, todayYangon } from '../lib/types'
 import {
   Card,
   LoadingState,
@@ -42,6 +42,11 @@ interface DqIssue {
   table: string
   recordId: string
   date: string
+  /** When the flagged record was entered (its created_at); null for
+   * aggregate/system issues with no single source record. */
+  ts?: string | null
+  /** Display name of whoever entered the flagged record. */
+  by?: string | null
   name: string
   problem: string
   suggestion: string
@@ -243,6 +248,8 @@ export default function DataQualityPage() {
         ပြဿနာ: i.problem,
         သက်ဆိုင်သူ: i.name,
         ရက်စွဲ: i.date,
+        အချိန်: i.ts ? fmtTime12(i.ts) : '',
+        ထည့်သူ: i.by ?? '',
         အကြံပြုချက်: i.suggestion,
         'လ ပိတ်ထားသည်': i.locked ? 'ဟုတ်' : '',
       })),
@@ -416,6 +423,8 @@ export default function DataQualityPage() {
                         </div>
                         <div className="mt-1 text-sm text-stone-500 dark:text-neutral-400">
                           {i.name} · {i.date}
+                          {i.ts && <> · {fmtTime12(i.ts)}</>}
+                          {i.by && <> · ထည့်သူ: {i.by}</>}
                           {i.locked && <span className="ml-2">🔒 လ ပိတ်ထားသည်</span>}
                         </div>
                         <div className="mt-1 text-sm text-stone-600 dark:text-neutral-300">
