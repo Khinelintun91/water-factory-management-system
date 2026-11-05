@@ -378,12 +378,12 @@ export default function MyPage() {
                 {formatMMK(Math.abs(faceOutstanding))}
               </span>
             </span>
-            <span className="block">
+            <span className="block space-y-1.5">
               <span className={`block text-xs ${faceTier.faint}`}>{faceOutstanding < 0 ? 'ပိုပေးထားငွေ' : 'ကျန်ကြွေ'}</span>
               <span className="block text-[28px] font-bold leading-tight tabular-nums">
                 {formatMMK(Math.abs(faceOutstanding))}
               </span>
-              <span className={`mt-0.5 block text-xs ${faceTier.sub}`}>
+              <span className={`block text-xs ${faceTier.sub}`}>
                 ရောင်းအား {formatMMK(salesTotal)} · ကောက်ခံပြီး {formatMMK(collectedTotal)}
               </span>
             </span>

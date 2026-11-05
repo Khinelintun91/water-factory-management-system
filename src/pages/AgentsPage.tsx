@@ -379,12 +379,12 @@ export default function AgentsPage() {
               </svg>
             </span>
           </span>
-          <span className="block">
+          <span className="block space-y-1.5">
             <span className={`block text-xs ${tier.faint}`}>{a.outstanding < 0 ? 'ပိုပေးထားငွေ' : 'ရရန်ကျန်'}</span>
             <span className="block text-[28px] font-bold leading-tight tabular-nums">
               {formatMMK(Math.abs(a.outstanding))}
             </span>
-            <span className={`mt-0.5 block text-xs ${tier.sub}`}>
+            <span className={`block text-xs ${tier.sub}`}>
               ကိုင်ထားဘူး {a.held.toLocaleString('en-US')} ဗူး · အပေါင်ငွေ/ဗူး{' '}
               {formatMMK(a.deposit_per_bottle)}
             </span>

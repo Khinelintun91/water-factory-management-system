@@ -487,12 +487,12 @@ export default function CollectionsPage() {
                         </svg>
                       </span>
                     </span>
-                    <span className="block">
+                    <span className="block space-y-1.5">
                       <span className={`block text-xs ${tier.faint}`}>{t.outstanding < 0 ? 'ပိုပေးထားငွေ' : 'ကျန်ကြွေ'}</span>
                       <span className="block text-[28px] font-bold leading-tight tabular-nums">
                         {formatMMK(Math.abs(t.outstanding))}
                       </span>
-                      <span className={`mt-0.5 block text-xs ${tier.sub}`}>
+                      <span className={`block text-xs ${tier.sub}`}>
                         ရောင်းအား {formatMMK(t.sales)} · ကောက်ခံပြီး{' '}
                         {formatMMK(t.cash + t.payments)}
                       </span>
