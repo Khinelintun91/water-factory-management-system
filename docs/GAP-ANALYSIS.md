@@ -1,3 +1,6 @@
+> ⚠️ **HISTORICAL SNAPSHOT — 2026-11-03, SUPERSEDED (banner added 2026-11-06).**
+> This document records the gap state as it was on 2026-11-03, early in the rebuild. It is **no longer current**: most items marked MISSING or PARTIAL below have since been built (multi-role accounts, deposits ledger and close-out, payroll, reports, collections ledger, inventory page, notifications, data-quality page, cash handover, exports, offline queue, settings/i18n — migrations 0001–0025). Do NOT plan work from this file. The current gap list is the **2026-11-06 full project audit** (restore drill untested, zero automated tests/CI, login-abuse holes, same-day guard asymmetry on newer money tables, seed-data settlement, plus live-state checks). Kept for history only.
+
 # GAP ANALYSIS — Old Lovable app vs New rebuild
 
 Source of truth for "old": `docs/OLD-APP-INVENTORY.md` (read from source at old repo HEAD 8b54734).

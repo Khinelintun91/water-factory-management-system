@@ -1,9 +1,46 @@
 -- ============================================================
--- apply_all.sql — GENERATED convenience file: 0001 + 0002 + 0003
--- Paste this whole file ONCE into the Supabase SQL Editor and Run.
--- (The individual files in migrations/ remain the source of truth.)
+-- apply_all.sql -- GENERATED convenience file
+-- Contains ALL migrations 0001-0028 concatenated in filename order.
+-- Regenerated: 2026-11-06. Do NOT edit by hand.
+-- Paste this whole file ONCE into the Supabase SQL Editor of a
+-- FRESH project and Run. (The individual files in migrations/
+-- remain the source of truth.)
+--
+-- Files included (28):
+--   0001_schema.sql
+--   0002_rls.sql
+--   0003_triggers.sql
+--   0004_insert_date_guard.sql
+--   0005_access_hardening.sql
+--   0006_phase_a_parity.sql
+--   0007_hard_delete_fix.sql
+--   0008_hard_delete_fix2.sql
+--   0009_phase_b_payroll_handover.sql
+--   0010_audit_row_id_user_id.sql
+--   0011_phase_c_notifications.sql
+--   0012_scheduled_jobs.sql
+--   0013_display_name.sql
+--   0014_account_admin_rpcs.sql
+--   0015_public_name_notify_escalation_dq_dedupe.sql
+--   0016_live_parity_schema.sql
+--   0017_collection_anomaly_prefs.sql
+--   0018_owner_backdate_exception.sql
+--   0019_deposit_insert_date_guard.sql
+--   0020_report_aggregation.sql
+--   0021_collections_aggregation.sql
+--   0022_data_quality_scan.sql
+--   0023_agent_stats_inventory_rpc.sql
+--   0024_my_card_tier.sql
+--   0025_data_quality_scan_ts_by.sql
+--   0026_login_security.sql
+--   0027_guard_symmetry.sql
+--   0028_function_grant_sweep.sql
 -- ============================================================
 
+
+-- ============================================================
+-- BEGIN MIGRATION: 0001_schema.sql
+-- ============================================================
 -- 0001_schema.sql — Water Factory Management System, Phase 1 schema
 -- Apply in filename order in the Supabase SQL Editor (owner's own project).
 -- Business timezone for all day logic: Asia/Yangon.
@@ -180,8 +217,12 @@ create index expenses_date_idx on expenses (expense_date desc);
 create index audit_log_table_row_idx on audit_log (table_name, row_id);
 create index audit_log_created_idx on audit_log (created_at desc);
 
--- ===================== 0002_rls.sql =====================
+-- END MIGRATION: 0001_schema.sql
 
+
+-- ============================================================
+-- BEGIN MIGRATION: 0002_rls.sql
+-- ============================================================
 -- 0002_rls.sql — Row Level Security. Every SPEC access rule lives here,
 -- in the database, not only in the UI (SPEC: server-side enforcement mandatory).
 
@@ -395,8 +436,12 @@ create policy tokens_update on push_tokens for update to authenticated
 create policy tokens_delete on push_tokens for delete to authenticated
   using (profile_id = auth.uid());
 
--- ===================== 0003_triggers.sql =====================
+-- END MIGRATION: 0002_rls.sql
 
+
+-- ============================================================
+-- BEGIN MIGRATION: 0003_triggers.sql
+-- ============================================================
 -- 0003_triggers.sql — Rule triggers: audit, same-day, month lock, updated_at.
 -- These fire for EVERY role, Owner included (SPEC rules 4, 5, 6 — the old
 -- app's silent Owner exemptions are deliberately NOT reproduced here).
@@ -534,8 +579,12 @@ create trigger expenses_month_lock before insert or update or delete on expenses
 create trigger inventory_month_lock before insert or update or delete on inventory_movements
   for each row execute function guard_month_lock('move_date');
 
--- ===================== 0004_insert_date_guard.sql =====================
+-- END MIGRATION: 0003_triggers.sql
 
+
+-- ============================================================
+-- BEGIN MIGRATION: 0004_insert_date_guard.sql
+-- ============================================================
 -- 0004_insert_date_guard.sql — New records must be dated today.
 --
 -- QA finding 2026-11-03: the same-day guard (0003) covered UPDATE/DELETE
@@ -568,8 +617,12 @@ create trigger expenses_insert_today before insert on expenses
 create trigger inventory_insert_today before insert on inventory_movements
   for each row execute function guard_insert_today('move_date');
 
--- ===================== 0005_access_hardening.sql =====================
+-- END MIGRATION: 0004_insert_date_guard.sql
 
+
+-- ============================================================
+-- BEGIN MIGRATION: 0005_access_hardening.sql
+-- ============================================================
 -- 0005_access_hardening.sql — Fixes from the 2026-11-03 code review.
 --
 -- C1: deactivated accounts (profiles.active = false) kept full data access
@@ -650,8 +703,12 @@ create trigger profiles_audit after insert or update or delete on profiles
 create trigger settings_audit after insert or update or delete on app_settings
   for each row execute function audit_row_change();
 
--- ===================== 0006_phase_a_parity.sql =====================
+-- END MIGRATION: 0005_access_hardening.sql
 
+
+-- ============================================================
+-- BEGIN MIGRATION: 0006_phase_a_parity.sql
+-- ============================================================
 -- 0006_phase_a_parity.sql — Phase A: old-app feature parity (data layer).
 --
 -- Adds: co_owner + multi-role (user_roles), login lockout (pin_attempts +
@@ -1186,8 +1243,12 @@ insert into app_settings (key, value) values
   ('refresh_seconds', '30'::jsonb)
 on conflict (key) do nothing;
 
--- ===================== 0007_hard_delete_fix.sql =====================
+-- END MIGRATION: 0006_phase_a_parity.sql
 
+
+-- ============================================================
+-- BEGIN MIGRATION: 0007_hard_delete_fix.sql
+-- ============================================================
 -- 0007_hard_delete_fix.sql — Fix hard_delete_agent (found in Phase A tests).
 --
 -- Problem: deleting an agent fires ON DELETE SET NULL on child tables,
@@ -1281,8 +1342,12 @@ begin
   return new;
 end $$;
 
--- ===================== 0008_hard_delete_fix2.sql =====================
+-- END MIGRATION: 0007_hard_delete_fix.sql
 
+
+-- ============================================================
+-- BEGIN MIGRATION: 0008_hard_delete_fix2.sql
+-- ============================================================
 -- 0008_hard_delete_fix2.sql — Replace the 0007 approach.
 --
 -- session_replication_role cannot be set from a Supabase function
@@ -1360,6 +1425,12 @@ begin
   delete from agents where id = p_agent;
 end $$;
 
+-- END MIGRATION: 0008_hard_delete_fix2.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0009_phase_b_payroll_handover.sql
+-- ============================================================
 -- 0009_phase_b_payroll_handover.sql — Phase B data layer: payroll + handover.
 --
 -- Payroll model (exact old-app rules, phase2.functions.ts computePayroll):
@@ -1600,6 +1671,12 @@ begin
 end $$;
 grant execute on function pay_month(uuid, text) to authenticated;
 
+-- END MIGRATION: 0009_phase_b_payroll_handover.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0010_audit_row_id_user_id.sql
+-- ============================================================
 -- 0010_audit_row_id_user_id.sql — audit_row_change() row_id fallback.
 --
 -- salary_settings (PK = user_id, no id/month/agent_id/key column) produced a
@@ -1631,6 +1708,12 @@ begin
   end if;
 end $$;
 
+-- END MIGRATION: 0010_audit_row_id_user_id.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0011_phase_c_notifications.sql
+-- ============================================================
 -- 0011_phase_c_notifications.sql — Phase C data layer: in-app notifications.
 --
 -- Port of the old app's notification model (OLD-APP-INVENTORY §10):
@@ -1823,6 +1906,13 @@ begin
 end $$;
 create trigger disputes_reply_notify after update on disputes
   for each row execute function notify_on_dispute_reply();
+
+-- END MIGRATION: 0011_phase_c_notifications.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0012_scheduled_jobs.sql
+-- ============================================================
 -- 0012: Scheduled in-app jobs via pg_cron (Phase C).
 --  * Daily digest: every evening 19:00 Yangon (12:30 UTC) each active
 --    Owner/Manager gets a 'digest' notification with the day's figures,
@@ -1932,7 +2022,12 @@ do $$ begin perform cron.unschedule('wfms-data-quality'); exception when others 
 select cron.schedule('wfms-daily-digest', '30 12 * * *', $$select public.send_daily_digest()$$);
 select cron.schedule('wfms-data-quality', '0 2 * * *', $$select public.run_data_quality_alerts()$$);
 
--- 0013 --
+-- END MIGRATION: 0012_scheduled_jobs.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0013_display_name.sql
+-- ============================================================
 -- 0013: Optional Burmese display name for user accounts.
 -- Login usernames stay Latin (they double as the internal auth email
 -- <username>@waterfactory.local, which cannot contain Burmese script).
@@ -1940,7 +2035,12 @@ select cron.schedule('wfms-data-quality', '0 2 * * *', $$select public.run_data_
 -- wherever a person's name appears; it falls back to the username.
 alter table public.profiles add column if not exists display_name text;
 
--- 0014 --
+-- END MIGRATION: 0013_display_name.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0014_account_admin_rpcs.sql
+-- ============================================================
 -- 0014: Owner-only account administration via security-definer RPCs.
 --
 -- Why RPCs instead of an Edge Function: creating a Supabase Auth user needs
@@ -2085,7 +2185,12 @@ revoke all on function public.admin_reset_pin(uuid, text) from public, anon;
 grant execute on function public.admin_create_user(text, text, text, uuid, text) to authenticated;
 grant execute on function public.admin_reset_pin(uuid, text) to authenticated;
 
--- 0015 --
+-- END MIGRATION: 0014_account_admin_rpcs.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0015_public_name_notify_escalation_dq_dedupe.sql
+-- ============================================================
 -- 0015: three parity refinements.
 -- 1) public_factory_name(): the login card shows the owner's factory name
 --    before sign-in (app_settings itself is authenticated-only).
@@ -2227,7 +2332,13 @@ begin
       'dq-' || v_today);
   end loop;
 end $$;
--- 0016 --
+
+-- END MIGRATION: 0015_public_name_notify_escalation_dq_dedupe.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0016_live_parity_schema.sql
+-- ============================================================
 -- 0016_live_parity_schema.sql — Live-parity gap wave (schema only).
 -- * agents.trip_qty (တစ်ခါပို့ ဘူးအရေအတွက် — bottles per trip) + agents.notes.
 -- * agent_payments.kind: 'regular' vs 'old_debt' (ကြွေးဟောင်းကောက်ငွေ entries
@@ -2280,7 +2391,12 @@ begin
   end if;
 end $$;
 
--- 0017 --
+-- END MIGRATION: 0016_live_parity_schema.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0017_collection_anomaly_prefs.sql
+-- ============================================================
 -- 0017_collection_anomaly_prefs.sql — Live-parity gap wave (alerts).
 -- 1) run_data_quality_alerts(): everything from 0015 preserved (same three
 --    aggregate checks, same dq_seen issue-level dedupe, same per-day tag),
@@ -2517,7 +2633,12 @@ begin
   end loop;
 end $$;
 
--- 0018 --
+-- END MIGRATION: 0017_collection_anomaly_prefs.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0018_owner_backdate_exception.sql
+-- ============================================================
 -- 0018_owner_backdate_exception.sql — Owner exception to the insert-date guard.
 --
 -- User decision 2026-11-04 (amends the 0004 rule): records must still be
@@ -2550,7 +2671,12 @@ begin
   return new;
 end $$;
 
--- 0019 --
+-- END MIGRATION: 0018_owner_backdate_exception.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0019_deposit_insert_date_guard.sql
+-- ============================================================
 -- 0019_deposit_insert_date_guard.sql — Deposits join the insert-date guard.
 --
 -- 0004 guarded entries/payments/expenses/inventory but never agent_deposits,
@@ -2563,7 +2689,12 @@ end $$;
 create trigger deposits_insert_today before insert on agent_deposits
   for each row execute function guard_insert_today('deposit_date');
 
--- 0020 --
+-- END MIGRATION: 0019_deposit_insert_date_guard.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0020_report_aggregation.sql
+-- ============================================================
 -- 0020_report_aggregation.sql — Server-side aggregation for the Reports page.
 --
 -- The Reports page used to fetchAll-scan the full daily_entries /
@@ -3068,7 +3199,12 @@ end $$;
 revoke execute on function report_aging(date) from public, anon;
 grant execute on function report_aging(date) to authenticated;
 
--- 0021 --
+-- END MIGRATION: 0020_report_aggregation.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0021_collections_aggregation.sql
+-- ============================================================
 -- 0021_collections_aggregation.sql — Performance wave P2: server-side
 -- aggregation for the Collections page and the Agents page.
 --
@@ -3187,7 +3323,12 @@ end $$;
 
 grant execute on function agent_held_totals() to authenticated;
 
--- 0022 --
+-- END MIGRATION: 0021_collections_aggregation.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0022_data_quality_scan.sql
+-- ============================================================
 -- 0022_data_quality_scan.sql — Server-side data-quality scan RPC.
 --
 -- Performance wave P3: DataQualityPage used to fetchAll-scan
@@ -3818,6 +3959,13 @@ end $$;
 
 revoke all on function public.data_quality_scan() from public, anon;
 grant execute on function public.data_quality_scan() to authenticated;
+
+-- END MIGRATION: 0022_data_quality_scan.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0023_agent_stats_inventory_rpc.sql
+-- ============================================================
 -- 0023_agent_stats_inventory_rpc.sql — Click-through audit fixes (wave 2,
 -- 2026-11-04): per-agent and inventory aggregates move server-side.
 --
@@ -3920,6 +4068,13 @@ $$;
 
 revoke execute on function public.inventory_totals() from public, anon;
 grant execute on function public.inventory_totals() to authenticated;
+
+-- END MIGRATION: 0023_agent_stats_inventory_rpc.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0024_my_card_tier.sql
+-- ============================================================
 -- 0024: an agent's own sales-card tier, for the wallet face on My Page.
 -- The tier rule mirrors CollectionsPage exactly: rank all agents by
 -- lifetime sales (sum of daily_entries.amount), split into thirds — top
@@ -3980,6 +4135,13 @@ $$;
 
 revoke execute on function public.my_card_tier() from public, anon;
 grant execute on function public.my_card_tier() to authenticated;
+
+-- END MIGRATION: 0024_my_card_tier.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0025_data_quality_scan_ts_by.sql
+-- ============================================================
 -- 0025: data_quality_scan gains per-issue 'ts' (the flagged record's
 -- created_at) and 'by' (the recorder's display name), so the Data
 -- Quality page can show which day, at what time, and by whom each
@@ -4637,3 +4799,792 @@ end $$;
 
 revoke all on function public.data_quality_scan() from public, anon;
 grant execute on function public.data_quality_scan() to authenticated;
+
+-- END MIGRATION: 0025_data_quality_scan_ts_by.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0026_login_security.sql
+-- ============================================================
+-- 0026_login_security.sql — Login-path hardening (P0 audit Item 2, 2026-11-06).
+--
+-- Step-0 live verification found three login-abuse holes plus a set of
+-- dangerous functions left executable by PUBLIC/anon (31 public functions
+-- were anon-executable live):
+--   (a) login_logs accepted DIRECT inserts from anon AND authenticated
+--       under `with check (true)` (0002) — anyone holding the publishable
+--       key could forge login history or flood the table until the Free
+--       tier storage filled.
+--   (b) record_login_failure(text) was anon-callable — anyone could lock
+--       ANY username for 15 minutes at will, repeatedly (lockout-DoS),
+--       without ever attempting a real login.
+--   (c) insert_notification / om_recipients / send_daily_digest /
+--       run_data_quality_alerts were PUBLIC-executable — anyone could
+--       forge notifications to any user or fire the digest/DQ jobs at
+--       will; agent_outstanding(uuid) was anon-executable, leaking any
+--       agent's debt balance to anyone who knew (or guessed) a UUID.
+--
+-- WHAT THIS MIGRATION DOES
+--   1. login_logs: the permissive INSERT policy is dropped. Direct table
+--      inserts are then denied to every client role (RLS stays on; the
+--      owner-only SELECT policy from 0002 is unchanged). All writes now
+--      go through the new SECURITY DEFINER gateway log_login_attempt(),
+--      which validates the username, truncates the user-agent, inserts
+--      exactly ONE row per call, and silently drops excess volume
+--      (rate shaping: max 20 rows per username per minute, max 300 rows
+--      per minute overall — far above any human login pace, far below
+--      a storage-flood pace).
+--   2. Lockout: record_login_failure / clear_login_failures lose their
+--      PUBLIC (and, for record_login_failure, all client) EXECUTE grants.
+--      clear_login_failures() is different from the other two: it takes
+--      no argument and acts only on the caller's OWN username
+--      (auth.uid(), 0006), and the app calls it AFTER a successful
+--      sign-in (AuthContext.tsx line ~141), so `authenticated` keeps it.
+--      record_login_failure(text) is the hard case — see THE TENSION.
+--   3. The five dangerous functions are locked down (table below).
+--   4. A BEFORE UPDATE/DELETE trigger on profiles makes the final
+--      ACTIVE owner undeletable, un-deactivatable and un-re-rolable at
+--      the database level. Until now this guard existed only as a UI
+--      check in UsersPage.toggleActive, and profiles_update (0002)
+--      lets an owner rewrite any profile row — including their own —
+--      through the API, locking the business out of its own system.
+--
+-- THE TENSION (lockout recording happens while logged OUT)
+--   AuthContext.signIn() calls record_login_failure AFTER
+--   signInWithPassword fails — i.e. as `anon`. Simply revoking anon
+--   would silently kill the 5-fail/15-min lockout (0006). The safest
+--   working design is the same gateway pattern as (1):
+--   log_failed_login(p_username, p_user_agent) is the ONLY client path.
+--   It (i) validates the username shape, (ii) returns the existing lock
+--   untouched if the account is already locked (repeated attempts during
+--   a lock no longer extend it, unlike the raw 0006 counter), (iii)
+--   performs the unchanged 0006 counting logic by calling
+--   record_login_failure() INTERNALLY, and (iv) writes the login_logs
+--   row itself, so the failure is recorded exactly once.
+--   The internal call is safe after the revoke: both functions are
+--   SECURITY DEFINER owned by the migration role; a caller needs EXECUTE
+--   on the gateway only, and the definer context supplies the inner
+--   call. VERIFY after applying (SQL editor / PostgREST as anon):
+--   rpc/record_login_failure must fail 42501, rpc/log_failed_login must
+--   succeed and increment pin_attempts. If a future Postgres change ever
+--   broke definer-chained calls, the fallback is to inline the 0006
+--   counter body into log_failed_login — do not re-grant the raw RPC.
+--
+-- REQUIRED APP CHANGE (src/context/AuthContext.tsx — NOT in this file;
+-- ship it WITH or BEFORE applying this migration):
+--   1. logAttempt() (~lines 28-37): replace
+--        supabase.from('login_logs').insert({ username, success,
+--          user_agent: navigator.userAgent })
+--      with
+--        supabase.rpc('log_login_attempt', { p_username: username,
+--          p_success: success, p_user_agent: navigator.userAgent })
+--      (Keep the surrounding try/catch: logging stays best-effort.)
+--   2. Failure path (~lines 109-115): replace
+--        supabase.rpc('record_login_failure', { p_username: username })
+--      with
+--        supabase.rpc('log_failed_login', { p_username: username,
+--          p_user_agent: navigator.userAgent })
+--      It returns locked_until (timestamptz | null) exactly like the old
+--      call. AND delete the `await logAttempt(username, false)` in this
+--      branch — log_failed_login already writes that login_logs row;
+--      keeping both would double-log every failed attempt.
+--   3. Locked pre-check (~lines 98-103): no call change —
+--      login_lock_status stays anon-callable (below); its logAttempt
+--      now flows through change 1 automatically.
+--   4. Success path (~lines 140-145): no change — clear_login_failures
+--      keeps its `authenticated` grant and is called post-sign-in; the
+--      success logAttempt flows through change 1.
+--   Deploy order: if this migration lands BEFORE the app change, nothing
+--   breaks hard — the old build's direct login_logs inserts are denied
+--   (logAttempt swallows the error; history pauses) and its
+--   record_login_failure call returns an error the code already treats
+--   as "no lock" (login attempts still work; lockout counting pauses)
+--   until the new build deploys.
+--
+-- FUNCTION GRANT TABLE (evidence = grep of src/ + migrations, 2026-11-06)
+--   function                              before (live)   after            evidence
+--   ------------------------------------  --------------  -----------------  --------------------------------
+--   log_login_attempt(text,bool,text)     — (new)         anon+auth (only)  AuthContext.logAttempt is the
+--                                                                           sole login_logs writer in src/
+--   log_failed_login(text,text)           — (new)         anon+auth (only)  AuthContext failure path is the
+--                                                                           sole record_login_failure caller
+--   record_login_failure(text)            PUBLIC/anon/    nobody (gateway   internal: called only by
+--                                         authenticated   calls it)         log_failed_login; 0006's grant
+--                                                                           to anon/authenticated removed
+--   clear_login_failures()                PUBLIC (+auth   authenticated     AuthContext calls it AFTER
+--                                         grant, 0006)    only              sign-in; acts on own username
+--   login_lock_status(text)               anon+auth       UNCHANGED         pre-login check must work as
+--                                                                           anon; returns only a timestamp
+--   insert_notification(uuid,text,text,   PUBLIC          nobody            DB-internal only: notify_*
+--     text,text,text,text)                                                  triggers (0011/0015) and the
+--                                                                           two job functions call it; no
+--                                                                           src/ caller. Definer-internal
+--                                                                           calls run as owner, unaffected
+--   om_recipients(uuid)                   PUBLIC          nobody            DB-internal only (0011/0012/
+--                                                                           0015/0017 function bodies)
+--   send_daily_digest()                   PUBLIC          nobody            pg_cron only (0012 schedule);
+--                                                                           cron runs as the job owner,
+--                                                                           not via PUBLIC grants
+--   run_data_quality_alerts()             PUBLIC          nobody            pg_cron only (0012 schedule)
+--   agent_outstanding(uuid)               PUBLIC (+auth   authenticated     src/ RPC callers, all signed-in
+--                                         grant, 0006)    only              pages: AgentsPage, AgentDetail-
+--                                                                           Page, CloseoutPage, Collections
+--   guard_last_owner()                    — (new)         nobody            trigger function; triggers do
+--                                                                           not need caller EXECUTE
+--
+-- RESIDUAL, DELIBERATELY NOT FIXED HERE: agent_outstanding is SECURITY
+-- DEFINER with no caller check, so after this migration any AUTHENTICATED
+-- user (incl. an agent login) who knows another agent's UUID can still
+-- read that agent's balance. The anon leak (the Step-0 finding) is
+-- closed; the authenticated tightening needs a function-body change
+-- (staff-plus OR own-agent check) and belongs with the Item-4 test suite
+-- so entries_before_write's internal call is covered by a test first.
+--
+-- LEFT FOR THE LIVE-GRANT SWEEP (not touched here, by design): Step-0
+-- counted 31 PUBLIC-executable functions. This migration only revokes
+-- the ones classified above from traced call sites. The rest — RLS
+-- helpers that MUST stay executable by authenticated because policies
+-- evaluate them as the querying user (app_role, app_agent_id, has_role,
+-- is_owner_manager, is_staff_plus), trigger functions not yet traced
+-- (audit_row_change, notify_*, fill_agent_name, ...), and report/RPC
+-- functions already revoked in 0014/0020-0025 — need one dedicated
+-- sweep: dump information_schema.routine_privileges live, classify each
+-- of the 31, revoke in a single follow-up migration. Blanket-revoking
+-- unclassified functions from this file risks breaking policy helpers.
+--
+-- NOT SQL — DASHBOARD/API CONFIG THIS ITEM STILL NEEDS (follow-up step):
+--   * Supabase Auth: disable_signup = true. Accounts are created only by
+--     the owner via admin_create_user (0014), which inserts into
+--     auth.users directly in SQL and is NOT affected by the public
+--     sign-up switch; the synthetic <username>@waterfactory.local
+--     addresses must never be self-registrable through the Auth API.
+--   * Supabase Auth sessions (Step-0 found timebox = 0, inactivity = 0,
+--     single-session = false, i.e. sessions effectively never expire):
+--     proposed values for owner confirmation — inactivity timeout 7 days
+--     (604800 s), session time-box 30 days (2592000 s). JWT expiry (1 h)
+--     and refresh-token rotation are already on (Step-0) — leave them.
+--     NOTE: whether these session controls are available on the Free
+--     plan was not verifiable from the docs; check the dashboard when
+--     applying, and if they are plan-gated, record that and rely on the
+--     app-level re-login instead of pretending the setting exists.
+--
+-- ROLLBACK (comment only — do not run as part of this migration):
+--   drop trigger profiles_last_owner on profiles;
+--   drop function public.guard_last_owner();
+--   drop function public.log_failed_login(text, text);
+--   drop function public.log_login_attempt(text, boolean, text);
+--   create policy login_logs_insert on login_logs for insert
+--     to anon, authenticated with check (true);            -- restores hole (a)
+--   grant execute on function public.record_login_failure(text)
+--     to anon, authenticated;
+--   grant execute on function public.clear_login_failures() to public;
+--   grant execute on function public.insert_notification(uuid, text,
+--     text, text, text, text, text) to public;
+--   grant execute on function public.om_recipients(uuid) to public;
+--   grant execute on function public.send_daily_digest() to public;
+--   grant execute on function public.run_data_quality_alerts() to public;
+--   grant execute on function public.agent_outstanding(uuid) to public;
+
+-- ---------------------------------------------------------------------------
+-- 1) login_logs gateway: validated, single-row, rate-shaped inserts
+-- ---------------------------------------------------------------------------
+create or replace function public.log_login_attempt(
+  p_username text, p_success boolean, p_user_agent text default null
+) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_username text := lower(trim(coalesce(p_username, '')));
+  v_recent   integer;
+begin
+  -- Shape: same alphabet as admin_create_user (0014) but length 1-64, so
+  -- failed attempts against mistyped or legacy names still log, while
+  -- junk (spaces, quotes, overlong strings) is dropped silently —
+  -- logging must never break the login screen.
+  if length(v_username) not between 1 and 64
+     or v_username !~ '^[a-z0-9_.-]+$'
+     or p_success is null then
+    return;
+  end if;
+  -- Rate shaping (this function is the only insert path, and it inserts
+  -- exactly one row per call, so these caps bound total volume).
+  select count(*) into v_recent from login_logs
+   where username = v_username and created_at > now() - interval '1 minute';
+  if v_recent >= 20 then return; end if;
+  select count(*) into v_recent from login_logs
+   where created_at > now() - interval '1 minute';
+  if v_recent >= 300 then return; end if;
+
+  insert into login_logs (username, success, user_agent)
+  values (v_username, p_success, left(p_user_agent, 512));
+end $$;
+
+-- The rate-shape counts scan login_logs by time; keep them cheap.
+create index login_logs_created_idx on login_logs (created_at desc);
+create index login_logs_username_created_idx
+  on login_logs (username, created_at desc);
+
+revoke all on function public.log_login_attempt(text, boolean, text) from public;
+grant execute on function public.log_login_attempt(text, boolean, text)
+  to anon, authenticated;
+
+-- Direct inserts end here. RLS stays enabled; with no INSERT policy left,
+-- anon and authenticated are both denied, and the definer gateway above
+-- (running as owner) is the only writer. SELECT stays owner-only (0002).
+drop policy login_logs_insert on login_logs;
+
+-- ---------------------------------------------------------------------------
+-- 2) Lockout gateway + grant lockdown
+-- ---------------------------------------------------------------------------
+create or replace function public.log_failed_login(
+  p_username text, p_user_agent text default null
+) returns timestamptz
+language plpgsql security definer set search_path = public as $$
+declare
+  v_username text := lower(trim(coalesce(p_username, '')));
+  v_lock     timestamptz;
+begin
+  if length(v_username) not between 1 and 64
+     or v_username !~ '^[a-z0-9_.-]+$' then
+    return null;
+  end if;
+  -- Already locked: report the lock without feeding the counter again
+  -- (the raw 0006 path let repeat attempts keep re-arming the lock).
+  select locked_until into v_lock from pin_attempts
+   where username = v_username and locked_until > now();
+  if v_lock is not null then
+    return v_lock;
+  end if;
+  -- Unchanged 0006 counting (5 fails -> 15-minute lock), invoked
+  -- internally — clients can no longer call it directly (below).
+  v_lock := public.record_login_failure(v_username);
+  -- The failure's login_logs row is written here, once (the app's
+  -- failure branch must not log it a second time — see header).
+  perform public.log_login_attempt(v_username, false, p_user_agent);
+  return v_lock;
+end $$;
+
+revoke all on function public.log_failed_login(text, text) from public;
+grant execute on function public.log_failed_login(text, text)
+  to anon, authenticated;
+
+-- The raw lockout RPCs leave the client surface. record_login_failure
+-- keeps working for its one remaining caller (the gateway above, in
+-- definer context); clear_login_failures stays available to signed-in
+-- users because it only ever clears the caller's own username.
+revoke all on function public.record_login_failure(text)
+  from public, anon, authenticated;
+revoke all on function public.clear_login_failures() from public, anon;
+grant execute on function public.clear_login_failures() to authenticated;
+-- login_lock_status(text) grants are intentionally UNCHANGED
+-- (anon + authenticated, 0006): the pre-login lock check requires it,
+-- and it discloses nothing but a lock expiry timestamp.
+
+-- ---------------------------------------------------------------------------
+-- 3) Dangerous PUBLIC functions (see the header table for evidence)
+-- ---------------------------------------------------------------------------
+revoke all on function public.insert_notification(
+  uuid, text, text, text, text, text, text) from public, anon, authenticated;
+revoke all on function public.om_recipients(uuid)
+  from public, anon, authenticated;
+revoke all on function public.send_daily_digest()
+  from public, anon, authenticated;
+revoke all on function public.run_data_quality_alerts()
+  from public, anon, authenticated;
+revoke all on function public.agent_outstanding(uuid) from public, anon;
+grant execute on function public.agent_outstanding(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 4) Last-owner guard: the final ACTIVE owner cannot be deactivated,
+--    re-roled, or deleted — at the database level, for every caller
+--    including the owner themself (closes the API bypass of the
+--    UsersPage UI check). Insert paths (admin_create_user) are not
+--    affected; deactivating one of two owners stays allowed.
+-- ---------------------------------------------------------------------------
+create or replace function public.guard_last_owner() returns trigger
+language plpgsql as $$
+begin
+  if old.role = 'owner' and old.active then
+    if tg_op = 'DELETE'
+       or new.active is distinct from true
+       or new.role is distinct from 'owner' then
+      if not exists (
+        select 1 from profiles
+        where role = 'owner' and active and id <> old.id
+      ) then
+        raise exception
+          'last_owner: the final active owner account cannot be deactivated, re-roled, or deleted'
+          using errcode = 'P0001';
+      end if;
+    end if;
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end $$;
+
+create trigger profiles_last_owner before update or delete on profiles
+  for each row execute function guard_last_owner();
+
+revoke all on function public.guard_last_owner() from public, anon, authenticated;
+
+-- END MIGRATION: 0026_login_security.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0027_guard_symmetry.sql
+-- ============================================================
+-- 0027_guard_symmetry.sql — Same-day / insert-date guards reach the
+-- Phase A/B money tables (P0 audit Item 3, 2026-11-06; owner decision:
+-- EXTEND the guards, do not document an exception).
+--
+-- BASIS — SPEC rule 4: a record may be edited or deleted ONLY on the
+-- same Asia/Yangon calendar day it was created, for EVERY role, Owner
+-- included, enforced by trigger. 0003 enforced that on daily_entries,
+-- agent_payments, expenses and inventory_movements only. The tables
+-- added later — agent_deposits + write_offs (0006), advances + bonuses +
+-- cash_handovers (0009) — received month-lock triggers but NO same-day
+-- guard, and (except deposits, fixed in 0019) no insert-date guard. So
+-- until now a write-off (which directly reduces an agent's debt), a
+-- deposit, an advance, a bonus or a handover could be edited or deleted
+-- on any later day in an unlocked month, and write-offs / advances /
+-- handovers could be INSERTED backdated by any owner/manager — silently
+-- rewriting balances that reports had already shown. This migration
+-- reuses the EXISTING guard functions unchanged:
+--   guard_same_day_edit()  — current definition is 0008 (created_at based;
+--                            includes the agent hard-delete cascade pass)
+--   guard_insert_today()   — current definition is 0018 (business-date
+--                            based; primary-Owner backdate exception built
+--                            in; month lock still binds the Owner)
+--
+-- INCLUSION MATRIX (columns checked against 0006 / 0009)
+--   table           same-day  insert-today          why
+--   --------------  --------  --------------------  ------------------------------
+--   agent_deposits  ADD       already in 0019       deposit_date is a real
+--                                                   transaction date
+--   write_offs      ADD       ADD 'writeoff_date'   same; every app insert
+--                                                   (Closeout/AgentDetail/
+--                                                   Reports) omits the date,
+--                                                   so the today default applies
+--   advances        ADD       ADD 'advance_date'    real date, defaults to
+--                                                   today in the UI picker
+--                                                   (PayrollPage advDate)
+--   bonuses         ADD       EXCLUDED              no date column at all: the
+--                                                   `month` text ('YYYY-MM') is
+--                                                   a TARGET payroll month the
+--                                                   UI freely selects (past
+--                                                   months included — paying
+--                                                   last month's salary early
+--                                                   this month is the normal
+--                                                   flow), so a date guard is
+--                                                   incoherent here; controls
+--                                                   stay guard_month_lock_text
+--                                                   (0009) + pay_month's
+--                                                   already-paid check
+--   cash_handovers  ADD       ADD 'handover_date'   real date, defaults today
+--   (not in scope)  —         —                     salary_settings is in-place
+--                                                   configuration (editable-
+--                                                   until-paid by design), and
+--                                                   payroll_runs / advance_
+--                                                   repayments / agent_
+--                                                   settlements are already
+--                                                   immutable RPC-only /
+--                                                   no-update-policy tables
+--
+-- CLOSE-OUT / PAYROLL INTERACTION ANALYSIS (checked line by line)
+--   (a) finalize_closeout (0006 — its only definition) writes exactly
+--       three things: INSERT agent_settlements (NOT guarded here;
+--       settle_date is set to today anyway), a conditional INSERT into
+--       expenses (already insert-guarded since 0004, dated today, so it
+--       passes), and UPDATE agents.closed_at (agents has no same-day
+--       guard). It performs NO insert/update/delete on ANY table this
+--       migration touches — in particular it never writes write_offs;
+--       it only requires agent_outstanding() <= 0 first. UNAFFECTED.
+--   (b) The write-off that clears a receivable before finalize is a
+--       SEPARATE client insert (CloseoutPage.onAddWriteOff; also
+--       AgentDetailPage and ReportsPage) whose payload carries no
+--       writeoff_date, so the column default (today, Yangon) applies
+--       and the new insert guard passes for every role. The same-day
+--       guard never fires on INSERT at all. UNAFFECTED.
+--   (c) hard_delete_agent (0008 version) deletes the agents row; the
+--       ON DELETE SET NULL foreign keys then fire BEFORE UPDATE
+--       triggers on agent_deposits / write_offs rows — including the
+--       two same-day triggers added here. That is safe BY DESIGN:
+--       guard_same_day_edit's current (0008) definition passes an
+--       UPDATE whose only change is agent_id -> null before it ever
+--       looks at created_at — the exact cascade shape. This is the
+--       same mechanism that already lets hard-delete detach old
+--       daily_entries / agent_payments rows today. advances, bonuses
+--       and cash_handovers reference profiles, not agents, so agent
+--       deletion never touches them. UNAFFECTED.
+--   (d) pay_month (0009) INSERTs payroll_runs + advance_repayments and
+--       only SELECTs advances / bonuses — no trigger added here fires.
+--       UNAFFECTED. (Its deduction reads span past months by design;
+--       nothing in this migration restricts reads.)
+--   (e) Cash-handover save is an UPSERT on (handover_date, employee_id)
+--       (HandoverPage.onSave) for the viewed date, which defaults to
+--       today. New-row path = INSERT: the insert guard requires the
+--       viewed date to be today for staff/manager; the Owner keeps the
+--       0018 backfill exception for a missed day. Existing-row path =
+--       UPDATE: insert guards do not fire on UPDATE; the new same-day
+--       guard keys on created_at, so a row created today can be
+--       re-saved all day, and no row can be rewritten on a later day —
+--       identical to entries/payments behaviour since 0003.
+--
+-- KNOWN BEHAVIOUR CHANGES (intended — SPEC rule 4 applied uniformly;
+-- the edit/delete guard has NO owner exception, by 0003 design):
+--   * PayrollPage's delete buttons for advances / bonuses created
+--     before today will now raise 'same_day_only' (already surfaced via
+--     the page's onError) instead of succeeding in an unlocked month.
+--   * The advances date picker becomes effectively today-only for
+--     staff/manager; past dates are owner-only (mirrors deposits, 0019).
+--   * A handover for a past date can only be newly created by the Owner.
+--   * Correction path after the creation day is the same as it has
+--     always been for entries: no edit/delete — use a compensating
+--     record where the domain has one, or an owner backdated INSERT of
+--     a new record (insert path keeps the 0018 exception).
+--
+-- ROLLBACK (comment only): dropping these eight triggers fully undoes
+-- this migration; the guard functions are shared with 0003/0004/0018/
+-- 0019 and must NOT be dropped.
+--   drop trigger deposits_same_day   on agent_deposits;
+--   drop trigger writeoffs_same_day  on write_offs;
+--   drop trigger advances_same_day   on advances;
+--   drop trigger bonuses_same_day    on bonuses;
+--   drop trigger handovers_same_day  on cash_handovers;
+--   drop trigger writeoffs_insert_today on write_offs;
+--   drop trigger advances_insert_today  on advances;
+--   drop trigger handovers_insert_today on cash_handovers;
+
+-- ---------------------------------------------------------------------------
+-- Same-day edit/delete (SPEC rule 4) — UPDATE and DELETE, all roles.
+-- guard_same_day_edit() is created_at-based and needs no argument.
+-- ---------------------------------------------------------------------------
+create trigger deposits_same_day before update or delete on agent_deposits
+  for each row execute function guard_same_day_edit();
+create trigger writeoffs_same_day before update or delete on write_offs
+  for each row execute function guard_same_day_edit();
+create trigger advances_same_day before update or delete on advances
+  for each row execute function guard_same_day_edit();
+create trigger bonuses_same_day before update or delete on bonuses
+  for each row execute function guard_same_day_edit();
+create trigger handovers_same_day before update or delete on cash_handovers
+  for each row execute function guard_same_day_edit();
+
+-- ---------------------------------------------------------------------------
+-- Insert-date guard — business date must be today (Asia/Yangon) for
+-- everyone except the primary Owner (0018 exception, built into the
+-- function). agent_deposits was already covered in 0019; bonuses are
+-- deliberately excluded (see the header matrix).
+-- ---------------------------------------------------------------------------
+create trigger writeoffs_insert_today before insert on write_offs
+  for each row execute function guard_insert_today('writeoff_date');
+create trigger advances_insert_today before insert on advances
+  for each row execute function guard_insert_today('advance_date');
+create trigger handovers_insert_today before insert on cash_handovers
+  for each row execute function guard_insert_today('handover_date');
+
+-- END MIGRATION: 0027_guard_symmetry.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0028_function_grant_sweep.sql
+-- ============================================================
+-- 0028_function_grant_sweep.sql — PUBLIC/anon EXECUTE sweep for every
+-- public-schema function NOT already handled by 0026 (P0 audit follow-up
+-- to 0026_login_security.sql, 2026-11-06).
+--
+-- SOURCE OF THE LIST (authoritative, read-only, taken 2026-11-06 via the
+-- Supabase Management API against the live project): every function in
+-- schema `public` whose effective ACL — aclexplode(coalesce(proacl,
+-- acldefault('f', proowner))) — grants EXECUTE to PUBLIC (grantee 0) or
+-- to `anon`. That union returns 32 functions live. Step-0 counted 31;
+-- the difference is a counting-method artefact (Step-0 counted PUBLIC
+-- executability; this sweep counts PUBLIC *or* anon — e.g.
+-- public_factory_name has no PUBLIC grant but an explicit anon grant).
+-- 0026 already handled or decided 8 of the 32, leaving the 24 below:
+--   handled in 0026 (revoked there — DO NOT duplicate here):
+--     record_login_failure(text), clear_login_failures(),
+--     insert_notification(uuid,text,text,text,text,text,text),
+--     om_recipients(uuid), send_daily_digest(),
+--     run_data_quality_alerts(), agent_outstanding(uuid)
+--   decided UNCHANGED in 0026 (pre-login lock check must stay anon):
+--     login_lock_status(text)
+--   (0026's new functions — log_login_attempt, log_failed_login,
+--   guard_last_owner — are not live yet and set their own grants.)
+--
+-- BEFORE state for 23 of the 24: EXECUTE granted to PUBLIC, postgres
+-- (owner), anon, authenticated, service_role (verified per function).
+-- public_factory_name is the exception: anon, authenticated,
+-- service_role, owner — no PUBLIC (0015 revoked it). Explicit
+-- service_role grants are left untouched throughout: service_role
+-- bypasses RLS by design, is server-side only, and never ships in the
+-- client (repo AGENTS.md). The owner keeps its inherent rights.
+--
+-- CLASSIFICATION (evidence = grep of src/ for .rpc() callers + grep of
+-- supabase/migrations/ for policies / triggers / internal calls,
+-- 2026-11-06)
+--   A = RLS helper evaluated inside policies as the querying user:
+--       keep `authenticated`, revoke PUBLIC + anon.
+--   B = trigger function: revoke PUBLIC + anon + authenticated
+--       (analysis below).
+--   C = app-called RPC with a verified in-body caller gate:
+--       keep `authenticated`, revoke PUBLIC + anon.
+--   D = leave unchanged (deliberate — see the D section).
+--
+--   function (identity signature)          bucket  after                     evidence
+--   -------------------------------------  ------  ------------------------  --------------------------------
+--   app_role()                             A       authenticated only        policies throughout 0002/0005/
+--                                                                           0006 use it `to authenticated`;
+--                                                                           also called inside definer
+--                                                                           bodies (hard_delete_agent 0008,
+--                                                                           entries_before_write, 0018)
+--   app_agent_id()                         A       authenticated only        policies 0002/0006 (`to
+--                                                                           authenticated`); no src/ caller
+--   has_role(user_role)                    A       authenticated only        0006: backs is_owner_manager /
+--                                                                           is_staff_plus (both definer);
+--                                                                           no policy uses it directly and
+--                                                                           no src/ caller, but it is the
+--                                                                           effective-role primitive every
+--                                                                           policy chain resolves through —
+--                                                                           treated as A per the sweep
+--                                                                           brief, conservatively
+--   is_owner_manager()                     A       authenticated only        policies 0002/0006 `to
+--                                                                           authenticated`; in-body gate in
+--                                                                           0009/0020/0021/0022/0025 RPCs
+--   is_staff_plus()                        A       authenticated only        policies 0002/0006 `to
+--                                                                           authenticated`; in-body gate in
+--                                                                           0021/0023 RPCs
+--   audit_row_change()                     B       nobody (client roles)     trigger only: 0003/0005/0006/
+--                                                                           0009 `execute function` lines
+--   entries_before_write()                 B       nobody                    trigger only: 0006 (+0007 note)
+--   fill_agent_name()                      B       nobody                    trigger only: 0006 (5 triggers)
+--   force_insert_attribution()             B       nobody                    trigger only: 0005/0006/0009
+--   guard_insert_today()                   B       nobody                    trigger only: 0004/0018/0019/
+--                                                                           0027 (function args are () —
+--                                                                           the date column name is a
+--                                                                           TRIGGER argument, not a
+--                                                                           function argument)
+--   guard_month_lock()                     B       nobody                    trigger only: 0003/0006/0009
+--   guard_month_lock_text()                B       nobody                    trigger only: 0009
+--   guard_same_day_edit()                  B       nobody                    trigger only: 0003/0027
+--   notify_on_dispute()                    B       nobody                    trigger only: 0011
+--   notify_on_dispute_reply()              B       nobody                    trigger only: 0011
+--   notify_on_entry()                      B       nobody                    trigger only: 0011/0015
+--   notify_on_payment()                    B       nobody                    trigger only: 0011
+--   set_updated_at()                       B       nobody                    trigger only: 0003/0006/0009/
+--                                                                           0011
+--   agent_held_totals()                    C       authenticated only        src/: AgentsPage.tsx rpc();
+--                                                                           body gate: is_staff_plus()
+--                                                                           else 'forbidden' (0021)
+--   collections_summary(date, date)        C       authenticated only        src/: AgentsPage + Collections-
+--                                                                           Page rpc(); body gate:
+--                                                                           is_owner_manager() (0021)
+--   finalize_closeout(uuid, integer,      C       authenticated only        src/: CloseoutPage rpc(); body
+--     integer, text)                                                          gate: is_owner_manager() (0006)
+--   hard_delete_agent(uuid)                C       authenticated only        src/: AgentDetailPage rpc();
+--                                                                           body gate: app_role()='owner'
+--                                                                           (0008, current definition)
+--   pay_month(uuid, text)                  C       authenticated only        src/: PayrollPage rpc(); body
+--                                                                           gate: is_owner_manager() (0009)
+--   public_factory_name()                  D       UNCHANGED                 see D section below
+--
+-- BUCKET C BODY-FIX FLAGS: NONE. Every bucket-C body's caller gate was
+-- read in full for this sweep (0021, 0006, 0008, 0009 — table above);
+-- each one rejects callers below its intended role before touching any
+-- data, so no C function exposes another user's data to a signed-in
+-- caller who passes the new grant but not the gate. (The known
+-- agent_outstanding residual from 0026 — definer with NO caller gate,
+-- authenticated tightening still owed — is a 0026 function and stays
+-- tracked there, not duplicated here.)
+--
+-- BUCKET B — WHY REVOKING EXECUTE DOES NOT BREAK TRIGGERS (checked,
+-- not assumed):
+--   * A direct call (SELECT f(...), PostgREST /rpc/f) checks EXECUTE
+--     against the CALLING role. That is the path this migration closes.
+--   * Trigger firing is not a user call: the executor invokes the
+--     function through the trigger manager. PostgreSQL does not check
+--     the invoking (DML-writing) user's EXECUTE privilege at fire
+--     time — repeatedly confirmed on pgsql-hackers (e.g. "Permissions
+--     on a trigger function seem to not be checked", 2006; "Trigger
+--     function permissions", 2014: inserts still work after revoking
+--     PUBLIC, even for the table owner; a later thread notes the
+--     EXECUTE check at CREATE TRIGGER time is done for the trigger
+--     OWNER — here the migration role, which as function owner always
+--     holds its own rights). What CREATE TRIGGER required was the
+--     creator's EXECUTE, and all these triggers already exist.
+--   * SECURITY DEFINER trigger functions (audit_row_change,
+--     entries_before_write, notify_*) run as their owner regardless.
+--     SECURITY INVOKER ones (the guard_* family, fill_agent_name,
+--     force_insert_attribution, set_updated_at) run with the invoking
+--     user's rights *for the objects their bodies touch* — revoking
+--     EXECUTE on the function itself changes none of those object
+--     privileges; their bodies only read trigger data (NEW/OLD,
+--     month_locks, profiles via helpers) exactly as they do today.
+--   * In-repo precedent: 0026 already revokes guard_last_owner() from
+--     public/anon/authenticated on exactly this reasoning, and revokes
+--     insert_notification from all client roles while definer trigger
+--     bodies keep calling it internally.
+--   CONSERVATIVE POST-APPLY VERIFICATION (required, because the claim
+--   above is behaviour, not a doc guarantee): as staff, agent, and
+--   owner on scratch data, exercise one INSERT + UPDATE + same-day
+--   DELETE on daily_entries and agent_payments, one expense insert,
+--   and confirm: audit_log rows appear, created_by is stamped,
+--   month-lock and same-day violations still raise, and a dispute +
+--   payment still create notifications. If ANY trigger silently stops
+--   firing, roll back section 2 only (rollback comment below) and
+--   reclassify that one function to D pending investigation.
+--
+-- BUCKET D — public_factory_name(): LEAVE UNCHANGED, DELIBERATELY.
+--   0015 created it precisely so the LOGIN PAGE can show the factory
+--   name BEFORE sign-in: LoginPage.tsx calls supabase.rpc(
+--   'public_factory_name') with no session, i.e. as `anon`, and
+--   app_settings itself is authenticated-only. It fits no other
+--   bucket: A (not a policy helper), B (not a trigger), C (revoking
+--   anon would break the pre-login login card — the one designed
+--   behaviour). It returns exactly one string — the factory display
+--   name, a value printed on the business's own signage/invoices,
+--   falling back to the generic factory name — and reads no
+--   per-user or money data. No evidence is missing; the anon grant is
+--   the product behaviour. If the owner ever decides the factory name
+--   must not be visible pre-login, that is a product change (drop the
+--   login-card name), not a grant change — do not "fix" it here.
+--
+-- NOT DONE HERE: no function bodies change; no table/RLS changes; the
+-- service_role and owner grants are untouched; 0026/0027 are not
+-- modified. This file is drafted locally and must be applied in order
+-- (after 0026 and 0027) through the normal migration path.
+--
+-- ROLLBACK (comment only — restores the exact BEFORE state):
+--   -- bucket A + C (grant back to public + anon; authenticated kept):
+--   grant execute on function public.app_role() to public, anon;
+--   grant execute on function public.app_agent_id() to public, anon;
+--   grant execute on function public.has_role(user_role) to public, anon;
+--   grant execute on function public.is_owner_manager() to public, anon;
+--   grant execute on function public.is_staff_plus() to public, anon;
+--   grant execute on function public.agent_held_totals() to public, anon;
+--   grant execute on function public.collections_summary(date, date)
+--     to public, anon;
+--   grant execute on function public.finalize_closeout(uuid, integer,
+--     integer, text) to public, anon;
+--   grant execute on function public.hard_delete_agent(uuid)
+--     to public, anon;
+--   grant execute on function public.pay_month(uuid, text)
+--     to public, anon;
+--   -- bucket B (grant back to public + anon + authenticated):
+--   grant execute on function public.audit_row_change()
+--     to public, anon, authenticated;
+--   grant execute on function public.entries_before_write()
+--     to public, anon, authenticated;
+--   grant execute on function public.fill_agent_name()
+--     to public, anon, authenticated;
+--   grant execute on function public.force_insert_attribution()
+--     to public, anon, authenticated;
+--   grant execute on function public.guard_insert_today()
+--     to public, anon, authenticated;
+--   grant execute on function public.guard_month_lock()
+--     to public, anon, authenticated;
+--   grant execute on function public.guard_month_lock_text()
+--     to public, anon, authenticated;
+--   grant execute on function public.guard_same_day_edit()
+--     to public, anon, authenticated;
+--   grant execute on function public.notify_on_dispute()
+--     to public, anon, authenticated;
+--   grant execute on function public.notify_on_dispute_reply()
+--     to public, anon, authenticated;
+--   grant execute on function public.notify_on_entry()
+--     to public, anon, authenticated;
+--   grant execute on function public.notify_on_payment()
+--     to public, anon, authenticated;
+--   grant execute on function public.set_updated_at()
+--     to public, anon, authenticated;
+--   -- bucket D: nothing to roll back (unchanged).
+
+-- ---------------------------------------------------------------------------
+-- 1) Bucket A — RLS policy helpers: authenticated keeps EXECUTE because
+--    policies evaluate as the querying (signed-in) user; anon is never a
+--    policy subject in this schema (every policy is `to authenticated`)
+--    and no pre-login code path calls any of these, so PUBLIC + the
+--    explicit anon grant both go.
+-- ---------------------------------------------------------------------------
+revoke all on function public.app_role() from public, anon;
+grant execute on function public.app_role() to authenticated;
+
+revoke all on function public.app_agent_id() from public, anon;
+grant execute on function public.app_agent_id() to authenticated;
+
+revoke all on function public.has_role(user_role) from public, anon;
+grant execute on function public.has_role(user_role) to authenticated;
+
+revoke all on function public.is_owner_manager() from public, anon;
+grant execute on function public.is_owner_manager() to authenticated;
+
+revoke all on function public.is_staff_plus() from public, anon;
+grant execute on function public.is_staff_plus() to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 2) Bucket B — trigger functions: no client role needs EXECUTE; direct
+--    /rpc access is closed for all of them. Trigger firing does not use
+--    the invoking user's EXECUTE grant (see header analysis + the
+--    required post-apply trigger smoke tests there).
+-- ---------------------------------------------------------------------------
+revoke all on function public.audit_row_change()
+  from public, anon, authenticated;
+revoke all on function public.entries_before_write()
+  from public, anon, authenticated;
+revoke all on function public.fill_agent_name()
+  from public, anon, authenticated;
+revoke all on function public.force_insert_attribution()
+  from public, anon, authenticated;
+revoke all on function public.guard_insert_today()
+  from public, anon, authenticated;
+revoke all on function public.guard_month_lock()
+  from public, anon, authenticated;
+revoke all on function public.guard_month_lock_text()
+  from public, anon, authenticated;
+revoke all on function public.guard_same_day_edit()
+  from public, anon, authenticated;
+revoke all on function public.notify_on_dispute()
+  from public, anon, authenticated;
+revoke all on function public.notify_on_dispute_reply()
+  from public, anon, authenticated;
+revoke all on function public.notify_on_entry()
+  from public, anon, authenticated;
+revoke all on function public.notify_on_payment()
+  from public, anon, authenticated;
+revoke all on function public.set_updated_at()
+  from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 3) Bucket C — app-called RPCs, each with a verified in-body caller
+--    gate (header table): signed-in app pages keep working via
+--    `authenticated`; the unauthenticated /rpc surface closes.
+-- ---------------------------------------------------------------------------
+revoke all on function public.agent_held_totals() from public, anon;
+grant execute on function public.agent_held_totals() to authenticated;
+
+revoke all on function public.collections_summary(date, date)
+  from public, anon;
+grant execute on function public.collections_summary(date, date)
+  to authenticated;
+
+revoke all on function public.finalize_closeout(
+  uuid, integer, integer, text) from public, anon;
+grant execute on function public.finalize_closeout(
+  uuid, integer, integer, text) to authenticated;
+
+revoke all on function public.hard_delete_agent(uuid) from public, anon;
+grant execute on function public.hard_delete_agent(uuid)
+  to authenticated;
+
+revoke all on function public.pay_month(uuid, text) from public, anon;
+grant execute on function public.pay_month(uuid, text) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 4) Bucket D — public_factory_name(): intentionally NO statement.
+--    Its anon + authenticated grants are the designed pre-login
+--    behaviour (0015; LoginPage). See the header D section.
+-- ---------------------------------------------------------------------------
+
+-- END MIGRATION: 0028_function_grant_sweep.sql
+

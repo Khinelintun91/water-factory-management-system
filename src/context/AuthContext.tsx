@@ -27,9 +27,11 @@ const AuthContext = createContext<AuthState | null>(null)
 async function logAttempt(username: string, success: boolean) {
   // Best effort only: login history must never block a sign-in.
   try {
-    await supabase
-      .from('login_logs')
-      .insert({ username, success, user_agent: navigator.userAgent })
+    await supabase.rpc('log_login_attempt', {
+      p_username: username,
+      p_success: success,
+      p_user_agent: navigator.userAgent,
+    })
   } catch {
     /* ignore */
   }
@@ -107,10 +109,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password: pin,
     })
     if (error || !data.user) {
-      const { data: newLock } = await supabase.rpc('record_login_failure', {
+      const { data: newLock } = await supabase.rpc('log_failed_login', {
         p_username: username,
+        p_user_agent: navigator.userAgent,
       })
-      await logAttempt(username, false)
       if (typeof newLock === 'string' && newLock) {
         return { error: lockedMessage(newLock) }
       }
