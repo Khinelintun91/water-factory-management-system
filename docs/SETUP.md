@@ -1,6 +1,6 @@
 # Setup — from zero to a working system
 
-_Updated 2026-11-06 to match the current repo (migrations 0001–0029)._
+_Updated 2026-11-07 to match the current repo (migrations 0001–0030)._
 
 ## 1. Create the Supabase project (owner, ~3 minutes)
 1. supabase.com → sign in → **New project**.
@@ -10,11 +10,11 @@ _Updated 2026-11-06 to match the current repo (migrations 0001–0029)._
 Free plan note: a free account may already hold an older paused/unused project. If Supabase refuses a second active project, either keep the old one paused (paused projects don't count as active) or delete the unused one first. Do NOT apply these migrations to an unrelated project; a clean, separate project is required. (The live project for this system is the owner's `water-factory` project.)
 
 ## 2. Apply the database migrations — ALL of them, in order
-Apply **every** migration `0001`–`0029`. Running only the first few files produces an incomplete database the current app cannot run on.
+Apply **every** migration `0001`–`0030`. Running only the first few files produces an incomplete database the current app cannot run on.
 
 Two equivalent ways (pick one):
-- **Fast way:** Supabase dashboard → **SQL Editor** → paste the whole of `supabase/apply_all.sql` (a generated concatenation of 0001–0029, in order) and Run once.
-- **Step-by-step way:** SQL Editor → paste and run each file in `supabase/migrations/` in filename order, `0001_schema.sql` through `0029_agent_outstanding_caller_check.sql`. Each must finish with "Success". If a file errors, stop and fix that file first — do not skip ahead.
+- **Fast way:** Supabase dashboard → **SQL Editor** → paste the whole of `supabase/apply_all.sql` (a generated concatenation of 0001–0030, in order) and Run once.
+- **Step-by-step way:** SQL Editor → paste and run each file in `supabase/migrations/` in filename order, `0001_schema.sql` through `0030_co_owner_create_user.sql`. Each must finish with "Success". If a file errors, stop and fix that file first — do not skip ahead.
 
 The individual files in `migrations/` remain the source of truth; `apply_all.sql` is regenerated from them, never edited by hand.
 
@@ -25,7 +25,7 @@ The very first owner is bootstrapped manually (later accounts are created inside
 3. The owner can now log in to the app with username `owner` + that PIN.
 
 ## 4. Later accounts — created in the app, via database RPCs
-All later accounts (manager / co-owner / staff / agent) and PIN resets are done by the Owner from the app's **Users page**, which calls the security-definer RPCs from migration **0014**: `admin_create_user()` and `admin_reset_pin()`. Both check inside the database that the caller is an active owner; the browser never holds a `service_role` key.
+All later accounts (manager / co-owner / staff / agent) and PIN resets are done by the Owner from the app's **Users page**, which calls the security-definer RPCs from migration **0014**, as replaced by **0030** for the co-owner case: `admin_create_user()` and `admin_reset_pin()`. Both check inside the database that the caller is an active owner (`profiles.role = 'owner'`); a co-owner does not gain that power. `0030` accepts `co_owner` as a primary role. Its PIN minimum is the manager minimum: 6 digits, maximum 12, digits only. Owner and manager stay at 6; staff and agent stay at 4. The same minimum applies when the Owner resets a co-owner PIN. The browser never holds a `service_role` key.
 
 > **Superseded — do not use:** `supabase/functions/admin-create-user/` is an old Edge Function that could not be deployed and is **NOT the live path**. It is kept in the repo as a reference implementation only. Account creation does not wait for, and must not be wired back to, that Edge Function.
 
