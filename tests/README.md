@@ -13,15 +13,34 @@ of silently in production.
 tests/run-sql-tests.sh
 ```
 
-That uses the embedded-PostgreSQL rig in `~/workspace/restore-drill`
-(override with `WF_DRILL_DIR` / `WF_PG_BIN_DIR`). To run against your
-own PostgreSQL 15+ server instead:
+The runner imports the `pg` package from this repo's devDependencies
+(`npm ci`). If that package is missing it falls back to
+`~/workspace/restore-drill/node_modules/pg`, then exits with an error.
+
+Embedded PostgreSQL (only when that drill rig is installed):
 
 ```bash
-DATABASE_URL=postgres://user:pass@host:5432/postgres tests/run-sql-tests.sh
+tests/run-sql-tests.sh
 ```
 
-(a throwaway database is created and dropped on that server).
+Override the rig location with `WF_DRILL_DIR` / `WF_PG_BIN_DIR`.
+
+Isolated Postgres 17 with the real `pg_cron` extension preloaded
+(`shared_preload_libraries=pg_cron`). pg_cron 1.6 allows
+`CREATE EXTENSION` only in the database named by `cron.database_name`,
+so the suite migrates that database in place and does not drop it.
+Point this only at a throwaway server — Supabase hosts are refused
+before any connection:
+
+```bash
+DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres \
+  WF_SQL_IN_PLACE=1 \
+  tests/run-sql-tests.sh
+```
+
+`DATABASE_URL` without `WF_SQL_IN_PLACE` still creates and drops a side
+database named `wf_suite_<random>`. That side database cannot load
+`pg_cron`.
 
 Exit code is 0 only when every file passes. Each `tests/sql/*.sql`
 file prints its own PASS/FAIL line.
@@ -44,7 +63,12 @@ file prints its own PASS/FAIL line.
 
 - `scaffold.sql` + `post-grants.sql` emulate, for plain PostgreSQL
   only, what a Supabase project provides natively (API roles,
-  `auth.uid()`, a records-only `cron` stub, default table grants).
+  `auth.uid()`, the `extensions` schema with pgcrypto, default table
+  grants). They do **not** stub `pg_cron`: migration 0012 runs
+  `create extension pg_cron` and `cron.schedule`, which needs the real
+  extension installed and listed in `shared_preload_libraries`. The
+  suite asserts those schedules can be registered. It does not wait
+  for the daily jobs to fire.
   **Never apply them to a real Supabase project.**
 - `fixture.sql` uses fixed UUIDs; historical rows are loaded with
   triggers disabled (`session_replication_role = 'replica'`) because
@@ -54,6 +78,14 @@ file prints its own PASS/FAIL line.
   exactly like the manual drills. Side-effect and visibility counts
   are always read **while the role is active** or after `reset role`
   inside the same transaction — never after commit/rollback.
+
+## CI
+
+`.github/workflows/ci.yml` runs `npm test` and `npm run build` on Node
+22.23.4, and runs this SQL suite against a throwaway `postgres:17`
+service container after installing `postgresql-17-cron` into that
+container (`WF_SQL_IN_PLACE=1`). Workflow permission is `contents: read`
+only. The workflow does not deploy and does not connect to Supabase.
 
 ## Unit tests (client logic)
 

@@ -6,17 +6,23 @@
 // file. Exit code is non-zero when anything fails.
 //
 // Database sources, in priority order:
-//   1. DATABASE_URL env — connect to that server, create (and drop) a
-//      throwaway database wf_suite_<random> on it.
-//   2. The embedded-postgres rig in ~/workspace/restore-drill (override
+//   1. DATABASE_URL + WF_SQL_IN_PLACE=1 — migrate the named database on
+//      that server and do not drop it. Required for pg_cron 1.6, which
+//      can be created only in cron.database_name. Point this only at a
+//      throwaway server. Hosts under supabase.co / supabase.com are
+//      refused before any connection.
+//   2. DATABASE_URL — connect to that server, create (and drop) a
+//      throwaway database wf_suite_<random> on it. This mode cannot
+//      CREATE EXTENSION pg_cron (wrong database for the worker).
+//   3. The embedded-postgres rig in ~/workspace/restore-drill (override
 //      with WF_DRILL_DIR / WF_PG_BIN_DIR): initdb + postgres are run in
 //      a throwaway temp dir; when this process runs as root, the
 //      binaries are wrapped in `unshare --user --map-user=65534
 //      --map-group=65534` (postgres refuses to run as root; the drill
 //      rig has always used this nobody-mapping trick).
 //
-// The `pg` module is taken from the repo's node_modules if present,
-// else from the drill rig's node_modules.
+// The `pg` module is a repo devDependency. If it is missing, the runner
+// falls back to the drill rig's node_modules, then exits with an error.
 
 import { execFileSync, spawn } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
@@ -31,8 +37,34 @@ const DRILL = process.env.WF_DRILL_DIR || join(homedir(), 'workspace', 'restore-
 let pg
 try {
   pg = (await import('pg')).default
-} catch {
-  pg = (await import(pathToFileURL(join(DRILL, 'node_modules', 'pg', 'lib', 'index.js')).href)).default
+} catch (first) {
+  try {
+    pg = (await import(pathToFileURL(join(DRILL, 'node_modules', 'pg', 'lib', 'index.js')).href)).default
+  } catch {
+    console.error('FAIL: node module `pg` is not installed. From the repo root run `npm ci` (`pg` is a devDependency).')
+    console.error('Fallback also missing: ' + join(DRILL, 'node_modules', 'pg'))
+    console.error(first instanceof Error ? first.message : String(first))
+    process.exit(2)
+  }
+}
+
+function databaseUrlOrExit(raw) {
+  let parsed
+  try {
+    parsed = new URL(raw)
+  } catch {
+    console.error('FAIL: DATABASE_URL is not a valid URL')
+    process.exit(2)
+  }
+  const host = parsed.hostname.toLowerCase()
+  if (
+    host === 'supabase.co' || host.endsWith('.supabase.co') ||
+    host === 'supabase.com' || host.endsWith('.supabase.com')
+  ) {
+    console.error(`FAIL: refusing DATABASE_URL host ${host} — SQL tests use an isolated throwaway Postgres only, never a Supabase project`)
+    process.exit(2)
+  }
+  return parsed
 }
 
 const read = (p) => readFileSync(p, 'utf8')
@@ -49,15 +81,27 @@ let admin // pg client connected to a maintenance database
 let testDbName
 
 if (process.env.DATABASE_URL) {
-  const base = new URL(process.env.DATABASE_URL)
-  testDbName = 'wf_suite_' + Math.random().toString(36).slice(2, 10)
-  const adminUrl = new URL(base); adminUrl.pathname = '/postgres'
-  admin = new pg.Client(adminUrl.toString())
-  await admin.connect()
-  await admin.query(`create database ${testDbName}`)
-  const testUrl = new URL(base); testUrl.pathname = '/' + testDbName
-  process.env._WF_TEST_URL = testUrl.toString()
-  cleanup = async () => { await admin.query(`drop database if exists ${testDbName}`); await admin.end() }
+  const base = databaseUrlOrExit(process.env.DATABASE_URL)
+  if (process.env.WF_SQL_IN_PLACE === '1') {
+    const dbName = decodeURIComponent(base.pathname.replace(/^\//, ''))
+    if (!dbName) {
+      console.error('FAIL: WF_SQL_IN_PLACE=1 requires DATABASE_URL to name a database (pg_cron can be created only in cron.database_name)')
+      process.exit(2)
+    }
+    testDbName = dbName
+    process.env._WF_TEST_URL = base.toString()
+    console.log(`SQL target: in-place throwaway ${base.hostname}:${base.port || '5432'}/${dbName} (database is not dropped)`)
+    cleanup = async () => {}
+  } else {
+    testDbName = 'wf_suite_' + Math.random().toString(36).slice(2, 10)
+    const adminUrl = new URL(base); adminUrl.pathname = '/postgres'
+    admin = new pg.Client(adminUrl.toString())
+    await admin.connect()
+    await admin.query(`create database ${testDbName}`)
+    const testUrl = new URL(base); testUrl.pathname = '/' + testDbName
+    process.env._WF_TEST_URL = testUrl.toString()
+    cleanup = async () => { await admin.query(`drop database if exists ${testDbName}`); await admin.end() }
+  }
 } else {
   const binDir = process.env.WF_PG_BIN_DIR ||
     join(DRILL, 'node_modules', '@embedded-postgres', 'linux-x64', 'native', 'bin')
@@ -111,14 +155,40 @@ async function runFile(label, path) {
 
 let ok = true
 try {
-  for (const [label, path] of [
-    ['setup:scaffold', join(HERE, 'scaffold.sql')],
-    ['setup:apply_all', join(REPO, 'supabase', 'apply_all.sql')],
-    ['setup:post-grants', join(HERE, 'post-grants.sql')],
-    ['setup:fixture', join(HERE, 'fixture.sql')],
-    ['setup:helpers', join(HERE, 'helpers.sql')],
-  ]) {
-    if (!await runFile(label, path)) { ok = false; break }
+  if (process.env.WF_SQL_IN_PLACE === '1') {
+    const probe = new pg.Client(url)
+    await probe.connect()
+    try {
+      const ver = await probe.query('show server_version')
+      const preload = await probe.query('show shared_preload_libraries')
+      const avail = await probe.query("select default_version from pg_available_extensions where name = 'pg_cron'")
+      const libs = String(preload.rows[0].shared_preload_libraries)
+      console.log(`server_version=${ver.rows[0].server_version}`)
+      console.log(`shared_preload_libraries=${libs}`)
+      const loaded = libs.split(',').map((s) => s.trim()).includes('pg_cron')
+      if (avail.rowCount === 0) {
+        console.error('FAIL: pg_cron is not installed on this Postgres')
+        ok = false
+      } else if (!loaded) {
+        console.error('FAIL: pg_cron is not in shared_preload_libraries, so CREATE EXTENSION pg_cron cannot succeed')
+        ok = false
+      } else {
+        console.log(`pg_cron available ${avail.rows[0].default_version}`)
+      }
+    } finally {
+      await probe.end().catch(() => {})
+    }
+  }
+  if (ok) {
+    for (const [label, path] of [
+      ['setup:scaffold', join(HERE, 'scaffold.sql')],
+      ['setup:apply_all', join(REPO, 'supabase', 'apply_all.sql')],
+      ['setup:post-grants', join(HERE, 'post-grants.sql')],
+      ['setup:fixture', join(HERE, 'fixture.sql')],
+      ['setup:helpers', join(HERE, 'helpers.sql')],
+    ]) {
+      if (!await runFile(label, path)) { ok = false; break }
+    }
   }
   if (ok) {
     const files = readdirSync(join(HERE, 'sql')).filter(f => f.endsWith('.sql')).sort()
