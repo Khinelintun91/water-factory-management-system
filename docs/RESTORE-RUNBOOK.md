@@ -18,7 +18,7 @@ Supabase Auth and are never in the backup file; accounts are recreated
 - The latest backup file (`backup-YYYY-MM-DD.json`, exported from the
   app's Owner home → Download backup, or produced by SQL in the same
   format: `{app, version: 1, exported_at, tables: {…}}`).
-- This repo (schema = `supabase/apply_all.sql`, migrations 0001–0029).
+- This repo (schema = `supabase/apply_all.sql`, migrations 0001–0030).
 - A target: a **fresh** Supabase project (preferred) or any PostgreSQL 15+
   (the drill used a local PostgreSQL 17 — notes in §7).
 - Node.js with the `pg` package available where you run the importer:
@@ -37,7 +37,7 @@ it is ACTIVE_HEALTHY. Do **not** restore over the live project.
 ## 2. Build the schema
 
 In the new project's SQL Editor, paste the whole of
-`supabase/apply_all.sql` once and Run. It applies migrations 0001–0029 in
+`supabase/apply_all.sql` once and Run. It applies migrations 0001–0030 in
 order (payroll, notifications, pg_cron job registrations included).
 
 Drill result: applied cleanly, first try, on PostgreSQL 17.
@@ -128,8 +128,9 @@ Two routes:
 
 - **In-app (preferred once one Owner exists):** recreate the Owner first
   via the SQL recipe below, sign in, then create the rest from the Users
-  page (it calls the `admin_create_user` RPC from migration 0014, which
-  also assigns the initial PIN the Owner chooses).
+  page (it calls the `admin_create_user` RPC from migration 0014, revised
+  by 0030 so a primary `co_owner` is accepted and uses the manager PIN
+  minimum of 6 digits. The Owner chooses that initial PIN).
 - **SQL recipe (bootstrap / bulk):** migration 0014's function inserts
   into `auth.users` + `auth.identities` with the bcrypt recipe and the
   empty-string token columns — copy that pattern exactly (NULL token

@@ -60,18 +60,25 @@ service_role key anywhere in the repo). The owner has been asked to make it priv
   the database. Each account has one primary role on `profiles.role`, plus
   any further roles the owner grants as rows in `user_roles`. A staff-and-agent
   person is that assignment: one of those two roles is primary, and the other
-  is a `user_roles` row. `admin_create_user()` accepts only the four core
-  roles as the primary role, and it sets `profiles.agent_id` only when that
-  primary role is `agent`. Holding `staff` (primary or `user_roles`) makes
-  `is_staff_plus()` true, so the account sees every agent's rows.
+  is a `user_roles` row. `admin_create_user()` (0014, revised by 0030) accepts
+  the four core roles and `co_owner` as the primary role, and it sets
+  `profiles.agent_id` only when that primary role is `agent`. Holding `staff`
+  (primary or `user_roles`) makes `is_staff_plus()` true, so the account sees
+  every agent's rows.
 - `co_owner` is an extra `user_role` value, not a fifth core role. `has_role()`
   treats it as manager (SPEC "Roles" says the same). The Users page dropdown
   lists `co_owner` with the four core roles, including on the create-account
-  form. `admin_create_user()` rejects a primary role outside the four
-  (`invalid_role`). A `user_roles` grant of `co_owner` matches the column
-  type and the owner-only insert policy (`app_role() = 'owner'`).
-- Migrations `0001`–`0029` in `supabase/migrations/`; `supabase/apply_all.sql` is the
-  regenerated concatenation (0001–0029) used for fresh installs and tests.
+  form. From migration 0030, `admin_create_user()` accepts that primary value.
+  Its PIN minimum is the manager minimum: 6 digits, maximum 12, digits only.
+  Owner and manager stay at 6; staff and agent stay at 4. `admin_reset_pin()`
+  uses that same minimum when the profile's primary role is `co_owner`. The
+  caller must still be an active primary owner (`profiles.role = 'owner'`);
+  a co_owner cannot create accounts. A `user_roles` grant of `co_owner` still
+  matches the column type and the owner-only insert policy (`app_role() = 'owner'`).
+- Migrations `0001`–`0030` in `supabase/migrations/`; `supabase/apply_all.sql` is the
+  regenerated concatenation (0001–0030) used for fresh installs and tests.
+  `0030` is in the repo only. It is not applied to the live database; the owner
+  applies it separately. Live migrations remain 0001–0029.
 
 ## 4. Non-negotiable rules (owner's firm decisions — never weaken silently)
 
@@ -168,11 +175,12 @@ conflicts with one of these, stop and flag it to the owner first.
 
 ## 8. Testing & how changes ship
 
-- Permanent test suite in `tests/`: 9 SQL assertion files (same-day guards incl.
+- Permanent test suite in `tests/`: 10 SQL assertion files (same-day guards incl.
   all 0027 tables, month lock incl. owner, insert-today + owner exception, agent
   isolation + staff phone privacy, login gateway + lockout, last-owner guard,
   0029 outstanding gate with golden values, `pay_month` goldens 320,000 and
-  290,000, `finalize_closeout` golden) plus Vitest unit tests.
+  290,000, `finalize_closeout` golden, `0030` co_owner create with a 6-digit
+  PIN plus invalid-role and owner-only checks) plus Vitest unit tests.
 - **Before pushing, always** (repo `AGENTS.md` rule):
   `tests/run-sql-tests.sh`, `npm test`, `npm run build` — and show the real output.
 - New UI string ⇒ add its `src/lib/i18nDict.ts` entry in the same commit.
