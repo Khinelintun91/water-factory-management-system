@@ -4,7 +4,7 @@
 Single-page React app (Vite build, static hosting) talking directly to the owner's Supabase project. There is no custom server: Postgres + RLS is the security boundary, the same two-layer model as the old app but with the old app's policy mistakes fixed.
 
 ```
-Phone browser (PWA) ──► static app (Cloudflare Pages)
+Phone browser (PWA) ──► static app (Cloudflare Workers static assets)
                             │  Supabase JS (publishable key)
                             ▼
                      Owner's Supabase project

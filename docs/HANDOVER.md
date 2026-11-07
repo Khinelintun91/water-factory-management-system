@@ -46,8 +46,12 @@ service_role key anywhere in the repo). The owner has been asked to make it priv
 - React 19 + Vite + TypeScript + Tailwind CSS v4, client-only SPA.
 - Supabase JS client; **all** data access from the browser. Security lives in the
   database: Row Level Security + triggers + `SECURITY DEFINER` RPCs. There is no
-  other backend (one Edge Function for user creation is written but undeployed —
-  users are created via SQL until then; see SETUP.md).
+  other backend. User management runs through the migration-0014 RPCs: after the
+  one-time bootstrapped first Owner (SETUP.md §3), the Owner creates all later
+  accounts and resets PINs from the app's **Users page** via `admin_create_user()`
+  / `admin_reset_pin()` (SETUP.md §4). The `supabase/functions/admin-create-user/`
+  Edge Function in the repo is a superseded reference implementation only — it is
+  **not** the live path and must not be wired back.
 - Login is **username + PIN/password only**. Internally each username maps to a
   synthetic email `username@waterfactory.local` for Supabase Auth — that address is
   an internal identifier and must **never** be shown in the UI.
@@ -136,7 +140,9 @@ conflicts with one of these, stop and flag it to the owner first.
   and reminds when today's backup is missing. Retention: daily files 30 days, then
   one per month long-term. **Business data is never deleted.**
 - Auth accounts are **not** in the backup (Supabase Auth is separate) — SETUP.md
-  documents the SQL path for recreating users.
+  and the RESTORE-RUNBOOK document how accounts are recreated after a restore:
+  bootstrap the first Owner, then recreate everyone else from the app's Users
+  page (PINs are re-issued, never restored).
 - A full **restore drill passed on 2026-11-06**: a backup file was restored into a
   clean Postgres 17 and every table matched the live snapshot exactly, with role
   simulation and trigger checks green. Tooling: `scripts/restore-import.mjs`;
