@@ -160,23 +160,29 @@ conflicts with one of these, stop and flag it to the owner first.
   yet in GitHub** — the previous tooling could not push workflow files, so the
   owner must add that one file via the GitHub web UI once.
 
-## 9. Repo ↔ live drift you must know about
+## 9. Repo ↔ live sync state
 
-GitHub `main` is at commit **`17e6d3e`** (migrations up to 0028). The following are
-**live in the database and present in the local working copy, but NOT yet pushed**
-— they are waiting for the owner's push approval:
+The Item-4 batch (migration `0029`, the whole `tests/` suite, `vitest.config.ts`
+and package.json test wiring, regenerated `apply_all.sql` to 0001–0029, SETUP.md
+ranges, the `AGENTS.md` "Before pushing" section, RESTORE-RUNBOOK range fixes,
+and this HANDOVER.md) **was pushed on 2026-11-07** — GitHub `main` is at commit
+**`3c0f1b7`**. GitHub, the live database (migrations 0001–0029) and the local
+working copy are **in sync**.
 
-- Migration `0029` (+ regenerated `apply_all.sql` to 0001–0029, SETUP.md ranges)
-- The whole `tests/` suite, `vitest.config.ts`, package.json test wiring
-- `AGENTS.md` "Before pushing" section, RESTORE-RUNBOOK range fixes
-- This HANDOVER.md
+Two honest remainders, neither of which affects the running app:
 
-First job for whoever continues: get that batch reviewed and pushed (the local
-test suite passes from scratch), then add `.github/workflows/ci.yml`.
+- `.github/workflows/ci.yml` is **still not in GitHub** (see §8) — the push
+  automation cannot write workflow files, so the owner adds that one file via
+  the GitHub web UI.
+- The `public/` icon PNGs (favicon, apple-touch-icon, PWA icons) exist only in
+  the local working copy — snapshot pushes are UTF-8-only and cannot carry
+  binaries. All icon URLs still return 200 on the live site; this only becomes
+  a risk if the site is ever redeployed purely from GitHub alone.
 
 ## 10. Open work, in the owner's priority order
 
-1. **Push the pending batch** (§9) and add the CI file.
+1. **Add `.github/workflows/ci.yml`** via the GitHub web UI (owner-only step —
+   automation cannot push workflow files).
 2. **Pilot preparation** (the next real phase): create the real staff/agent
    accounts (needs the owner's name/username list), write a pilot plan — 1–2 weeks
    parallel-running with the Lovable app and daily reconciliation — plus a short
