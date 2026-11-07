@@ -1,6 +1,6 @@
 # Setup — from zero to a working system
 
-_Updated 2026-11-06 to match the current repo (migrations 0001–0028)._
+_Updated 2026-11-06 to match the current repo (migrations 0001–0029)._
 
 ## 1. Create the Supabase project (owner, ~3 minutes)
 1. supabase.com → sign in → **New project**.
@@ -10,11 +10,11 @@ _Updated 2026-11-06 to match the current repo (migrations 0001–0028)._
 Free plan note: a free account may already hold an older paused/unused project. If Supabase refuses a second active project, either keep the old one paused (paused projects don't count as active) or delete the unused one first. Do NOT apply these migrations to an unrelated project; a clean, separate project is required. (The live project for this system is the owner's `water-factory` project.)
 
 ## 2. Apply the database migrations — ALL of them, in order
-Apply **every** migration `0001`–`0028`. Running only the first few files produces an incomplete database the current app cannot run on.
+Apply **every** migration `0001`–`0029`. Running only the first few files produces an incomplete database the current app cannot run on.
 
 Two equivalent ways (pick one):
-- **Fast way:** Supabase dashboard → **SQL Editor** → paste the whole of `supabase/apply_all.sql` (a generated concatenation of 0001–0028, in order) and Run once.
-- **Step-by-step way:** SQL Editor → paste and run each file in `supabase/migrations/` in filename order, `0001_schema.sql` through `0028_function_grant_sweep.sql`. Each must finish with "Success". If a file errors, stop and fix that file first — do not skip ahead.
+- **Fast way:** Supabase dashboard → **SQL Editor** → paste the whole of `supabase/apply_all.sql` (a generated concatenation of 0001–0029, in order) and Run once.
+- **Step-by-step way:** SQL Editor → paste and run each file in `supabase/migrations/` in filename order, `0001_schema.sql` through `0029_agent_outstanding_caller_check.sql`. Each must finish with "Success". If a file errors, stop and fix that file first — do not skip ahead.
 
 The individual files in `migrations/` remain the source of truth; `apply_all.sql` is regenerated from them, never edited by hand.
 

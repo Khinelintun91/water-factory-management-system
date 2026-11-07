@@ -16,6 +16,11 @@ Read `SPEC.md` first. It is the contract; this file is only working conventions.
 - Names/titles: write "ရေသန့်စက်ရုံ" generically; the factory display name is the `app_settings.factory_name` value, never a hard-coded string.
 - Migrations: one file per change in `supabase/migrations/`, named `NNNN_description.sql`, applied in order, never edited after merge (write a new migration instead).
 
+## Before pushing
+
+- Run `tests/run-sql-tests.sh` (database rules suite) **and** `npm test` (unit tests) **and** `npm run build`; show the actual output in your report — never just claim they pass. A change that touches migrations, RPCs, or money logic is not done while any suite is red.
+- New UI string? Add its `src/lib/i18nDict.ts` entry in the **same commit** — English mode is a dictionary-driven DOM translator, so an unlisted Burmese string silently stays Burmese in English mode.
+
 ## Security checklist for every change
 - [ ] New table? RLS enabled + policies written + audit trigger attached if it holds business data.
 - [ ] New query path? Agent role still sees only their own rows; Staff still cannot read `agent_contacts`.

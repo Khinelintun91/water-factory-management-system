@@ -2,7 +2,7 @@
 /**
  * restore-import.mjs — load a backup file produced by src/lib/backup.ts
  * (exportBackup) into a Postgres database whose schema has ALREADY been
- * created from supabase/apply_all.sql (migrations 0001–0025).
+ * created from supabase/apply_all.sql (migrations 0001–0029).
  *
  * Prerequisite: the `pg` package. It is deliberately NOT a runtime
  * dependency of the app; install it ad hoc where you run the restore:
