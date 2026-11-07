@@ -5,40 +5,68 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ---------------------------------------------------------------------------
-   Phase D design tokens.
-   Brand = deep teal (anchored on #0F766E), accent = warm amber (money /
-   attention states), surfaces = warm neutrals (stone family + paper).
+   Ledger ink.
+   One ink-navy action colour on cool paper, so the main button reads like
+   a bank statement rather than a tinted consumer app. Gold is reserved for
+   the wallet-card top tier (lib/cardFace.ts) and is not used here. Attention
+   states are rust, which stays distinct from that gold. Surfaces are solid:
+   no translucent panels and no backdrop blur.
    Tailwind v4 turns these into utilities: bg-brand-700, text-accent-600,
    shadow-card, bg-paper, ...
 --------------------------------------------------------------------------- */
 @theme {
-  --color-brand-50: #effaf8;
-  --color-brand-100: #d7f2ee;
-  --color-brand-200: #b2e4de;
-  --color-brand-300: #81cfc7;
-  --color-brand-400: #4db3aa;
-  --color-brand-500: #2f968e;
-  --color-brand-600: #217a74;
-  --color-brand-700: #0f766e;
-  --color-brand-800: #115954;
-  --color-brand-900: #0f4a46;
-  --color-brand-950: #042f2c;
+  --color-brand-50: #f2f6fa;
+  --color-brand-100: #e3ebf3;
+  --color-brand-200: #c5d5e6;
+  --color-brand-300: #8fb0cc;
+  --color-brand-400: #5a87ad;
+  --color-brand-500: #2f6390;
+  --color-brand-600: #1a4a73;
+  --color-brand-700: #0e2a43;
+  --color-brand-800: #0a2034;
+  --color-brand-900: #071828;
+  --color-brand-950: #040e18;
 
-  --color-accent-50: #fffbeb;
-  --color-accent-100: #fef3c7;
-  --color-accent-200: #fde68a;
-  --color-accent-300: #fcd34d;
-  --color-accent-400: #fbbf24;
-  --color-accent-500: #f59e0b;
-  --color-accent-600: #d97706;
-  --color-accent-700: #b45309;
-  --color-accent-800: #92400e;
+  --color-accent-50: #fdf4f1;
+  --color-accent-100: #f8e4dc;
+  --color-accent-200: #f0c7b6;
+  --color-accent-300: #e4a084;
+  --color-accent-400: #d4784e;
+  --color-accent-500: #c25a32;
+  --color-accent-600: #a34724;
+  --color-accent-700: #86381c;
+  --color-accent-800: #6c2e18;
+  --color-accent-950: #3d1a10;
 
-  /* Warm app background (light mode). Dark mode uses neutral-950. */
-  --color-paper: #faf8f5;
+  /* Cool statement paper (light mode). Dark mode uses neutral-950. */
+  --color-paper: #f4f6f8;
 
-  --shadow-card: 0 1px 2px rgb(41 37 36 / 0.05), 0 8px 24px -12px rgb(41 37 36 / 0.14);
-  --shadow-pop: 0 12px 32px -8px rgb(41 37 36 / 0.28);
+  --color-stone-50: #f7f8fa;
+  --color-stone-100: #eef1f4;
+  --color-stone-200: #e1e6ec;
+  --color-stone-300: #c9d1da;
+  --color-stone-400: #8e9aab;
+  --color-stone-500: #667588;
+  --color-stone-600: #4e5d6e;
+  --color-stone-700: #3a4654;
+  --color-stone-800: #24303c;
+  --color-stone-900: #15202b;
+  --color-stone-950: #0c141c;
+
+  --color-neutral-50: #f5f7f9;
+  --color-neutral-100: #e7edf2;
+  --color-neutral-200: #d3dbe3;
+  --color-neutral-300: #b0bcc8;
+  --color-neutral-400: #8b98a6;
+  --color-neutral-500: #6b7886;
+  --color-neutral-600: #526070;
+  --color-neutral-700: #3a4654;
+  --color-neutral-800: #222a33;
+  --color-neutral-900: #151b22;
+  --color-neutral-950: #0b1014;
+
+  --shadow-card: 0 1px 0 rgb(14 26 40 / 0.04), 0 1px 2px rgb(14 26 40 / 0.06);
+  --shadow-pop: 0 16px 40px -12px rgb(14 26 40 / 0.35);
 }
 
 :root {
@@ -51,7 +79,8 @@
 
 @layer base {
   body {
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Myanmar", sans-serif;
+    font-family: "Noto Sans Myanmar", "Myanmar Text", "Segoe UI", system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
     @apply bg-paper text-stone-900 antialiased dark:bg-neutral-950 dark:text-neutral-100;
     -webkit-tap-highlight-color: transparent;
   }

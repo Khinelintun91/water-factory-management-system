@@ -348,7 +348,7 @@ export default function InventoryPage() {
             className={inputCls}
           />
         </Field>
-        <div className="max-md:sticky max-md:bottom-[calc(70px_+_env(safe-area-inset-bottom))] max-md:z-10 max-md:-mx-4 max-md:border-t max-md:border-stone-200/90 max-md:bg-white/95 max-md:px-4 max-md:py-2.5 max-md:backdrop-blur dark:max-md:border-neutral-800 dark:max-md:bg-neutral-900/95">
+        <div className="max-md:sticky max-md:bottom-[calc(70px_+_env(safe-area-inset-bottom))] max-md:z-10 max-md:-mx-4 max-md:border-t max-md:border-stone-200 max-md:bg-white max-md:px-4 max-md:py-2.5 dark:max-md:border-neutral-800 dark:max-md:bg-neutral-900">
           <PrimaryButton type="submit" disabled={busy} className="w-full">
             သိမ်းရန်
           </PrimaryButton>

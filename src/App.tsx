@@ -171,7 +171,7 @@ export default function App() {
   return (
     <div className="min-h-dvh">
       {/* Tablet icon rail (768-1023px) / desktop sidebar (>=1024px). */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[76px] flex-col border-r border-stone-200/90 bg-white dark:border-neutral-800 dark:bg-neutral-900 md:flex lg:w-64 print:hidden">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[76px] flex-col border-r border-stone-200 bg-white dark:border-neutral-800 dark:bg-neutral-900 md:flex lg:w-64 print:hidden">
         <div className="flex items-center justify-center gap-2.5 px-3 pb-2 pt-4 lg:justify-start lg:px-5">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white shadow-sm">
             <DropIcon className="h-6 w-6" />
@@ -191,9 +191,9 @@ export default function App() {
                 key={n.to}
                 to={n.to}
                 aria-current={active ? 'page' : undefined}
-                className={`flex flex-col items-center justify-center gap-1 rounded-xl px-1 py-2.5 text-center text-[11px] leading-tight transition lg:flex-row lg:justify-start lg:gap-3 lg:px-3.5 lg:text-left lg:text-sm ${
+                className={`flex flex-col items-center justify-center gap-1 rounded-lg px-1 py-2.5 text-center text-[11px] leading-tight transition lg:flex-row lg:justify-start lg:gap-3 lg:px-3.5 lg:text-left lg:text-sm ${
                   active
-                    ? 'bg-brand-700 font-semibold text-white shadow-sm'
+                    ? 'bg-brand-700 font-semibold text-white'
                     : 'text-stone-600 hover:bg-brand-50 hover:text-brand-800 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-white'
                 }`}
               >
@@ -207,7 +207,7 @@ export default function App() {
 
       <div className="flex min-h-dvh flex-col md:pl-[76px] lg:pl-64">
         {/* Top bar: identity + bell + sign-out on every size. */}
-        <header className="sticky top-0 z-20 border-b border-stone-200/90 bg-white/85 backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/85 print:hidden">
+        <header className="sticky top-0 z-20 border-b border-stone-200 bg-white dark:border-neutral-800 dark:bg-neutral-900 print:hidden">
           <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-2 px-4 py-2.5 md:max-w-3xl lg:max-w-6xl lg:px-6">
             <div className="min-w-0">
               <div className="truncate font-bold leading-tight lg:hidden">{factoryName}</div>
@@ -365,7 +365,7 @@ export default function App() {
 
       {/* Phone bottom tab bar: primary destinations + More. */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/95 md:hidden print:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200 bg-white pb-[env(safe-area-inset-bottom)] dark:border-neutral-800 dark:bg-neutral-900 md:hidden print:hidden"
         aria-label="Menu"
       >
         <div
@@ -383,7 +383,7 @@ export default function App() {
               >
                 <span
                   className={`flex items-center justify-center rounded-full px-3 py-0.5 ${
-                    active ? 'bg-brand-100 dark:bg-brand-900/60' : ''
+                    active ? 'bg-brand-100 text-brand-800 dark:bg-brand-800 dark:text-white' : ''
                   }`}
                 >
                   <NavIcon to={t.to} className="h-6 w-6" />
@@ -400,7 +400,7 @@ export default function App() {
           >
             <span
               className={`flex items-center justify-center rounded-full px-3 py-0.5 ${
-                moreActive ? 'bg-brand-100 dark:bg-brand-900/60' : ''
+                moreActive ? 'bg-brand-100 text-brand-800 dark:bg-brand-800 dark:text-white' : ''
               }`}
             >
               <MoreIcon className="h-6 w-6" />
@@ -419,7 +419,7 @@ export default function App() {
             onClick={() => setMoreOpen(false)}
             className="absolute inset-0 h-full w-full bg-black/40"
           />
-          <div className="absolute inset-x-0 bottom-0 rounded-t-3xl bg-white p-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))] shadow-pop dark:bg-neutral-900">
+          <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-stone-200 bg-white p-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))] shadow-pop dark:border-neutral-700 dark:bg-neutral-900">
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-stone-300 dark:bg-neutral-700" />
             <div className="mb-3 flex items-center justify-between">
               <span className="font-bold">နောက်ထပ်</span>
@@ -441,9 +441,9 @@ export default function App() {
                     to={n.to}
                     aria-current={active ? 'page' : undefined}
                     onClick={() => setMoreOpen(false)}
-                    className={`flex flex-col items-center gap-1.5 rounded-2xl border px-1 py-3 text-center text-[11px] leading-tight ${
+                    className={`flex flex-col items-center gap-1.5 rounded-xl border px-1 py-3 text-center text-[11px] leading-tight ${
                       active
-                        ? 'border-brand-600 bg-brand-50 font-semibold text-brand-800 dark:border-brand-500 dark:bg-brand-950/50 dark:text-brand-200'
+                        ? 'border-brand-700 bg-brand-50 font-semibold text-brand-800 dark:border-brand-400 dark:bg-brand-950 dark:text-brand-100'
                         : 'border-stone-200 text-stone-600 dark:border-neutral-800 dark:text-neutral-300'
                     }`}
                   >
