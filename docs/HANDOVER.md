@@ -162,46 +162,53 @@ conflicts with one of these, stop and flag it to the owner first.
 - Repo convention: branch + PR for non-trivial work, small reviewable commits;
   one builder at a time. A push to `main` deploys the live site, so never push
   untested work to `main`.
-- CI: `.github/workflows/ci.yml` exists locally (build + unit tests). It is **not
-  yet in GitHub** — the previous tooling could not push workflow files, so the
-  owner must add that one file via the GitHub web UI once.
+- CI: `.github/workflows/ci.yml` runs on pull requests targeting `main`, on
+  pushes to `main`, and on manual dispatch. Permission is `contents: read`
+  only. One job runs `npm ci`, `npm test`, and `npm run build` on Node
+  22.23.4 (the lockfile rejects Node 20: Vitest 5 requires `^22.12`, and
+  Rollup's optional Linux lzma package requires `^22.20`). A second job
+  starts a throwaway `postgres:17` service, installs `postgresql-17-cron`
+  into that container, preloads `pg_cron`, and runs `tests/run-sql-tests.sh`
+  in place on that container's `postgres` database. No deploy step and no
+  production secrets. AGENTS.md still requires the same three commands
+  locally before pushing.
 
 ## 9. Repo ↔ live sync state
 
 The Item-4 batch (migration `0029`, the whole `tests/` suite, `vitest.config.ts`
 and package.json test wiring, regenerated `apply_all.sql` to 0001–0029, SETUP.md
 ranges, the `AGENTS.md` "Before pushing" section, RESTORE-RUNBOOK range fixes,
-and this HANDOVER.md) **was pushed on 2026-11-07** — GitHub `main` is at commit
-**`3c0f1b7`**. GitHub, the live database (migrations 0001–0029) and the local
-working copy are **in sync**.
+and this HANDOVER.md) **was pushed on 2026-11-07** at commit **`3c0f1b7`**.
+`main` later moved to **`adeb7e7`** (docs accuracy). Live migrations remain
+0001–0029.
 
-Two honest remainders, neither of which affects the running app:
+Honest remainders, neither of which changes the running app:
 
-- `.github/workflows/ci.yml` is **still not in GitHub** (see §8) — the push
-  automation cannot write workflow files, so the owner adds that one file via
-  the GitHub web UI.
-- The `public/` icon PNGs (favicon, apple-touch-icon, PWA icons) exist only in
-  the local working copy — snapshot pushes are UTF-8-only and cannot carry
-  binaries. All icon URLs still return 200 on the live site; this only becomes
-  a risk if the site is ever redeployed purely from GitHub alone.
+- `.github/workflows/ci.yml` is in the repo (see §8). It does not deploy.
+  A push to `main` still ships the live site through the existing host
+  setup, which is separate from this workflow.
+- Icon PNGs are not committed. Git tracks `public/manifest.webmanifest` and
+  `scripts/gen-icons.mjs`. `npm run build` runs that script first and writes
+  `public/favicon.png` (64), `public/apple-touch-icon.png` (180),
+  `public/icons/icon-192.png`, `public/icons/icon-512.png`, and
+  `public/icons/maskable-512.png`; Vite copies them into `dist/`. A clean
+  checkout can regenerate them. Do not commit the generated PNGs.
 
 ## 10. Open work, in the owner's priority order
 
-1. **Add `.github/workflows/ci.yml`** via the GitHub web UI (owner-only step —
-   automation cannot push workflow files).
-2. **Pilot preparation** (the next real phase): create the real staff/agent
+1. **Pilot preparation** (the next real phase): create the real staff/agent
    accounts (needs the owner's name/username list), write a pilot plan — 1–2 weeks
    parallel-running with the Lovable app and daily reconciliation — plus a short
    Burmese quickstart for staff/agents. Do not start entering real data before the
    owner agrees the pilot start date.
-3. **FCM push notifications**: blocked on the owner providing the Firebase
+2. **FCM push notifications**: blocked on the owner providing the Firebase
    service-account JSON (Firebase project `water-delivery-noti`). It must go into
    a Supabase Edge Function secret — **never commit it to the repo**.
-4. P1 hardening from the 2026-11-06 professional audit: error tracking / React
+3. P1 hardening from the 2026-11-06 professional audit: error tracking / React
    Error Boundary, incident runbook, PWA service worker (offline is currently an
    entries-only queue), replacing the `xlsx` dependency (known advisories, no fix
    released).
-5. Owner-only account hygiene (reminded, pending): make the GitHub repo private,
+4. Owner-only account hygiene (reminded, pending): make the GitHub repo private,
    enable MFA on Supabase/GitHub/Cloudflare, lengthen the owner PIN to 8–12 digits
    via the in-app PIN change.
 
