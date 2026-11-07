@@ -18,7 +18,7 @@ Supabase Auth and are never in the backup file; accounts are recreated
 - The latest backup file (`backup-YYYY-MM-DD.json`, exported from the
   app's Owner home → Download backup, or produced by SQL in the same
   format: `{app, version: 1, exported_at, tables: {…}}`).
-- This repo (schema = `supabase/apply_all.sql`, migrations 0001–0029).
+- This repo (schema = `supabase/apply_all.sql`: migrations 0001–0029, then 0031). `0030` is PR #4 and is not in this file. Apply it before 0031 when both are approved.
 - A target: a **fresh** Supabase project (preferred) or any PostgreSQL 15+
   (the drill used a local PostgreSQL 17 — notes in §7).
 - Node.js with the `pg` package available where you run the importer:
@@ -37,8 +37,8 @@ it is ACTIVE_HEALTHY. Do **not** restore over the live project.
 ## 2. Build the schema
 
 In the new project's SQL Editor, paste the whole of
-`supabase/apply_all.sql` once and Run. It applies migrations 0001–0029 in
-order (payroll, notifications, pg_cron job registrations included).
+`supabase/apply_all.sql` once and Run. On this branch it applies migrations 0001–0029 and then 0031
+in that order (payroll, notifications, pg_cron job registrations included). `0030` is not in the file.
 
 Drill result: applied cleanly, first try, on PostgreSQL 17.
 

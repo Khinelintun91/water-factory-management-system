@@ -18,6 +18,8 @@ Two equivalent ways (pick one):
 
 The individual files in `migrations/` remain the source of truth; `apply_all.sql` is regenerated from them, never edited by hand.
 
+This branch's `apply_all.sql` is `0001`–`0029` followed by `0031_agent_close_columns.sql`. `0030` is not in this branch; it is PR #4. When the owner applies both approved migrations, apply `0030` first and `0031` second. `0031` does not depend on `0030`. Neither is applied to the live database from this work.
+
 ## 3. Create the first Owner account
 The very first owner is bootstrapped manually (later accounts are created inside the app — see §4):
 1. Dashboard → **Authentication → Users → Add user**: email `owner@waterfactory.local`, password = the owner's chosen PIN (owner/manager: 6–12 digits), confirm the user.

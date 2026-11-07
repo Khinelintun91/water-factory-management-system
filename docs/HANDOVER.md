@@ -70,8 +70,12 @@ service_role key anywhere in the repo). The owner has been asked to make it priv
   form. `admin_create_user()` rejects a primary role outside the four
   (`invalid_role`). A `user_roles` grant of `co_owner` matches the column
   type and the owner-only insert policy (`app_role() = 'owner'`).
-- Migrations `0001`–`0029` in `supabase/migrations/`; `supabase/apply_all.sql` is the
-  regenerated concatenation (0001–0029) used for fresh installs and tests.
+- Migrations `0001`–`0029` plus `0031` are in this branch. `0030` is not:
+  it is PR #4 (`co_owner` account creation) and stays on that branch.
+  `supabase/apply_all.sql` here is 0001–0029 followed by 0031. When the
+  owner applies both, the order is 0030 then 0031. `0031` does not require
+  objects from 0030. Neither file is applied to the live database by this
+  work. Live migrations remain 0001–0029.
 
 ## 4. Non-negotiable rules (owner's firm decisions — never weaken silently)
 
@@ -95,7 +99,9 @@ conflicts with one of these, stop and flag it to the owner first.
    does not reopen one. `finalize_closeout` writes one settlement and sets
    `agents.closed_at`; a second call is rejected (`already_closed`). The
    optional settlement note is a note on that settlement, not a reopen reason.
-   Mechanism: `docs/ARCHITECTURE.md` (Close-out).
+   `0031` rejects a direct UPDATE that sets, clears, or changes `closed_at`
+   or `closed_by` outside that function. Mechanism: `docs/ARCHITECTURE.md`
+   (Close-out).
 8. **Words** — bottle word is always **ဗူး**, never ပုလင်း. The classifier လုံး was
    replaced by ဗူး in all bottle contexts (deliberate exceptions: device counts
    like "စက်: N လုံး", and unrelated words like အားလုံး).
@@ -168,11 +174,12 @@ conflicts with one of these, stop and flag it to the owner first.
 
 ## 8. Testing & how changes ship
 
-- Permanent test suite in `tests/`: 9 SQL assertion files (same-day guards incl.
+- Permanent test suite in `tests/`: 10 SQL assertion files (same-day guards incl.
   all 0027 tables, month lock incl. owner, insert-today + owner exception, agent
   isolation + staff phone privacy, login gateway + lockout, last-owner guard,
   0029 outstanding gate with golden values, `pay_month` goldens 320,000 and
-  290,000, `finalize_closeout` golden) plus Vitest unit tests.
+  290,000, `finalize_closeout` golden, `0031` direct close-column writes
+  rejected and AgentsPage fields still editable) plus Vitest unit tests.
 - **Before pushing, always** (repo `AGENTS.md` rule):
   `tests/run-sql-tests.sh`, `npm test`, `npm run build` — and show the real output.
 - New UI string ⇒ add its `src/lib/i18nDict.ts` entry in the same commit.
