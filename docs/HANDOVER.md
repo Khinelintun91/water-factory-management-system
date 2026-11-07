@@ -55,8 +55,21 @@ service_role key anywhere in the repo). The owner has been asked to make it priv
 - Login is **username + PIN/password only**. Internally each username maps to a
   synthetic email `username@waterfactory.local` for Supabase Auth — that address is
   an internal identifier and must **never** be shown in the UI.
-- Roles: `owner`, `manager`, `staff`, `agent` (plus `primary_agent`: an agent who is
-  also staff — enters own bottles like staff, collects only own money).
+- Core roles are four: `owner`, `manager`, `staff`, `agent`. The string
+  `primary_agent` is not a role in the `user_role` enum, the Users page, or
+  the database. Each account has one primary role on `profiles.role`, plus
+  any further roles the owner grants as rows in `user_roles`. A staff-and-agent
+  person is that assignment: one of those two roles is primary, and the other
+  is a `user_roles` row. `admin_create_user()` accepts only the four core
+  roles as the primary role, and it sets `profiles.agent_id` only when that
+  primary role is `agent`. Holding `staff` (primary or `user_roles`) makes
+  `is_staff_plus()` true, so the account sees every agent's rows.
+- `co_owner` is an extra `user_role` value, not a fifth core role. `has_role()`
+  treats it as manager (SPEC "Roles" says the same). The Users page dropdown
+  lists `co_owner` with the four core roles, including on the create-account
+  form. `admin_create_user()` rejects a primary role outside the four
+  (`invalid_role`). A `user_roles` grant of `co_owner` matches the column
+  type and the owner-only insert policy (`app_role() = 'owner'`).
 - Migrations `0001`–`0029` in `supabase/migrations/`; `supabase/apply_all.sql` is the
   regenerated concatenation (0001–0029) used for fresh installs and tests.
 
@@ -78,7 +91,11 @@ conflicts with one of these, stop and flag it to the owner first.
 5. **Month lock** — a locked month rejects all writes for every role.
 6. **Per-agent prices & deposits** — no global price; each order keeps a price
    snapshot; bottle deposits are per-agent (no default 10,000).
-7. **Close-outs are immutable** — reopening is owner-only, with a mandatory reason.
+7. **Close-outs are permanent.** No role can reopen one, and giving a reason
+   does not reopen one. `finalize_closeout` writes one settlement and sets
+   `agents.closed_at`; a second call is rejected (`already_closed`). The
+   optional settlement note is a note on that settlement, not a reopen reason.
+   Mechanism: `docs/ARCHITECTURE.md` (Close-out).
 8. **Words** — bottle word is always **ဗူး**, never ပုလင်း. The classifier လုံး was
    replaced by ဗူး in all bottle contexts (deliberate exceptions: device counts
    like "စက်: N လုံး", and unrelated words like အားလုံး).
