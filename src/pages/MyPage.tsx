@@ -47,7 +47,7 @@ export default function MyPage() {
   const [writeOffTotal, setWriteOffTotal] = useState(0)
   const [depositTotal, setDepositTotal] = useState(0)
   const [agent, setAgent] = useState<Agent | null>(null)
-  const [cardTier, setCardTier] = useState<{ tier: FaceTier; rank: number; count: number } | null>(null)
+  const [cardTier, setCardTier] = useState<{ tier: FaceTier; lifetimeSales: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [monthFilter, setMonthFilter] = useState('all')
@@ -125,10 +125,10 @@ export default function MyPage() {
       setWriteOffTotal(wo.reduce((s, w) => s + w.amount, 0))
       setDepositTotal(dep.reduce((s, d) => s + d.amount, 0))
       setAgent((ag.data ?? null) as Agent | null)
-      const tierRows = (ct.data ?? []) as { tier: FaceTier; sales_rank: number; agent_count: number }[]
+      const tierRows = (ct.data ?? []) as { tier: FaceTier; lifetime_sales: number }[]
       setCardTier(
         tierRows[0]
-          ? { tier: tierRows[0].tier, rank: tierRows[0].sales_rank, count: tierRows[0].agent_count }
+          ? { tier: tierRows[0].tier, lifetimeSales: Number(tierRows[0].lifetime_sales) }
           : null,
       )
     } catch {
@@ -398,7 +398,7 @@ export default function MyPage() {
             </span>
           </div>
           <p className="mt-1.5 px-0.5 text-xs text-stone-500 dark:text-neutral-400">
-            ရောင်းအား အဆင့်: {cardTier.rank} / {cardTier.count}
+            စုစုပေါင်း ရောင်းအား: {formatMMK(cardTier.lifetimeSales)}
           </p>
         </div>
       )}

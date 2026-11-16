@@ -1165,4 +1165,7 @@ export const EN: Record<string, string> = {
   "ပိုပေးထားငွေ": "Overpaid",
   "ကျွန်ုပ်၏ စာရင်း အပြည့်အစုံ": "My full record",
   "အကောင့် ချိတ်ဆက်မှု မရှိသေးပါ": "No agent account is linked yet",
+  "စုစုပေါင်း ရောင်းအား": "Total sales",
+  "နောက်ဆုံး မှတ်တမ်းများ": "Latest records",
+  "ငွေပေးချေမှု": "Payment",
 };

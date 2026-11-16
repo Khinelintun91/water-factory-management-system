@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { formatMMK, personName, todayYangon, type Agent } from '../lib/types'
-import { FACE_TIERS, salesTierMap, type FaceTier } from '../lib/cardFace'
+import { FACE_TIERS, cardTierForSales, type FaceTier } from '../lib/cardFace'
 import {
   EmptyState,
   Field,
@@ -309,16 +309,16 @@ export default function AgentsPage() {
   const miniLabel = 'text-[11px] font-medium text-stone-500 dark:text-neutral-400'
   const miniValue = 'mt-0.5 text-sm font-bold tabular-nums'
 
-  // Face tiers by lifetime sales (shared salesTierMap). Rank the agents
-  // still on this list, in created_at order, so an archived agent does
-  // not change the colours of the people who are left.
+  // Face tiers by lifetime sales (shared cardTierForSales): fixed
+  // thresholds on each agent's own sales. Only agents still on this
+  // list get a tier, so an archived agent never affects the colours
+  // of the people who are left.
   const tierByAgent = useMemo(
     () =>
-      salesTierMap(
-        [...rows]
+      new Map(
+        rows
           .filter((r) => !r.archived_at)
-          .sort((x, y) => x.created_at.localeCompare(y.created_at))
-          .map((r) => ({ id: r.id, sales: r.sales })),
+          .map((r) => [r.id, cardTierForSales(r.sales)] as const),
       ),
     [rows],
   )

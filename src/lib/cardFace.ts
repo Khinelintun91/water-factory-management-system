@@ -1,11 +1,19 @@
-// Card-face tiers by sales, shared by the Collections wallet stack, the
-// Agents-page stack and the agent's own face on My Page. Colours match the
-// owner's reference card photos (gold / white-silver / black); text colours
-// flip per tier so names stay readable. No chip graphic — the owner asked
-// to leave it out.
-// the best-selling agents get a gold face, the middle group a white/silver
-// face, the lowest a black face. (No chip graphic — the owner asked to
-// leave it out.) Text colours flip per tier so names stay readable.
+// Card-face tiers by lifetime sales, shared by the Collections wallet
+// stack, the Agents-page stack and the agent's own face on My Page and
+// Agent Home. Colours match the owner's reference card photos (gold /
+// white-silver / black); text colours flip per tier so names stay
+// readable. No chip graphic — the owner asked to leave it out.
+//
+// Tier rule (owner, 2026-11-16): a pure function of the agent's OWN
+// lifetime sales (sum of daily_entries.amount) — fixed thresholds, not
+// a ranking against other agents:
+//   sales >= 20,000,000 MMK  → gold
+//   sales >= 10,000,000 MMK  → white
+//   otherwise (incl. zero)   → black
+// Closed/settled agents are always black; that override lives at the
+// render sites, which know the agent's closed state. This mirrors the
+// my_card_tier() RPC (migration 0040), so the owner's pages and the
+// agent's own pages always agree on a tier.
 export type FaceTier = 'gold' | 'white' | 'black'
 export const FACE_TIERS: Record<
   FaceTier,
@@ -37,28 +45,16 @@ export const FACE_TIERS: Record<
   },
 }
 
+/** Lifetime-sales thresholds for the face tiers (MMK). */
+export const GOLD_TIER_MIN_SALES = 20_000_000
+export const WHITE_TIER_MIN_SALES = 10_000_000
+
 /**
- * Rank agents by lifetime sales and split into thirds — top gold, middle
- * white, bottom black; zero sales is always black. `rows` must be in
- * created_at order so sales ties break the same way everywhere; this
- * mirrors the my_card_tier() RPC (migration 0024), so the owner's pages
- * and the agent's own My Page always agree on a tier.
+ * The face tier for one agent from their own lifetime sales alone.
+ * Zero or negative sales is black (below the white threshold anyway).
  */
-export function salesTierMap(rows: { id: string; sales: number }[]): Map<string, FaceTier> {
-  const ranked = [...rows].sort((x, y) => y.sales - x.sales)
-  const n = ranked.length
-  const m = new Map<string, FaceTier>()
-  ranked.forEach((r, i) => {
-    m.set(
-      r.id,
-      r.sales <= 0
-        ? 'black'
-        : i < Math.ceil(n / 3)
-          ? 'gold'
-          : i < Math.ceil((2 * n) / 3)
-            ? 'white'
-            : 'black',
-    )
-  })
-  return m
+export function cardTierForSales(sales: number): FaceTier {
+  if (sales >= GOLD_TIER_MIN_SALES) return 'gold'
+  if (sales >= WHITE_TIER_MIN_SALES) return 'white'
+  return 'black'
 }

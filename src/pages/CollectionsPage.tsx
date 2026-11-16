@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { dailySummaryCsv } from '../lib/exports'
 import { formatMMK, personName, todayYangon, type Agent, type Profile } from '../lib/types'
-import { FACE_TIERS, salesTierMap } from '../lib/cardFace'
+import { FACE_TIERS, cardTierForSales } from '../lib/cardFace'
 import {
   Banner,
   Card,
@@ -364,11 +364,16 @@ export default function CollectionsPage() {
     })
   }
 
-  // Face tier per agent: rank all agents by lifetime sales and split into
-  // thirds — top gold, middle white, bottom black (shared salesTierMap;
-  // agents arrive in created_at order, matching the My Page RPC).
+  // Face tier per agent: fixed lifetime-sales thresholds (shared
+  // cardTierForSales) — each agent's colour depends only on their own
+  // sales, never on how the other agents are doing.
   const tierByAgent = useMemo(
-    () => salesTierMap(agents.map((a) => ({ id: a.id, sales: totals.get(a.id)?.sales ?? 0 }))),
+    () =>
+      new Map(
+        agents.map(
+          (a) => [a.id, cardTierForSales(totals.get(a.id)?.sales ?? 0)] as const,
+        ),
+      ),
     [agents, totals],
   )
 
