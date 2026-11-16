@@ -130,8 +130,11 @@ export default function NotificationBell() {
     load()
   }
 
+  // `static` below the sm breakpoint so the open panel is positioned
+  // against the sticky header (see .notif-panel in index.css). From sm
+  // up it stays anchored to this button, same as before.
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className="static sm:relative">
       <button
         type="button"
         aria-label="အသိပေးချက်များ"
@@ -162,20 +165,20 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-2 w-80 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border bg-white shadow-xl dark:bg-neutral-900">
-          <div className="flex items-center justify-between border-b px-3 py-2">
-            <span className="text-sm font-semibold">အသိပေးချက်များ</span>
+        <div className="notif-panel absolute right-0 top-full z-30 mt-2 w-80 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border bg-white shadow-xl dark:bg-neutral-900">
+          <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
+            <span className="min-w-0 break-words text-sm font-semibold leading-5">အသိပေးချက်များ</span>
             {unread > 0 && (
               <button
                 type="button"
                 onClick={markAllRead}
-                className="rounded-lg px-2 py-1 text-xs text-teal-700 dark:text-teal-400"
+                className="shrink-0 rounded-lg px-2 py-1 text-xs text-teal-700 dark:text-teal-400"
               >
                 အားလုံး ဖတ်ပြီး
               </button>
             )}
           </div>
-          <div className="max-h-96 overflow-y-auto">
+          <div className="notif-scroll max-h-96 overflow-y-auto overscroll-contain">
             {rows.length === 0 && (
               <p className="py-8 text-center text-sm opacity-60">
                 အသိပေးချက် မရှိသေးပါ
@@ -201,7 +204,7 @@ export default function NotificationBell() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span
-                        className={`block text-sm leading-5 ${
+                        className={`block break-words text-sm leading-5 ${
                           isUnread ? 'font-semibold' : 'opacity-75'
                         }`}
                       >
@@ -213,7 +216,7 @@ export default function NotificationBell() {
                         )}
                       </span>
                       {n.body && (
-                        <span className="mt-0.5 block text-xs leading-5 opacity-70">
+                        <span className="mt-0.5 block break-words text-xs leading-5 opacity-70">
                           {n.body}
                         </span>
                       )}
