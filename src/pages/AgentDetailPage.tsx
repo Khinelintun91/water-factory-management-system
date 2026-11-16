@@ -285,7 +285,7 @@ export default function AgentDetailPage() {
     // live held / can-deliver figures no longer apply.
     { label: 'ကိုင်ထားဘူး', value: closed ? '0 ဗူး' : `${stats.held.toLocaleString('en-US')} ဗူး` },
     { label: 'အပေါင်ဘူး', value: `${stats.depBottles.toLocaleString('en-US')} ဗူး (${formatMMK(stats.depAmount)})` },
-    { label: 'စုစုပေါင်း ရောင်းရ', value: formatMMK(stats.sales) },
+    { label: 'စုစုပေါင်း ကျသင့်ငွေ', value: formatMMK(stats.sales) },
     { label: 'ကောက်ခံပြီး', value: formatMMK(stats.collected) },
     { label: outstanding < 0 ? 'ပိုပေးထားငွေ' : 'ရရန်ကျန်', value: formatMMK(Math.abs(outstanding)), tone: outstanding > 0 ? 'danger' : undefined },
     { label: 'ဆက်ပို့နိုင်ဘူး', value: closed ? 'စာရင်းပိတ်ပြီး' : canDeliver },

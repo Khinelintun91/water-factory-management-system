@@ -455,7 +455,7 @@ function Dashboard() {
                   </>
                 }
               />
-              <StatCard label="ရောင်းငွေ" value={<AnimMoney value={figs.sales} />} />
+              <StatCard label="ကျသင့်ငွေ" value={<AnimMoney value={figs.sales} />} />
               <StatCard label="ပို့ချိန် လက်ခံငွေ" value={<AnimMoney value={figs.entryCash} />} />
               <StatCard label="ကြွေးကောက်ငွေ" value={<AnimMoney value={figs.payments} />} />
               <StatCard

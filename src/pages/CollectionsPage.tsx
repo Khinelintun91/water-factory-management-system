@@ -409,7 +409,7 @@ export default function CollectionsPage() {
     <div className="space-y-4 lg:space-y-6">
       <PageHeader
         title="ကောက်ခံမှုနှင့် ကြွေးစာရင်း"
-        subtitle="ကိုယ်စားလှယ်အလိုက် ရောင်းအား၊ ကောက်ခံငွေနှင့် ကျန်ကြွေး ကြည့်ရန်"
+        subtitle="ကိုယ်စားလှယ်အလိုက် ကျသင့်ငွေ၊ ကောက်ခံငွေနှင့် ကျန်ကြွေး ကြည့်ရန်"
       />
 
       <div>
@@ -529,7 +529,7 @@ export default function CollectionsPage() {
                         <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm lg:grid-cols-4">
                           <div>
                             <div className="text-xs font-medium text-stone-500 dark:text-neutral-400">
-                              စုစုပေါင်း ရောင်းအား
+                              စုစုပေါင်း ကျသင့်ငွေ
                             </div>
                             <div className="mt-0.5 font-semibold tabular-nums">{formatMMK(t.sales)}</div>
                           </div>
