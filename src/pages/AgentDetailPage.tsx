@@ -28,8 +28,8 @@ import {
   inputCls,
 } from '../components/ui'
 
-/** agents.trip_qty / agents.notes are not on the shared Agent type yet. */
-type AgentFull = Agent & { trip_qty: number | null; notes: string | null }
+/** agents.notes is not on the shared Agent type yet. */
+type AgentFull = Agent & { notes: string | null }
 
 /** agent_payments.kind is not on the shared AgentPayment type yet. */
 type PaymentFull = AgentPayment & { kind: 'regular' | 'old_debt' | null }
@@ -213,11 +213,7 @@ export default function AgentDetailPage() {
     if (!agent) return '—'
     const { held, depBottles } = stats
     if (agent.deposit_per_bottle > 0) {
-      const cap = agent.bottle_limit > 0 ? Math.min(agent.bottle_limit, depBottles) : depBottles
-      return `${Math.max(0, cap - held).toLocaleString('en-US')} ဗူး`
-    }
-    if (agent.bottle_limit > 0) {
-      return `${Math.max(0, agent.bottle_limit - held).toLocaleString('en-US')} ဗူး`
+      return `${Math.max(0, depBottles - held).toLocaleString('en-US')} ဗူး`
     }
     return '—'
   }, [agent, stats])
