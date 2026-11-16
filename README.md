@@ -22,9 +22,12 @@ The previous app runs on Lovable Cloud (a Lovable-managed database the owner can
 SPEC.md                  business rules (the contract)
 AGENTS.md                rules for any AI builder working here
 docs/ARCHITECTURE.md     design decisions and security model
+docs/API.md              API surface: tables, RPCs, roles, RLS, triggers
 supabase/migrations/     database schema + RLS, applied in filename order
 src/                     app source
 ```
+
+The API reference is [docs/API.md](docs/API.md).
 
 ## Setup (owner, once)
 1. Create a free Supabase project at supabase.com (any region near Myanmar, e.g. Singapore).
