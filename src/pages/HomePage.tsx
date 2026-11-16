@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { exportBackup, getLastBackupAt, isBackupOverdue } from '../lib/backup'
-import { dailySummaryCsv, monthlyBackupCsv, monthlyBackupXlsx } from '../lib/exports'
+import { monthlyBackupCsv, monthlyBackupXlsx } from '../lib/exports'
 import { formatMMK, personName, todayYangon } from '../lib/types'
 import { fmtDateTime12 } from '../lib/types'
 import { NavIcon } from '../components/icons'
@@ -298,8 +298,6 @@ function Dashboard() {
   const [names, setNames] = useState<Map<string, string>>(new Map())
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
-  const [csvBusy, setCsvBusy] = useState(false)
-  const [csvMsg, setCsvMsg] = useState<string | null>(null)
   const [refreshSec, setRefreshSec] = useState(30)
 
   const staffView = ['owner', 'manager', 'co_owner', 'staff'].some(
@@ -404,18 +402,6 @@ function Dashboard() {
     return [...m.values()].sort((a, b) => a.name.localeCompare(b.name))
   })()
 
-  async function onDailyCsv() {
-    setCsvBusy(true)
-    setCsvMsg(null)
-    try {
-      const filename = await dailySummaryCsv(date)
-      setCsvMsg(`${filename} ကို ဒေါင်းလုပ် လုပ်ပြီးပါပြီ`)
-    } catch (e) {
-      setCsvMsg(e instanceof Error ? e.message : 'CSV ထုတ်၍ မရပါ')
-    }
-    setCsvBusy(false)
-  }
-
   const dateInputCls =
     'min-h-[44px] rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/40 dark:border-neutral-700 dark:bg-neutral-900'
 
@@ -475,24 +461,19 @@ function Dashboard() {
                 value={<AnimMoney value={netCashAfterExpenses} />}
               />
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-2.5">
-              <Link to="/entries" className={btnPrimaryCls}>
-                <NavIcon to="/entries" className="h-5 w-5" />
-                ပို့ဆောင်မှု ထည့်ရန် / ကြည့်ရန်
+            {/* Narrow phones: one full-width row each, icon beside the
+                label, so the wording stays on one line. sm+ is wide
+                enough for the original two-column row. */}
+            <div className="mt-3 flex flex-col gap-2.5 sm:grid sm:grid-cols-2">
+              <Link to="/entries" className={`${btnPrimaryCls} w-full`}>
+                <NavIcon to="/entries" className="h-5 w-5 shrink-0" />
+                <span className="min-w-0 text-center">ပို့ဆောင်မှု ထည့်ရန် / ကြည့်ရန်</span>
               </Link>
-              <Link to="/payments" className={btnSecondaryCls}>
-                <NavIcon to="/payments" className="h-5 w-5" />
-                ငွေကောက်ခံမှု
+              <Link to="/payments" className={`${btnSecondaryCls} w-full`}>
+                <NavIcon to="/payments" className="h-5 w-5 shrink-0" />
+                <span className="min-w-0 text-center">ငွေကောက်ခံမှု</span>
               </Link>
             </div>
-            {staffView && (
-              <div className="mt-3">
-                <SecondaryButton onClick={onDailyCsv} disabled={csvBusy} className="w-full">
-                  {csvBusy ? 'ထုတ်နေပါတယ်…' : `⬇ နေ့စဉ် CSV (${date})`}
-                </SecondaryButton>
-                {csvMsg && <p className="mt-2 text-sm">{csvMsg}</p>}
-              </div>
-            )}
           </>
         )}
       </Card>

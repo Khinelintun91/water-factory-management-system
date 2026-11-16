@@ -85,6 +85,26 @@
   }
 }
 
+/* Phone bottom tabs and the More sheet.
+   Noto Sans Myanmar's ascender+descender is about 2.18em, so a 1.25
+   line-height with line-clamp (overflow: hidden) cuts off stacked marks
+   and, on a 5-column bar, the ends of long labels. 10px lets a 360px
+   bar show every label in at most two lines. 2.2 keeps the marks inside
+   the line box. The safe-area inset stays on the nav's own padding.
+   Desktop sidebar classes are unchanged. */
+.phone-nav-label {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  padding-inline: 1px;
+  font-size: 10px;
+  line-height: 2.2;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  text-wrap: balance;
+}
+
 /* Respect reduced motion globally (the Home number tween also checks). */
 @media (prefers-reduced-motion: reduce) {
   *,
