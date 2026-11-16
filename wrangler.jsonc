@@ -7,5 +7,10 @@
   "assets": {
     "directory": "./dist",
     "not_found_handling": "single-page-application"
-  }
+  },
+  // Required by `wrangler preview` (Workers Builds on non-production branches).
+  // Empty on purpose: this Worker has no vars or bindings to override.
+  // `assets` and `compatibility_date` stay at the top level; preview uploads
+  // the branch build from there. Production `wrangler deploy` is unchanged.
+  "previews": {}
 }
