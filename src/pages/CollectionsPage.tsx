@@ -498,7 +498,7 @@ export default function CollectionsPage() {
                         {formatMMK(Math.abs(t.outstanding))}
                       </span>
                       <span className={`block text-xs ${tier.sub}`}>
-                        ရောင်းအား {formatMMK(t.sales)} · ကောက်ခံပြီး{' '}
+                        ကျသင့်ငွေ {formatMMK(t.sales)} · ကောက်ခံပြီး{' '}
                         {formatMMK(t.cash + t.payments)}
                       </span>
                     </span>

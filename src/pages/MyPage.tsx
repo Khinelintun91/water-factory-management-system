@@ -384,7 +384,7 @@ export default function MyPage() {
                 {formatMMK(Math.abs(faceOutstanding))}
               </span>
               <span className={`block text-xs ${faceTier.sub}`}>
-                ရောင်းအား {formatMMK(salesTotal)} · ကောက်ခံပြီး {formatMMK(collectedTotal)}
+                ကျသင့်ငွေ {formatMMK(salesTotal)} · ကောက်ခံပြီး {formatMMK(collectedTotal)}
               </span>
             </span>
             <span
@@ -398,7 +398,7 @@ export default function MyPage() {
             </span>
           </div>
           <p className="mt-1.5 px-0.5 text-xs text-stone-500 dark:text-neutral-400">
-            စုစုပေါင်း ရောင်းအား: {formatMMK(salesTotal)}
+            စုစုပေါင်း ကျသင့်ငွေ: {formatMMK(salesTotal)}
           </p>
         </div>
       )}

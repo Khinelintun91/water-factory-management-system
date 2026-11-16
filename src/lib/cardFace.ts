@@ -1,15 +1,17 @@
-// Card-face tiers by lifetime sales, shared by the Collections wallet
+// Card-face tiers by lifetime amount due, shared by the Collections wallet
 // stack, the Agents-page stack and the agent's own face on My Page and
 // Agent Home. Colours match the owner's reference card photos (gold /
 // white-silver / black); text colours flip per tier so names stay
 // readable. No chip graphic — the owner asked to leave it out.
 //
 // Tier rule (owner, 2026-11-16): a pure function of the agent's OWN
-// lifetime sales (sum of daily_entries.amount) — fixed thresholds, not
-// a ranking against other agents:
-//   sales >= 20,000,000 MMK  → gold
-//   sales >= 10,000,000 MMK  → white
-//   otherwise (incl. zero)   → black
+// lifetime amount due (ကျသင့်ငွေ — sum of daily_entries.amount, i.e.
+// bottles delivered × the factory's per-bottle price: what the agent
+// owes the factory, not the agent's own resale) — fixed thresholds,
+// not a ranking against other agents:
+//   amount due >= 20,000,000 MMK  → gold
+//   amount due >= 10,000,000 MMK  → white
+//   otherwise (incl. zero)        → black
 // Closed/settled agents are always black; that override lives at the
 // render sites, which know the agent's closed state. This mirrors the
 // my_card_tier() RPC (migration 0040), so the owner's pages and the
@@ -45,13 +47,13 @@ export const FACE_TIERS: Record<
   },
 }
 
-/** Lifetime-sales thresholds for the face tiers (MMK). */
+/** Lifetime amount-due thresholds for the face tiers (MMK). */
 export const GOLD_TIER_MIN_SALES = 20_000_000
 export const WHITE_TIER_MIN_SALES = 10_000_000
 
 /**
- * The face tier for one agent from their own lifetime sales alone.
- * Zero or negative sales is black (below the white threshold anyway).
+ * The face tier for one agent from their own lifetime amount due alone.
+ * Zero or negative amount due is black (below the white threshold anyway).
  */
 export function cardTierForSales(sales: number): FaceTier {
   if (sales >= GOLD_TIER_MIN_SALES) return 'gold'

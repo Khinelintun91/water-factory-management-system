@@ -1,20 +1,24 @@
--- 0040: my_card_tier() — fixed lifetime-sales thresholds replace the
--- rank-thirds rule of 0024 (owner's rule, 2026-11-16):
---   lifetime sales >= 20,000,000 MMK  → 'gold'
---   lifetime sales >= 10,000,000 MMK  → 'white'
---   below that (including zero)       → 'black'
+-- 0040: my_card_tier() — fixed lifetime amount-due thresholds replace
+-- the rank-thirds rule of 0024 (owner's rule, 2026-11-16):
+--   lifetime amount due >= 20,000,000 MMK  → 'gold'
+--   lifetime amount due >= 10,000,000 MMK  → 'white'
+--   below that (including zero)            → 'black'
 --
--- The tier now depends ONLY on the caller's own lifetime sales, so the
--- ranked CTE over every agent is gone entirely: the function reads the
--- caller's own agent id from profiles and sums only that agent's
--- daily_entries.amount. It returns ONLY the caller's tier and their
--- own lifetime sales total — never another agent's figures.
+-- "Amount due" (ကျသင့်ငွေ) is the sum of daily_entries.amount —
+-- bottles delivered × the factory's per-bottle price: what the agent
+-- owes the factory, not the agent's own resale.
+--
+-- The tier now depends ONLY on the caller's own lifetime amount due,
+-- so the ranked CTE over every agent is gone entirely: the function
+-- reads the caller's own agent id from profiles and sums only that
+-- agent's daily_entries.amount. It returns ONLY the caller's tier and
+-- their own lifetime amount-due total — never another agent's figures.
 --
 -- sales_rank / agent_count are dropped from the result: with fixed
 -- thresholds there is no rank to report. Callers (MyPage, AgentHome)
--- are updated in the same change — My Page shows the lifetime-sales
--- caption instead of the rank caption. The client-side mirror is
--- cardTierForSales() in src/lib/cardFace.ts.
+-- are updated in the same change — My Page shows the lifetime
+-- amount-due caption instead of the rank caption. The client-side
+-- mirror is cardTierForSales() in src/lib/cardFace.ts.
 --
 -- CREATE OR REPLACE cannot change a function's return type, so the
 -- 0024 function is dropped and recreated; the grants from 0024 are

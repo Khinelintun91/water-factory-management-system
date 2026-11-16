@@ -761,7 +761,7 @@ function AgentHome() {
                 {formatMMK(Math.abs(faceOutstanding))}
               </span>
               <span className={`block text-xs ${faceTier.sub}`}>
-                ရောင်းအား {formatMMK(figs.lifetimeSales)} · ကောက်ခံပြီး {formatMMK(figs.lifetimeCollected)}
+                ကျသင့်ငွေ {formatMMK(figs.lifetimeSales)} · ကောက်ခံပြီး {formatMMK(figs.lifetimeCollected)}
               </span>
             </span>
             <span
@@ -775,7 +775,7 @@ function AgentHome() {
             </span>
           </div>
           <p className="mt-1.5 px-0.5 text-xs text-stone-500 dark:text-neutral-400">
-            စုစုပေါင်း ရောင်းအား: {formatMMK(figs.lifetimeSales)}
+            စုစုပေါင်း ကျသင့်ငွေ: {formatMMK(figs.lifetimeSales)}
           </p>
         </div>
       )}
@@ -789,7 +789,7 @@ function AgentHome() {
           <div className="mt-3 grid grid-cols-2 gap-2.5">
             <StatCard label="ယနေ့ ပို့ဘူး" value={`${figs.todayOut.toLocaleString('en-US')} ဗူး`} />
             <StatCard label="ယနေ့ ဘူးခွံပြန်" value={`${figs.todayIn.toLocaleString('en-US')} ဗူး`} />
-            <StatCard label="ယနေ့ ရောင်းငွေ" value={formatMMK(figs.todaySales)} />
+            <StatCard label="ယနေ့ ကျသင့်ငွေ" value={formatMMK(figs.todaySales)} />
             <StatCard label="ယနေ့ လက်ခံငွေ" value={formatMMK(figs.todayCash)} />
           </div>
         )}
@@ -875,7 +875,7 @@ export default function HomePage() {
 
   return (
     <div className="space-y-4 lg:space-y-6">
-      <PageHeader title="ပင်မ" subtitle="ယနေ့ ရောင်းအား၊ လက်ခံငွေနှင့် လုပ်ရန်အလုပ်များ" />
+      <PageHeader title="ပင်မ" subtitle="ယနေ့ ကျသင့်ငွေ၊ လက်ခံငွေနှင့် လုပ်ရန်အလုပ်များ" />
 
       {role === 'agent' ? <AgentHome /> : <Dashboard />}
 
