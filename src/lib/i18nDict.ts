@@ -752,7 +752,7 @@ export const EN: Record<string, string> = {
   "သေချာပါတယ်, မှတ်တမ်းသိမ်းမည်": "Yes, archive",
   "မှတ်တမ်းသိမ်းပြီး": "Archived",
   "ဖုန်းနံပါတ်နှင့် စာရင်းများ ဖျက်မည်မဟုတ်ပါ။ အလုပ်စာရင်းကနေပဲ ဖယ်ပါတယ်။": "The phone number and records are kept. The agent only leaves the working list.",
-  "ဒီလကို ပိတ်ထားလို့ ဈေးနှုန်း၊ အပေါင်၊ ဘူးကန့်သတ်၊ ကြွေးကန့်သတ် မပြင်နိုင်ပါ": "This month is locked, so price, deposit, bottle limit and credit limit cannot be changed",
+  "ဒီလကို ပိတ်ထားလို့ ဈေးနှုန်း၊ အပေါင်၊ ကြွေးကန့်သတ် မပြင်နိုင်ပါ": "This month is locked, so price, deposit and credit limit cannot be changed",
   "ငွေကောက်ခံမှု": "Collections",
   "ငွေကောက်ခံမှုများ": "Collections",
   "ကောက်ခံမှုအသစ်": "New collection",

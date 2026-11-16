@@ -31,7 +31,7 @@ interface LinkableProfile {
   display_name: string | null
 }
 
-type EditableField = 'default_unit_price' | 'deposit_per_bottle' | 'bottle_limit' | 'credit_limit' | 'trip_qty'
+type EditableField = 'default_unit_price' | 'deposit_per_bottle' | 'credit_limit'
 
 /** Inline numeric field for owner/manager: saves on blur when changed. */
 function InlineNumber({
@@ -72,10 +72,7 @@ export default function AgentsPage() {
   const [address, setAddress] = useState('')
   const [deposit, setDeposit] = useState('0')
   const [unitPrice, setUnitPrice] = useState('0')
-  const [bottleLimit, setBottleLimit] = useState('0')
   const [creditLimit, setCreditLimit] = useState('0')
-  // Bottles per trip — the live app's default is 10.
-  const [tripQty, setTripQty] = useState('10')
   const [agentNotes, setAgentNotes] = useState('')
   const [initDepBottles, setInitDepBottles] = useState('')
   const [initDepPrice, setInitDepPrice] = useState('')
@@ -200,9 +197,7 @@ export default function AgentsPage() {
         address: address.trim() || null,
         deposit_per_bottle: Number(deposit) || 0,
         default_unit_price: Number(unitPrice) || 0,
-        bottle_limit: Number(bottleLimit) || 0,
         credit_limit: Number(creditLimit) || 0,
-        trip_qty: Number(tripQty) || 0,
         notes: agentNotes.trim() || null,
       })
       .select('id')
@@ -265,9 +260,7 @@ export default function AgentsPage() {
     setAddress('')
     setDeposit(defaultDeposit || '0')
     setUnitPrice(defaultPrice || '0')
-    setBottleLimit('0')
     setCreditLimit('0')
-    setTripQty('10')
     setAgentNotes('')
     setInitDepBottles('')
     setInitDepPrice('')
@@ -294,7 +287,7 @@ export default function AgentsPage() {
     if (error) {
       setMsg(
         error.message.includes('month_locked')
-          ? 'ဒီလကို ပိတ်ထားလို့ ဈေးနှုန်း၊ အပေါင်၊ ဘူးကန့်သတ်၊ ကြွေးကန့်သတ် မပြင်နိုင်ပါ'
+          ? 'ဒီလကို ပိတ်ထားလို့ ဈေးနှုန်း၊ အပေါင်၊ ကြွေးကန့်သတ် မပြင်နိုင်ပါ'
           : error.message,
       )
     }
@@ -471,27 +464,11 @@ export default function AgentsPage() {
                   )}
                 </label>
                 <label className="flex items-center justify-between gap-1">
-                  <span className="opacity-75">ဘူး ကန့်သတ်</span>
-                  {canManage && !a.closed_at ? (
-                    <InlineNumber value={a.bottle_limit} onSave={(v) => saveField(a, 'bottle_limit', v)} />
-                  ) : (
-                    <span>{a.bottle_limit > 0 ? `${a.bottle_limit.toLocaleString('en-US')} ဗူး` : 'မကန့်သတ်'}</span>
-                  )}
-                </label>
-                <label className="flex items-center justify-between gap-1">
                   <span className="opacity-75">ကြွေး ကန့်သတ်</span>
                   {canManage && !a.closed_at ? (
                     <InlineNumber value={a.credit_limit} onSave={(v) => saveField(a, 'credit_limit', v)} />
                   ) : (
                     <span>{a.credit_limit > 0 ? formatMMK(a.credit_limit) : 'မကန့်သတ်'}</span>
-                  )}
-                </label>
-                <label className="flex items-center justify-between gap-1">
-                  <span className="opacity-75">တစ်ခါပို့</span>
-                  {canManage && !a.closed_at ? (
-                    <InlineNumber value={a.trip_qty} onSave={(v) => saveField(a, 'trip_qty', v)} />
-                  ) : (
-                    <span>{a.trip_qty.toLocaleString('en-US')} ဗူး</span>
                   )}
                 </label>
               </div>
@@ -565,22 +542,6 @@ export default function AgentsPage() {
               <input
                 value={unitPrice}
                 onChange={(e) => setUnitPrice(e.target.value.replace(/\D/g, ''))}
-                inputMode="numeric"
-                className={inputCls}
-              />
-            </Field>
-            <Field label="တစ်ခါပို့ ဘူးအရေအတွက်">
-              <input
-                value={tripQty}
-                onChange={(e) => setTripQty(e.target.value.replace(/\D/g, ''))}
-                inputMode="numeric"
-                className={inputCls}
-              />
-            </Field>
-            <Field label="ဗူး ကန့်သတ်ချက် (ဗူး၊ 0 = မကန့်သတ်)">
-              <input
-                value={bottleLimit}
-                onChange={(e) => setBottleLimit(e.target.value.replace(/\D/g, ''))}
                 inputMode="numeric"
                 className={inputCls}
               />
