@@ -608,7 +608,6 @@ function AgentHome() {
     todayOut: 0,
     todayIn: 0,
     todaySales: 0,
-    todayCash: 0,
     held: 0,
     depBottles: 0,
     depTotal: 0,
@@ -661,9 +660,6 @@ function AgentHome() {
         todayOut: mine.reduce((s, e) => s + e.delivered_qty, 0),
         todayIn: mine.reduce((s, e) => s + e.returned_qty, 0),
         todaySales: mine.reduce((s, e) => s + Number(e.amount), 0),
-        todayCash:
-          mine.reduce((s, e) => s + Number(e.amount_collected), 0) +
-          pm.filter((p) => p.payment_date === today).reduce((s, p) => s + Number(p.amount), 0),
         held: en.reduce((s, e) => s + e.delivered_qty - e.returned_qty, 0),
         depBottles: dep.reduce((s, d) => s + d.bottles, 0),
         depTotal: dep.reduce((s, d) => s + Number(d.amount), 0),
@@ -761,7 +757,7 @@ function AgentHome() {
                 {formatMMK(Math.abs(faceOutstanding))}
               </span>
               <span className={`block text-xs ${faceTier.sub}`}>
-                ကျသင့်ငွေ {formatMMK(figs.lifetimeSales)} · ကောက်ခံပြီး {formatMMK(figs.lifetimeCollected)}
+                ကျသင့်ငွေ {formatMMK(figs.lifetimeSales)} · ပေးချေပြီး {formatMMK(figs.lifetimeCollected)}
               </span>
             </span>
             <span
@@ -790,7 +786,6 @@ function AgentHome() {
             <StatCard label="ယနေ့ ပို့ဘူး" value={`${figs.todayOut.toLocaleString('en-US')} ဗူး`} />
             <StatCard label="ယနေ့ ဘူးခွံပြန်" value={`${figs.todayIn.toLocaleString('en-US')} ဗူး`} />
             <StatCard label="ယနေ့ ကျသင့်ငွေ" value={formatMMK(figs.todaySales)} />
-            <StatCard label="ယနေ့ လက်ခံငွေ" value={formatMMK(figs.todayCash)} />
           </div>
         )}
       </Card>
@@ -875,7 +870,14 @@ export default function HomePage() {
 
   return (
     <div className="space-y-4 lg:space-y-6">
-      <PageHeader title="ပင်မ" subtitle="ယနေ့ ကျသင့်ငွေ၊ လက်ခံငွေနှင့် လုပ်ရန်အလုပ်များ" />
+      <PageHeader
+        title="ပင်မ"
+        subtitle={
+          role === 'agent'
+            ? 'ယနေ့ ကျသင့်ငွေ၊ ပေးချေငွေနှင့် လုပ်ရန်အလုပ်များ'
+            : 'ယနေ့ ကျသင့်ငွေ၊ လက်ခံငွေနှင့် လုပ်ရန်အလုပ်များ'
+        }
+      />
 
       {role === 'agent' ? <AgentHome /> : <Dashboard />}
 

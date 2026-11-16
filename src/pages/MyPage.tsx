@@ -384,7 +384,7 @@ export default function MyPage() {
                 {formatMMK(Math.abs(faceOutstanding))}
               </span>
               <span className={`block text-xs ${faceTier.sub}`}>
-                ကျသင့်ငွေ {formatMMK(salesTotal)} · ကောက်ခံပြီး {formatMMK(collectedTotal)}
+                ကျသင့်ငွေ {formatMMK(salesTotal)} · ပေးချေပြီး {formatMMK(collectedTotal)}
               </span>
             </span>
             <span
@@ -449,7 +449,7 @@ export default function MyPage() {
                       {formatMMK(r.amount)}
                     </div>
                     <div className="mt-0.5 text-stone-500 dark:text-neutral-400">
-                      လက်ခံရရှိငွေ {formatMMK(r.amount_collected)} · ကျန်ပေးရန်{' '}
+                      ပေးချေပြီး {formatMMK(r.amount_collected)} · ကျန်ပေးရန်{' '}
                       <span
                         className={
                           due > 0
@@ -465,7 +465,7 @@ export default function MyPage() {
                       kind: 'entry',
                       recordId: r.id,
                       recordDate: r.entry_date,
-                      summary: `${r.entry_date} · ပို့ ${r.delivered_qty} · ပြန် ${r.returned_qty} · ${formatMMK(r.amount)} · လက်ခံရရှိငွေ ${formatMMK(r.amount_collected)}`,
+                      summary: `${r.entry_date} · ပို့ ${r.delivered_qty} · ပြန် ${r.returned_qty} · ${formatMMK(r.amount)} · ပေးချေပြီး ${formatMMK(r.amount_collected)}`,
                     })}
                   </li>
                 )
