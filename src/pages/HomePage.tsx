@@ -775,7 +775,7 @@ function AgentHome() {
             </span>
           </div>
           <p className="mt-1.5 px-0.5 text-xs text-stone-500 dark:text-neutral-400">
-            စုစုပေါင်း ရောင်းအား: {formatMMK(cardTier.lifetimeSales)}
+            စုစုပေါင်း ရောင်းအား: {formatMMK(figs.lifetimeSales)}
           </p>
         </div>
       )}
