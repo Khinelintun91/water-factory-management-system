@@ -16,8 +16,6 @@ import {
 } from '../components/ui'
 
 interface AgentRow extends Agent {
-  /** Bottles sent per trip (agents.trip_qty, added after the shared Agent type). */
-  trip_qty: number
   phone: string | null
   held: number
   outstanding: number
@@ -140,9 +138,7 @@ export default function AgentsPage() {
     for (const h of (heldRows ?? []) as { agent_id: string; held: number }[]) {
       heldByAgent.set(h.agent_id, Number(h.held) || 0)
     }
-    // agents.trip_qty arrives with select('*'); it is not on the shared
-    // Agent type yet, so widen the row type locally.
-    const list = (agents ?? []) as (Agent & { trip_qty: number | null })[]
+    const list = (agents ?? []) as Agent[]
     // Outstanding comes from the server RPC (single source of truth for the
     // sales − cash − payments − write-offs balance).
     const outstanding = await Promise.all(
@@ -154,7 +150,6 @@ export default function AgentsPage() {
     setRows(
       list.map((a, i) => ({
         ...a,
-        trip_qty: a.trip_qty ?? 0,
         phone: phoneByAgent.get(a.id) ?? null,
         held: heldByAgent.get(a.id) ?? 0,
         outstanding: outstanding[i] ?? 0,

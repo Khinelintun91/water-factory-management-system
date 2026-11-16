@@ -157,9 +157,6 @@ select testkit.assert_error('month_locked',
   $$update agents set deposit_per_bottle = 5
      where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'$$);
 select testkit.assert_error('month_locked',
-  $$update agents set bottle_limit = 9
-     where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'$$);
-select testkit.assert_error('month_locked',
   $$update agents set credit_limit = 9
      where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'$$);
 
@@ -170,12 +167,6 @@ select testkit.assert_true(
   (select active = false and name = 'Test Agent A locked'
      from agents where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
   'active and name still change in a locked month');
-update agents set trip_qty = 4
- where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-select testkit.assert_true(
-  (select trip_qty = 4 from agents
-    where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
-  'trip_qty still changes in a locked month');
 
 delete from month_locks
  where month = date_trunc('month', (now() at time zone 'Asia/Yangon')::date)::date;

@@ -23,7 +23,6 @@ export interface Agent {
   address: string | null
   deposit_per_bottle: number
   default_unit_price: number
-  bottle_limit: number
   credit_limit: number
   closed_at: string | null
   closed_by: string | null
