@@ -291,7 +291,13 @@ export default function AgentsPage() {
       .from('agents')
       .update({ [field]: value })
       .eq('id', a.id)
-    if (error) setMsg(error.message)
+    if (error) {
+      setMsg(
+        error.message.includes('month_locked')
+          ? 'ဒီလကို ပိတ်ထားလို့ ဈေးနှုန်း၊ အပေါင်၊ ဘူးကန့်သတ်၊ ကြွေးကန့်သတ် မပြင်နိုင်ပါ'
+          : error.message,
+      )
+    }
     await load()
   }
 
@@ -302,8 +308,11 @@ export default function AgentsPage() {
     (a.code ?? '').toLowerCase().includes(q) ||
     (a.phone ?? '').includes(q)
 
-  const open = rows.filter((a) => !a.closed_at)
-  const closed = rows.filter((a) => a.closed_at)
+  // Archived agents stay in the database (backup, ledger, audit). They
+  // leave this working list, which is what the archive button did.
+  const listed = rows.filter((a) => !a.archived_at)
+  const open = listed.filter((a) => !a.closed_at)
+  const closed = listed.filter((a) => a.closed_at)
   const displayOpen = open.filter(matches)
   const displayClosed = closed.filter(matches)
 
@@ -312,13 +321,14 @@ export default function AgentsPage() {
   const miniLabel = 'text-[11px] font-medium text-stone-500 dark:text-neutral-400'
   const miniValue = 'mt-0.5 text-sm font-bold tabular-nums'
 
-  // Face tiers by lifetime sales — the same rule as Collections (shared
-  // salesTierMap): rank in created_at order so sales ties break the same
-  // way on both pages.
+  // Face tiers by lifetime sales (shared salesTierMap). Rank the agents
+  // still on this list, in created_at order, so an archived agent does
+  // not change the colours of the people who are left.
   const tierByAgent = useMemo(
     () =>
       salesTierMap(
         [...rows]
+          .filter((r) => !r.archived_at)
           .sort((x, y) => x.created_at.localeCompare(y.created_at))
           .map((r) => ({ id: r.id, sales: r.sales })),
       ),

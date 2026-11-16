@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { supabase, usernameToEmail } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
 import { exportBackup, getLastBackupAt, isBackupOverdue } from '../lib/backup'
 import { dailySummaryCsv, monthlyBackupCsv, monthlyBackupXlsx } from '../lib/exports'
 import { formatMMK, personName, todayYangon } from '../lib/types'
@@ -200,97 +200,6 @@ function MonthLockCard() {
           </div>
         </>
       )}
-    </Card>
-  )
-}
-
-function PinChangeCard() {
-  const { profile } = useAuth()
-  const [current, setCurrent] = useState('')
-  const [next, setNext] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
-
-  async function onChange() {
-    setMsg(null)
-    if (!profile) return
-    if (!/^\d{6,12}$/.test(next)) {
-      setMsg('PIN အသစ်သည် ဂဏန်း ၆ လုံးမှ ၁၂ လုံးအတွင်း ဖြစ်ရပါမယ်')
-      return
-    }
-    if (next !== confirm) {
-      setMsg('PIN အသစ် နှစ်ခါ ရိုက်တာ မတူပါ')
-      return
-    }
-    if (next === current) {
-      setMsg('PIN အသစ်သည် လက်ရှိ PIN နှင့် မတူရပါ')
-      return
-    }
-    setBusy(true)
-    try {
-      // Verify the current PIN by re-authenticating before changing it.
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: usernameToEmail(profile.username),
-        password: current,
-      })
-      if (signInError) {
-        setMsg('လက်ရှိ PIN မှားနေပါတယ်')
-        return
-      }
-      const { error } = await supabase.auth.updateUser({ password: next })
-      if (error) throw error
-      setCurrent('')
-      setNext('')
-      setConfirm('')
-      setMsg('PIN ပြောင်းပြီးပါပြီ — နောက်တစ်ခါ login ဝင်ရင် PIN အသစ် သုံးပါ')
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'PIN ပြောင်း၍ မရပါ')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Card>
-      <CardTitle>ကိုယ့် PIN ပြောင်းရန်</CardTitle>
-      <div className="mt-3 space-y-2">
-        <input
-          className={inputCls}
-          type="password"
-          inputMode="numeric"
-          autoComplete="current-password"
-          placeholder="လက်ရှိ PIN"
-          value={current}
-          onChange={(e) => setCurrent(e.target.value)}
-        />
-        <input
-          className={inputCls}
-          type="password"
-          inputMode="numeric"
-          autoComplete="new-password"
-          placeholder="PIN အသစ် (ဂဏန်း ၆–၁၂ လုံး)"
-          value={next}
-          onChange={(e) => setNext(e.target.value)}
-        />
-        <input
-          className={inputCls}
-          type="password"
-          inputMode="numeric"
-          autoComplete="new-password"
-          placeholder="PIN အသစ် ထပ်ရိုက်ပါ"
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-        />
-        <PrimaryButton
-          className="w-full"
-          onClick={onChange}
-          disabled={busy || !current || !next || !confirm}
-        >
-          {busy ? 'ပြောင်းနေသည်…' : 'PIN ပြောင်းမည်'}
-        </PrimaryButton>
-        {msg && <p className="text-sm opacity-80">{msg}</p>}
-      </div>
     </Card>
   )
 }
@@ -695,14 +604,15 @@ export default function HomePage() {
         </Card>
       )}
 
-      {/* Management tools: visually demoted below the daily summary. */}
-      {profile && (
+      {/* Management tools: visually demoted below the daily summary.
+          PIN changes are not here. Only the owner sets a PIN, from the
+          Users page, through admin_reset_pin. */}
+      {(role === 'owner' || role === 'manager') && (
         <section className="space-y-3">
           <h2 className="px-0.5 text-base font-bold">စီမံခန့်ခွဲမှု</h2>
           <div className="grid items-start gap-4 lg:grid-cols-3">
             {role === 'owner' && <BackupCard />}
-            {(role === 'owner' || role === 'manager') && <MonthLockCard />}
-            <PinChangeCard />
+            <MonthLockCard />
           </div>
         </section>
       )}

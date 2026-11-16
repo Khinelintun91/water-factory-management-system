@@ -257,7 +257,7 @@ export default function UsersPage() {
                 className={inputCls}
               >
                 <option value="">agent ရွေးပါ</option>
-                {agents.map((a) => (
+                {agents.filter((a) => !a.archived_at).map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
                   </option>
@@ -302,9 +302,7 @@ export default function UsersPage() {
                   </SecondaryButton>
                 </div>
                 <DisplayNameEditor profile={p} onMsg={showMsg} onChanged={load} />
-                {p.id !== me?.id && (
-                  <PinResetEditor profile={p} onMsg={showMsg} onOk={showOk} />
-                )}
+                <PinResetEditor profile={p} onMsg={showMsg} onOk={showOk} />
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   {(extras[p.id] ?? []).map((r) => (
                     <span
@@ -549,9 +547,10 @@ function DisplayNameEditor({
 }
 
 /**
- * Inline PIN reset for another user's account (admin_reset_pin RPC; a reset
- * also clears the account's login lockout). Not rendered for the signed-in
- * owner's own row — owners change their own PIN on the Home page.
+ * Owner PIN reset (admin_reset_pin). The database allows only an active
+ * primary owner, including when the target is that owner's own row.
+ * A reset also clears the account's login lockout. The PIN is not written
+ * to the audit log.
  */
 function PinResetEditor({
   profile,

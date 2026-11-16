@@ -340,7 +340,9 @@ export default function AgentDetailPage() {
           {agent.notes && <div>မှတ်ချက်: {agent.notes}</div>}
           <div>
             အခြေအနေ:{' '}
-            {closed ? (
+            {agent.archived_at ? (
+              <span className="text-red-500">မှတ်တမ်းသိမ်းပြီး</span>
+            ) : closed ? (
               <span className="text-red-500">
                 စာရင်းပိတ်ပြီး ({agent.closed_at ? agent.closed_at.slice(0, 10) : ''})
               </span>
@@ -545,22 +547,27 @@ export default function AgentDetailPage() {
       {closed && settlement && (
         <>
           <SettlementSummary s={settlement} />
-          {isOwner &&
+          {isOwner && !agent.archived_at &&
             (confirmDelete ? (
-              <div className="flex flex-wrap gap-2">
-                <DangerButton size="sm" onClick={onHardDelete}>
-                  သေချာပါတယ်, အပြီးဖျက်မည်
-                </DangerButton>
-                <SecondaryButton size="sm" onClick={() => setConfirmDelete(false)}>
-                  မဖျက်တော့ပါ
-                </SecondaryButton>
+              <div className="space-y-2">
+                <p className="text-sm text-stone-500 dark:text-neutral-400">
+                  ဖုန်းနံပါတ်နှင့် စာရင်းများ ဖျက်မည်မဟုတ်ပါ။ အလုပ်စာရင်းကနေပဲ ဖယ်ပါတယ်။
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <DangerButton size="sm" onClick={onHardDelete}>
+                    သေချာပါတယ်, မှတ်တမ်းသိမ်းမည်
+                  </DangerButton>
+                  <SecondaryButton size="sm" onClick={() => setConfirmDelete(false)}>
+                    မလုပ်တော့ပါ
+                  </SecondaryButton>
+                </div>
               </div>
             ) : (
               <button
                 onClick={() => setConfirmDelete(true)}
                 className="inline-flex min-h-[44px] items-center px-1 text-sm font-medium text-red-600 dark:text-red-400"
               >
-                ကိုယ်စားလှယ်ကို အပြီးဖျက်ရန် (Owner သာ)
+                ကိုယ်စားလှယ်ကို မှတ်တမ်းသိမ်းရန် (Owner သာ)
               </button>
             ))}
         </>
