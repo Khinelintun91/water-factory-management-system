@@ -2,9 +2,18 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { fetchAll } from '../lib/fetchAll'
 import { exportBackup, getLastBackupAt, isBackupOverdue } from '../lib/backup'
 import { monthlyBackupCsv, monthlyBackupXlsx } from '../lib/exports'
-import { formatMMK, personName, todayYangon } from '../lib/types'
+import {
+  formatMMK,
+  personName,
+  todayYangon,
+  type Agent,
+  type AgentDeposit,
+  type AgentPayment,
+  type DailyEntry,
+} from '../lib/types'
 import { fmtDateTime12 } from '../lib/types'
 import { NavIcon } from '../components/icons'
 import {
@@ -565,6 +574,158 @@ function Dashboard() {
   )
 }
 
+
+/**
+ * Agent home: the agent's OWN figures only — never the factory-wide
+ * daily dashboard. Every query is filtered by the agent's own id in
+ * the client as well (RLS also scopes the rows; the explicit filter
+ * is required for the same index/timeout reason documented in
+ * MyPage). No expenses, no factory net, no other agents or staff.
+ */
+function AgentHome() {
+  const { profile } = useAuth()
+  const agentId = profile?.agent_id ?? null
+  const [loading, setLoading] = useState(true)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [agent, setAgent] = useState<Agent | null>(null)
+  const [figs, setFigs] = useState({
+    todayOut: 0,
+    todayIn: 0,
+    todaySales: 0,
+    todayCash: 0,
+    held: 0,
+    depBottles: 0,
+    depTotal: 0,
+    outstanding: 0,
+  })
+
+  const load = useCallback(async () => {
+    if (!agentId) {
+      setLoading(false)
+      return
+    }
+    try {
+      const today = todayYangon()
+      const [en, pm, dep, ag, out] = await Promise.all([
+        fetchAll<Pick<DailyEntry, 'entry_date' | 'delivered_qty' | 'returned_qty' | 'amount' | 'amount_collected'>>(
+          (from, to) =>
+            supabase
+              .from('daily_entries')
+              .select('entry_date, delivered_qty, returned_qty, amount, amount_collected')
+              .eq('agent_id', agentId)
+              .order('entry_date', { ascending: false })
+              .order('created_at', { ascending: false })
+              .range(from, to),
+        ),
+        fetchAll<Pick<AgentPayment, 'payment_date' | 'amount'>>((from, to) =>
+          supabase
+            .from('agent_payments')
+            .select('payment_date, amount')
+            .eq('agent_id', agentId)
+            .order('payment_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .range(from, to),
+        ),
+        fetchAll<Pick<AgentDeposit, 'bottles' | 'amount'>>((from, to) =>
+          supabase
+            .from('agent_deposits')
+            .select('bottles, amount')
+            .eq('agent_id', agentId)
+            .order('id')
+            .range(from, to),
+        ),
+        supabase.from('agents').select('*').eq('id', agentId).maybeSingle(),
+        supabase.rpc('agent_outstanding', { p_agent: agentId }),
+      ])
+      const mine = en.filter((e) => e.entry_date === today)
+      setFigs({
+        todayOut: mine.reduce((s, e) => s + e.delivered_qty, 0),
+        todayIn: mine.reduce((s, e) => s + e.returned_qty, 0),
+        todaySales: mine.reduce((s, e) => s + Number(e.amount), 0),
+        todayCash:
+          mine.reduce((s, e) => s + Number(e.amount_collected), 0) +
+          pm.filter((p) => p.payment_date === today).reduce((s, p) => s + Number(p.amount), 0),
+        held: en.reduce((s, e) => s + e.delivered_qty - e.returned_qty, 0),
+        depBottles: dep.reduce((s, d) => s + d.bottles, 0),
+        depTotal: dep.reduce((s, d) => s + Number(d.amount), 0),
+        outstanding: typeof out.data === 'number' ? out.data : 0,
+      })
+      setAgent((ag.data as Agent | null) ?? null)
+      setMsg(null)
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : String(err))
+    }
+    setLoading(false)
+  }, [agentId])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  if (!agentId) {
+    return (
+      <Card>
+        <CardTitle>ကျွန်ုပ်၏ စာရင်း</CardTitle>
+        <p className="mt-1 text-sm opacity-80">အကောင့် ချိတ်ဆက်မှု မရှိသေးပါ</p>
+      </Card>
+    )
+  }
+
+  return (
+    <>
+      <Card>
+        <CardTitle>ယနေ့ ကျွန်ုပ်၏ အကျဉ်းချုပ်</CardTitle>
+        {msg && <p className="mt-2 text-sm text-red-600">{msg}</p>}
+        {loading ? (
+          <LoadingState />
+        ) : (
+          <div className="mt-3 grid grid-cols-2 gap-2.5">
+            <StatCard label="ယနေ့ ပို့ဘူး" value={`${figs.todayOut.toLocaleString('en-US')} ဗူး`} />
+            <StatCard label="ယနေ့ ဘူးခွံပြန်" value={`${figs.todayIn.toLocaleString('en-US')} ဗူး`} />
+            <StatCard label="ယနေ့ ရောင်းငွေ" value={formatMMK(figs.todaySales)} />
+            <StatCard label="ယနေ့ လက်ခံငွေ" value={formatMMK(figs.todayCash)} />
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <CardTitle>ကျွန်ုပ်၏ အခြေအနေ</CardTitle>
+        {loading ? (
+          <LoadingState />
+        ) : (
+          <>
+            <div className="mt-3 grid grid-cols-2 gap-2.5">
+              <StatCard
+                label={figs.outstanding < 0 ? 'ပိုပေးထားငွေ' : 'စုစုပေါင်း ကျန်ကြွေး'}
+                value={formatMMK(Math.abs(figs.outstanding))}
+                tone="brand"
+              />
+              <StatCard label="ကိုင်ထားဘူး" value={`${figs.held.toLocaleString('en-US')} ဗူး`} />
+              <StatCard
+                label="အပေါင် စုစုပေါင်း"
+                value={formatMMK(figs.depTotal)}
+                sub={`${figs.depBottles.toLocaleString('en-US')} ဗူး`}
+              />
+              {agent && agent.deposit_per_bottle > 0 && (
+                <StatCard
+                  label="ထပ်ယူနိုင်သောဘူး"
+                  value={`${Math.max(0, figs.depBottles - figs.held).toLocaleString('en-US')} ဗူး`}
+                />
+              )}
+              {agent && (
+                <StatCard label="ရောင်းဈေး" value={`${formatMMK(agent.default_unit_price)}/ဗူး`} />
+              )}
+            </div>
+            <Link to="/my" className={`${btnPrimaryCls} mt-3 w-full`}>
+              ကျွန်ုပ်၏ စာရင်း အပြည့်အစုံ
+            </Link>
+          </>
+        )}
+      </Card>
+    </>
+  )
+}
+
 export default function HomePage() {
   const { profile } = useAuth()
   const role = profile?.role
@@ -573,17 +734,7 @@ export default function HomePage() {
     <div className="space-y-4 lg:space-y-6">
       <PageHeader title="ပင်မ" subtitle="ယနေ့ ရောင်းအား၊ လက်ခံငွေနှင့် လုပ်ရန်အလုပ်များ" />
 
-      <Dashboard />
-
-      {role === 'agent' && (
-        <Card>
-          <CardTitle>ကျွန်ုပ်၏ စာရင်း</CardTitle>
-          <p className="mt-1 text-sm opacity-80">သင့်ရဲ့ ကိုယ်ပိုင် မှတ်တမ်းများကိုပဲ မြင်ရပါမယ်။</p>
-          <Link to="/my" className={`${btnPrimaryCls} mt-3 w-full`}>
-            ကြည့်ရန်
-          </Link>
-        </Card>
-      )}
+      {role === 'agent' ? <AgentHome /> : <Dashboard />}
 
       {/* Management tools: visually demoted below the daily summary.
           PIN changes are not here. Only the owner sets a PIN, from the

@@ -1156,4 +1156,13 @@ export const EN: Record<string, string> = {
   "အကြောင်းပြန်ချက် ရေးပါ": "Write a reply",
   "Excel ဖိုင် ဒေါင်းလုပ် လုပ်ပြီးပါပြီ": "Excel file downloaded",
   "CSV ဖိုင် ဒေါင်းလုပ် လုပ်ပြီးပါပြီ": "CSV file downloaded",
+  "ယနေ့ ကျွန်ုပ်၏ အကျဉ်းချုပ်": "My summary for today",
+  "ယနေ့ ဘူးခွံပြန်": "Empties returned today",
+  "ယနေ့ ရောင်းငွေ": "My sales today",
+  "ယနေ့ လက်ခံငွေ": "Cash I received today",
+  "ကျွန်ုပ်၏ အခြေအနေ": "My status",
+  "ထပ်ယူနိုင်သောဘူး": "Bottles I can still take",
+  "ပိုပေးထားငွေ": "Overpaid",
+  "ကျွန်ုပ်၏ စာရင်း အပြည့်အစုံ": "My full record",
+  "အကောင့် ချိတ်ဆက်မှု မရှိသေးပါ": "No agent account is linked yet",
 };
