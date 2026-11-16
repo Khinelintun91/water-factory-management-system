@@ -333,10 +333,8 @@ export default function AgentDetailPage() {
             {formatMMK(agent.deposit_per_bottle)}/ဗူး
           </div>
           <div>
-            ဘူး ကန့်သတ်: {agent.bottle_limit > 0 ? `${agent.bottle_limit.toLocaleString('en-US')} ဗူး` : 'မကန့်သတ်'} ·
             ကြွေး ကန့်သတ်: {agent.credit_limit > 0 ? formatMMK(agent.credit_limit) : 'မကန့်သတ်'}
           </div>
-          <div>တစ်ခါပို့ ဘူးအရေအတွက်: {(agent.trip_qty ?? 0).toLocaleString('en-US')} ဗူး</div>
           {agent.notes && <div>မှတ်ချက်: {agent.notes}</div>}
           <div>
             အခြေအနေ:{' '}
