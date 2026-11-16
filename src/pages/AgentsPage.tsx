@@ -72,10 +72,7 @@ export default function AgentsPage() {
   const [address, setAddress] = useState('')
   const [deposit, setDeposit] = useState('0')
   const [unitPrice, setUnitPrice] = useState('0')
-  const [bottleLimit, setBottleLimit] = useState('0')
   const [creditLimit, setCreditLimit] = useState('0')
-  // Bottles per trip — the live app's default is 10.
-  const [tripQty, setTripQty] = useState('10')
   const [agentNotes, setAgentNotes] = useState('')
   const [initDepBottles, setInitDepBottles] = useState('')
   const [initDepPrice, setInitDepPrice] = useState('')
@@ -200,9 +197,7 @@ export default function AgentsPage() {
         address: address.trim() || null,
         deposit_per_bottle: Number(deposit) || 0,
         default_unit_price: Number(unitPrice) || 0,
-        bottle_limit: Number(bottleLimit) || 0,
         credit_limit: Number(creditLimit) || 0,
-        trip_qty: Number(tripQty) || 0,
         notes: agentNotes.trim() || null,
       })
       .select('id')
@@ -265,9 +260,7 @@ export default function AgentsPage() {
     setAddress('')
     setDeposit(defaultDeposit || '0')
     setUnitPrice(defaultPrice || '0')
-    setBottleLimit('0')
     setCreditLimit('0')
-    setTripQty('10')
     setAgentNotes('')
     setInitDepBottles('')
     setInitDepPrice('')
@@ -565,22 +558,6 @@ export default function AgentsPage() {
               <input
                 value={unitPrice}
                 onChange={(e) => setUnitPrice(e.target.value.replace(/\D/g, ''))}
-                inputMode="numeric"
-                className={inputCls}
-              />
-            </Field>
-            <Field label="တစ်ခါပို့ ဘူးအရေအတွက်">
-              <input
-                value={tripQty}
-                onChange={(e) => setTripQty(e.target.value.replace(/\D/g, ''))}
-                inputMode="numeric"
-                className={inputCls}
-              />
-            </Field>
-            <Field label="ဗူး ကန့်သတ်ချက် (ဗူး၊ 0 = မကန့်သတ်)">
-              <input
-                value={bottleLimit}
-                onChange={(e) => setBottleLimit(e.target.value.replace(/\D/g, ''))}
                 inputMode="numeric"
                 className={inputCls}
               />
