@@ -27,6 +27,9 @@ export interface Agent {
   credit_limit: number
   closed_at: string | null
   closed_by: string | null
+  /** Set by hard_delete_agent. The row is kept; the working list hides it. */
+  archived_at: string | null
+  archived_by: string | null
   active: boolean
   created_at: string
   updated_at: string

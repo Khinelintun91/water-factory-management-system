@@ -1,12 +1,13 @@
 -- ============================================================
 -- apply_all.sql -- GENERATED convenience file
--- Contains ALL migrations 0001-0029 concatenated in filename order.
--- Regenerated: 2026-11-06. Do NOT edit by hand.
+-- Contains migrations 0001-0029 and 0032-0038 concatenated in filename order.
+-- 0030 and 0031 are not in this file (open pull requests).
+-- Regenerated: 2026-11-16. Do NOT edit by hand.
 -- Paste this whole file ONCE into the Supabase SQL Editor of a
 -- FRESH project and Run. (The individual files in migrations/
 -- remain the source of truth.)
 --
--- Files included (29):
+-- Files included (36):
 --   0001_schema.sql
 --   0002_rls.sql
 --   0003_triggers.sql
@@ -36,6 +37,13 @@
 --   0027_guard_symmetry.sql
 --   0028_function_grant_sweep.sql
 --   0029_agent_outstanding_caller_check.sql
+--   0032_archive_agent_instead_of_delete.sql
+--   0033_agent_money_settings_month_lock.sql
+--   0034_settlement_insert_via_closeout.sql
+--   0035_owner_only_pin_reset.sql
+--   0036_login_lockout_abuse.sql
+--   0037_pin_function_search_path.sql
+--   0038_definer_execute_grants.sql
 -- ============================================================
 
 -- ============================================================
@@ -5670,3 +5678,748 @@ grant execute on function public.agent_outstanding(uuid) to authenticated;
 
 -- END MIGRATION: 0029_agent_outstanding_caller_check.sql
 
+
+-- ============================================================
+-- BEGIN MIGRATION: 0032_archive_agent_instead_of_delete.sql
+-- ============================================================
+-- 0032: archive a closed agent instead of deleting the row.
+--
+-- SPEC (Backups and data safety): business data is never deleted.
+-- hard_delete_agent (0006, current body 0008) DELETE FROM agents, and
+-- agent_contacts is ON DELETE CASCADE, so the phone row disappeared
+-- with the agent. Ledger rows survived only because 0006 used
+-- ON DELETE SET NULL. This migration keeps the RPC name the Agents
+-- detail button already calls, and changes the body to an archive:
+-- the agents row, the phone row, and every ledger row stay, with
+-- agent_id still set. agents_audit already records the update
+-- (old_data / new_data). There is no purge.
+--
+-- archived_at / archived_by change only inside this function. A client
+-- can set the transaction-local GUC and still fail, because the
+-- trigger also requires current_user to be the function owner.
+-- current_user inside this SECURITY DEFINER function is that owner.
+-- A direct DELETE is rejected for every role, including the table
+-- owner (session_replication_role = replica still skips triggers;
+-- that path is maintenance and restore, not the app).
+--
+-- Does not read or replace anything from 0030 or 0031. The update
+-- below does not touch closed_at or closed_by, so 0031's close-column
+-- trigger (if already applied) lets it through. Apply 0030 then 0031
+-- first when those PRs are merged; this file does not require them.
+
+alter table public.agents
+  add column if not exists archived_at timestamptz,
+  add column if not exists archived_by uuid references public.profiles (id) on delete set null;
+
+comment on column public.agents.archived_at is
+  'Set by hard_delete_agent. The row stays; the working list hides it.';
+
+create or replace function public.hard_delete_agent(p_agent uuid) returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if app_role() <> 'owner' then
+    raise exception 'forbidden: owner only';
+  end if;
+  if not exists (select 1 from agents where id = p_agent) then
+    raise exception 'agent_not_found';
+  end if;
+  -- Second press of the same button is a no-op. The row is already kept.
+  if exists (select 1 from agents where id = p_agent and archived_at is not null) then
+    return;
+  end if;
+  if not exists (select 1 from agent_settlements where agent_id = p_agent) then
+    raise exception 'not_settled: စာရင်းမပိတ်ရသေးပါ';
+  end if;
+
+  perform set_config('wf.agent_archive', 'hard_delete_agent', true);
+  update agents
+     set archived_at = now(),
+         archived_by = auth.uid(),
+         active = false
+   where id = p_agent;
+  perform set_config('wf.agent_archive', '', true);
+end $$;
+
+create or replace function public.guard_agent_archive_columns()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_owner name;
+begin
+  if new.archived_at is not distinct from old.archived_at
+     and new.archived_by is not distinct from old.archived_by then
+    return new;
+  end if;
+
+  select pg_get_userbyid(p.proowner) into v_owner
+    from pg_proc p
+   where p.oid = 'public.hard_delete_agent(uuid)'::regprocedure;
+
+  if current_user is distinct from v_owner
+     or current_setting('wf.agent_archive', true) is distinct from 'hard_delete_agent' then
+    raise exception 'archive_columns_locked: archived_at and archived_by change only inside hard_delete_agent';
+  end if;
+  return new;
+end $$;
+
+create trigger agents_archive_columns
+  before update on public.agents
+  for each row execute function public.guard_agent_archive_columns();
+
+create or replace function public.guard_agent_not_deleted()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  raise exception 'business_data_kept: agents are archived, never deleted'
+    using errcode = 'P0001';
+end $$;
+
+create trigger agents_never_delete
+  before delete on public.agents
+  for each row execute function public.guard_agent_not_deleted();
+
+revoke all on function public.guard_agent_archive_columns() from public, anon, authenticated;
+revoke all on function public.guard_agent_not_deleted() from public, anon, authenticated;
+-- END MIGRATION: 0032_archive_agent_instead_of_delete.sql
+
+-- ============================================================
+-- BEGIN MIGRATION: 0033_agent_money_settings_month_lock.sql
+-- ============================================================
+-- 0033: month-lock the agent columns that feed new money, and keep
+-- the audit that already records every change.
+--
+-- OWNER DECISION (conservative, because SPEC is ambiguous here):
+--   SPEC rule 4 is same-day edit/delete of a record. An agent's price,
+--   deposit, bottle limit and credit limit are the live settings for
+--   the next delivery (SPEC rule 7). Freezing them on the creation day
+--   would make a price change impossible after that day, so this
+--   migration does NOT put guard_same_day_edit on agents.
+--   SPEC rule 6 is a locked month on business tables, with no role
+--   exemption. Historical money does not live on the agent row:
+--   daily_entries.unit_price is snapshotted at insert (0006) and
+--   agent_deposits stores price_per_bottle and amount. Those dated
+--   rows already have month-lock triggers. Changing the agent settings
+--   later does not rewrite them.
+--   What this migration adds: while the CURRENT Asia/Yangon month is
+--   locked, default_unit_price, deposit_per_bottle, bottle_limit and
+--   credit_limit cannot change (any role, owner included). A lock on
+--   a past month does not freeze them — one old lock would otherwise
+--   freeze prices forever. active, name, notes, trip_qty and the
+--   close/archive columns are not money snapshots and stay editable.
+--   agents_audit (0003) already writes old_data and new_data for every
+--   update. That trigger is unchanged.
+--
+-- The check reads month_locks. locks_select is true for every
+-- authenticated user (0002), same as guard_month_lock. Invoker, not
+-- definer, so current_user stays the caller.
+--
+-- Does not depend on 0030 or 0031. It does not touch closed_at or
+-- closed_by, so 0031's trigger ignores these updates.
+
+create or replace function public.guard_agent_money_settings()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_month date;
+begin
+  if new.default_unit_price is not distinct from old.default_unit_price
+     and new.deposit_per_bottle is not distinct from old.deposit_per_bottle
+     and new.bottle_limit is not distinct from old.bottle_limit
+     and new.credit_limit is not distinct from old.credit_limit then
+    return new;
+  end if;
+
+  v_month := date_trunc(
+    'month', (now() at time zone 'Asia/Yangon')::date
+  )::date;
+  if exists (select 1 from month_locks where month = v_month) then
+    raise exception 'month_locked: % is locked', v_month
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+create trigger agents_money_settings
+  before update on public.agents
+  for each row execute function public.guard_agent_money_settings();
+
+revoke all on function public.guard_agent_money_settings() from public, anon, authenticated;
+-- END MIGRATION: 0033_agent_money_settings_month_lock.sql
+
+-- ============================================================
+-- BEGIN MIGRATION: 0034_settlement_insert_via_closeout.sql
+-- ============================================================
+-- 0034: a direct insert into agent_settlements cannot skip
+-- finalize_closeout's checks.
+--
+-- 0006's settlements_insert policy let any owner/manager insert a
+-- settlement row. That row did not run the receivable, bottle, or
+-- price checks, and it did not set closed_at. finalize_closeout is
+-- SECURITY DEFINER, so it bypasses RLS and is the intended writer.
+--
+-- The trigger allows the insert only when current_user is the owner
+-- of finalize_closeout. Inside that function, current_user is the
+-- owner, so its INSERT still works. A client session stays
+-- `authenticated` and is rejected even if it sets a GUC. This does
+-- not replace finalize_closeout, so it stays valid whether or not
+-- 0031 has replaced that function (0031's body is still the same
+-- owner, and still inserts one settlement row). service_role is not
+-- the function owner, so it cannot insert either.
+--
+-- The client insert policy is dropped as well. Select stays.
+-- No update or delete policy is added.
+--
+-- Does not depend on 0030 or 0031.
+
+create or replace function public.guard_settlement_insert()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_owner name;
+begin
+  select pg_get_userbyid(p.proowner) into v_owner
+    from pg_proc p
+   where p.oid = 'public.finalize_closeout(uuid,integer,integer,text)'::regprocedure;
+
+  if current_user is distinct from v_owner then
+    raise exception 'settlement_via_closeout_only: agent_settlements are inserted only by finalize_closeout'
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+create trigger settlements_via_closeout
+  before insert on public.agent_settlements
+  for each row execute function public.guard_settlement_insert();
+
+revoke all on function public.guard_settlement_insert() from public, anon, authenticated;
+
+drop policy if exists settlements_insert on public.agent_settlements;
+-- END MIGRATION: 0034_settlement_insert_via_closeout.sql
+
+-- ============================================================
+-- BEGIN MIGRATION: 0035_owner_only_pin_reset.sql
+-- ============================================================
+-- 0035: only an active primary owner may set a PIN.
+--
+-- Owner decision 2026-11-16: co_owner, manager, staff, agent, and every
+-- other non-owner cannot change a PIN, including their own. There is
+-- no self-service PIN change. The Home screen does not offer one.
+--
+-- The allowed path is the existing admin_reset_pin (0014). This file
+-- does not replace that function, so 0030 can still replace it before
+-- or after this migration without losing its co_owner PIN floor. The
+-- caller gate and the digit rule stay inside admin_reset_pin:
+-- active primary profiles.role = 'owner', digits only, 6-12 for
+-- owner/manager and 4-12 for every other primary role (0014).
+--
+-- auth.users.encrypted_password may change only when current_user is
+-- the owner of admin_reset_pin. Inside that SECURITY DEFINER function,
+-- current_user is the function owner, and the owner check plus the
+-- digit rule have already run. A client session (authenticated, anon)
+-- is rejected. On hosted Supabase, GoTrue's updateUser and the
+-- recovery password write run as supabase_auth_admin, not as the
+-- function owner, so those writes are rejected too.
+--
+-- What this migration cannot close from here (do not treat as done):
+--   * If a host runs GoTrue as the same role that owns admin_reset_pin,
+--     this trigger cannot tell updateUser apart from the RPC. Hosted
+--     Supabase uses supabase_auth_admin for GoTrue and postgres /
+--     supabase_admin for SQL functions. Confirm that split on the live
+--     project; this repo cannot read the live role.
+--   * A session that is the function owner (SQL editor as postgres)
+--     can still set encrypted_password directly and skip the digit
+--     rule. That is the same privilege as owning the function.
+--   * INSERT of a new auth user is not blocked. Dashboard "add user"
+--     and admin_create_user stay available. The first owner is created
+--     that way (SETUP).
+--   * Leaked-password protection and the Auth dashboard's recovery
+--     toggle are hosted settings. This file does not change them.
+--     Recovery's password write is an UPDATE of encrypted_password, so
+--     the trigger rejects it when GoTrue is not the function owner.
+--
+-- The audit row records that a PIN was reset, for whom, and by whom.
+-- It does not store the PIN or the password hash. audit_log stays
+-- insert-only (no new update/delete policy).
+
+create or replace function public.guard_auth_password_change()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_owner name;
+begin
+  if new.encrypted_password is not distinct from old.encrypted_password then
+    return new;
+  end if;
+
+  select pg_get_userbyid(p.proowner) into v_owner
+    from pg_proc p
+   where p.oid = 'public.admin_reset_pin(uuid,text)'::regprocedure;
+
+  if current_user is distinct from v_owner then
+    raise exception 'pin_change_owner_only: only the owner can set a PIN, through admin_reset_pin'
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+create trigger auth_password_owner_only
+  before update of encrypted_password on auth.users
+  for each row execute function public.guard_auth_password_change();
+
+revoke all on function public.guard_auth_password_change() from public, anon, authenticated;
+
+create or replace function public.audit_pin_reset()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_username text;
+begin
+  if new.encrypted_password is not distinct from old.encrypted_password then
+    return new;
+  end if;
+
+  select username into v_username
+    from public.profiles
+   where id = new.id;
+
+  -- Names and the event only. Never the PIN, and never the hash.
+  insert into public.audit_log (table_name, row_id, action, old_data, new_data, actor)
+  values (
+    'auth.users',
+    new.id::text,
+    'update',
+    jsonb_build_object('event', 'pin_reset', 'username', v_username),
+    jsonb_build_object('event', 'pin_reset', 'username', v_username),
+    auth.uid()
+  );
+  return new;
+end $$;
+
+create trigger auth_password_audit
+  after update of encrypted_password on auth.users
+  for each row execute function public.audit_pin_reset();
+
+revoke all on function public.audit_pin_reset() from public, anon, authenticated;
+-- END MIGRATION: 0035_owner_only_pin_reset.sql
+
+-- ============================================================
+-- BEGIN MIGRATION: 0036_login_lockout_abuse.sql
+-- ============================================================
+-- 0036: anonymous callers cannot lock a username that is not an account.
+--
+-- log_failed_login (0026) is anon-callable on purpose: the login screen
+-- records a failure before a session exists, and 5 failures lock that
+-- username for 15 minutes. The same grant let anyone lock ANY string
+-- that matched ^[a-z0-9_.-]{1,64}$, including names that are not users,
+-- and walk every real username.
+--
+-- This keeps the 5-failure / 15-minute lock for a username that exists
+-- in profiles, including the "sixth call returns the same lock" rule.
+-- A well-formed unknown username is logged (the 0026 rate limits still
+-- apply) and returns null. It does not insert pin_attempts.
+--
+-- A second brake: at most 30 counted failures across all real accounts
+-- in one minute. The count is login_logs failure rows for a username
+-- that exists in profiles, not pin_attempts rows: a lock resets
+-- pin_attempts.fails to 0, so a row count cannot see the 5 failures.
+-- Already-locked calls return before this count, so one account still
+-- locks at 5 and does not keep adding. Past the ceiling, further
+-- counts are not started. Owner decision: 30 per minute.
+-- tests/sql/10_api_gap_fixes.sql asserts that number.
+--
+-- log_login_attempt still accepts anon failure rows (the locked-before
+-- sign-in path). A success row is written only when the caller is
+-- signed in as that active username. The app calls it after sign-in.
+--
+-- Grants are unchanged: anon + authenticated, not PUBLIC (0026).
+-- login_lock_status stays anon-callable so the screen can show a lock.
+-- Does not depend on 0030 or 0031.
+
+create or replace function public.log_login_attempt(
+  p_username text, p_success boolean, p_user_agent text default null
+) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_username text := lower(trim(coalesce(p_username, '')));
+  v_recent   integer;
+begin
+  if length(v_username) not between 1 and 64
+     or v_username !~ '^[a-z0-9_.-]+$'
+     or p_success is null then
+    return;
+  end if;
+
+  -- Success is only the signed-in user's own username. Anon cannot
+  -- write a fake successful login. Failures stay anon-callable.
+  if p_success then
+    if auth.uid() is null
+       or not exists (
+         select 1 from profiles
+          where id = auth.uid()
+            and lower(username) = v_username
+            and active
+       ) then
+      return;
+    end if;
+  end if;
+
+  select count(*) into v_recent from login_logs
+   where username = v_username and created_at > now() - interval '1 minute';
+  if v_recent >= 20 then return; end if;
+  select count(*) into v_recent from login_logs
+   where created_at > now() - interval '1 minute';
+  if v_recent >= 300 then return; end if;
+
+  insert into login_logs (username, success, user_agent)
+  values (v_username, p_success, left(p_user_agent, 512));
+end $$;
+
+create or replace function public.log_failed_login(
+  p_username text, p_user_agent text default null
+) returns timestamptz
+language plpgsql security definer set search_path = public as $$
+declare
+  v_username text := lower(trim(coalesce(p_username, '')));
+  v_lock     timestamptz;
+  v_recent   integer;
+begin
+  if length(v_username) not between 1 and 64
+     or v_username !~ '^[a-z0-9_.-]+$' then
+    return null;
+  end if;
+
+  select locked_until into v_lock from pin_attempts
+   where username = v_username and locked_until > now();
+  if v_lock is not null then
+    return v_lock;
+  end if;
+
+  -- Not an account: do not create a pin_attempts row and do not lock.
+  if not exists (
+    select 1 from profiles where lower(username) = v_username
+  ) then
+    perform public.log_login_attempt(v_username, false, p_user_agent);
+    return null;
+  end if;
+
+  -- 30 counted failures per minute, all real accounts together.
+  -- login_logs, not pin_attempts: locking a username sets fails back
+  -- to 0, so the attempt row no longer shows how many failures it took.
+  select count(*) into v_recent
+    from login_logs
+   where success = false
+     and created_at > now() - interval '1 minute'
+     and exists (
+       select 1 from profiles
+        where lower(username) = login_logs.username
+     );
+  if v_recent >= 30 then
+    perform public.log_login_attempt(v_username, false, p_user_agent);
+    return null;
+  end if;
+
+  v_lock := public.record_login_failure(v_username);
+  perform public.log_login_attempt(v_username, false, p_user_agent);
+  return v_lock;
+end $$;
+-- END MIGRATION: 0036_login_lockout_abuse.sql
+
+-- ============================================================
+-- BEGIN MIGRATION: 0037_pin_function_search_path.sql
+-- ============================================================
+-- 0037: pin search_path on the eight invoker trigger functions the
+-- security advisor flagged. Bodies are the latest definitions
+-- (0003 set_updated_at, 0005 force_insert_attribution, 0006
+-- fill_agent_name, 0008 guard_same_day_edit and guard_month_lock,
+-- 0009 guard_month_lock_text, 0018 guard_insert_today, 0026
+-- guard_last_owner). CREATE OR REPLACE keeps the triggers and the
+-- grants 0026/0028 already set. search_path = public matches every
+-- other function in this repo. auth.uid() in force_insert_attribution
+-- is schema-qualified, so it does not need auth on the path.
+--
+-- Does not depend on 0030 or 0031.
+
+create or replace function public.set_updated_at() returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end $$;
+
+create or replace function public.force_insert_attribution() returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  new := jsonb_populate_record(new, jsonb_build_object(
+    'created_at', now(),
+    'created_by', auth.uid()
+  ));
+  return new;
+end $$;
+
+create or replace function public.fill_agent_name() returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.agent_id is not null then
+    select name into new.agent_name from agents where id = new.agent_id;
+  end if;
+  return new;
+end $$;
+
+create or replace function public.guard_same_day_edit() returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  -- Agent hard-delete cascade: only agent_id was nulled -> allow.
+  -- 0032 no longer deletes agents. The bypass stays so a replica
+  -- restore or an old cascade shape is not rejected by this guard.
+  if tg_op = 'UPDATE'
+     and (to_jsonb(old) ? 'agent_id')
+     and (to_jsonb(old) ->> 'agent_id') is not null
+     and (to_jsonb(new) ->> 'agent_id') is null
+     and (to_jsonb(old) - 'agent_id' - 'updated_at')
+         = (to_jsonb(new) - 'agent_id' - 'updated_at') then
+    return new;
+  end if;
+  if (old.created_at at time zone 'Asia/Yangon')::date
+     <> (now() at time zone 'Asia/Yangon')::date then
+    raise exception 'same_day_only: records can only be edited or deleted on the day they were created';
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end $$;
+
+create or replace function public.guard_month_lock() returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_date_field text := tg_argv[0];
+  v_old_month date;
+  v_new_month date;
+begin
+  -- Agent hard-delete cascade: only agent_id was nulled -> allow.
+  if tg_op = 'UPDATE'
+     and (to_jsonb(old) ? 'agent_id')
+     and (to_jsonb(old) ->> 'agent_id') is not null
+     and (to_jsonb(new) ->> 'agent_id') is null
+     and (to_jsonb(old) - 'agent_id' - 'updated_at')
+         = (to_jsonb(new) - 'agent_id' - 'updated_at') then
+    return new;
+  end if;
+  if tg_op in ('UPDATE', 'DELETE') then
+    v_old_month := date_trunc('month', (to_jsonb(old) ->> v_date_field)::date)::date;
+    if exists (select 1 from month_locks where month = v_old_month) then
+      raise exception 'month_locked: % is locked', v_old_month;
+    end if;
+  end if;
+  if tg_op in ('INSERT', 'UPDATE') then
+    v_new_month := date_trunc('month', (to_jsonb(new) ->> v_date_field)::date)::date;
+    if exists (select 1 from month_locks where month = v_new_month) then
+      raise exception 'month_locked: % is locked', v_new_month;
+    end if;
+    return new;
+  end if;
+  return old;
+end $$;
+
+create or replace function public.guard_month_lock_text() returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_field text := tg_argv[0];
+  v_month date;
+begin
+  if tg_op in ('UPDATE', 'DELETE') then
+    v_month := ((to_jsonb(old) ->> v_field) || '-01')::date;
+    if exists (select 1 from month_locks where month = v_month) then
+      raise exception 'month_locked: % is locked', to_char(v_month, 'YYYY-MM');
+    end if;
+  end if;
+  if tg_op in ('INSERT', 'UPDATE') then
+    v_month := ((to_jsonb(new) ->> v_field) || '-01')::date;
+    if exists (select 1 from month_locks where month = v_month) then
+      raise exception 'month_locked: % is locked', to_char(v_month, 'YYYY-MM');
+    end if;
+    return new;
+  end if;
+  return old;
+end $$;
+
+create or replace function public.guard_insert_today() returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_date date;
+begin
+  if app_role() = 'owner' then
+    return new;
+  end if;
+  v_date := (to_jsonb(new) ->> tg_argv[0])::date;
+  if v_date is distinct from (now() at time zone 'Asia/Yangon')::date then
+    raise exception 'same_day_only: % must be today (Asia/Yangon)', tg_argv[0]
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+create or replace function public.guard_last_owner() returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if old.role = 'owner' and old.active then
+    if tg_op = 'DELETE'
+       or new.active is distinct from true
+       or new.role is distinct from 'owner' then
+      if not exists (
+        select 1 from profiles
+        where role = 'owner' and active and id <> old.id
+      ) then
+        raise exception
+          'last_owner: the final active owner account cannot be deactivated, re-roled, or deleted'
+          using errcode = 'P0001';
+      end if;
+    end if;
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end $$;
+-- END MIGRATION: 0037_pin_function_search_path.sql
+
+-- ============================================================
+-- BEGIN MIGRATION: 0038_definer_execute_grants.sql
+-- ============================================================
+-- 0038: execute grants for the 25 SECURITY DEFINER functions that
+-- authenticated can call (the RPC matrix through admin_reset_pin).
+--
+-- Review result: authenticated must KEEP execute on all 25.
+--   * The five helpers (app_role, app_agent_id, has_role,
+--     is_owner_manager, is_staff_plus) are evaluated as the signed-in
+--     user inside RLS policies. Revoking authenticated would break
+--     every policy.
+--   * The other twenty are called from the React app. Postgres has one
+--     role, `authenticated`, for owner, manager, co-owner, staff and
+--     agent. The business-role check stays in the function body
+--     (forbidden / owner_only / the 0029 outstanding gate). Revoking
+--     authenticated would take the screens down; it would not draw a
+--     finer line between those app roles.
+--   * anon keeps execute only on the four pre-login functions:
+--     public_factory_name, login_lock_status, log_failed_login,
+--     log_login_attempt. clear_login_failures stays authenticated-only.
+--   * PUBLIC does not need any of them. login_lock_status was the one
+--     still executable by PUBLIC, because 0006 granted anon and
+--     authenticated and 0026 left that function's grants unchanged, so
+--     the default PUBLIC grant survived. This file revokes PUBLIC and
+--     re-grants anon and authenticated.
+--   * service_role grants are not touched (0028).
+--
+-- In-function role checks are not removed.
+-- Does not depend on 0030 or 0031. 0035 adds no client RPC.
+
+-- Pre-login four: no PUBLIC, anon + authenticated kept.
+revoke all on function public.public_factory_name() from public;
+grant execute on function public.public_factory_name() to anon, authenticated;
+
+revoke all on function public.login_lock_status(text) from public;
+grant execute on function public.login_lock_status(text) to anon, authenticated;
+
+revoke all on function public.log_failed_login(text, text) from public;
+grant execute on function public.log_failed_login(text, text) to anon, authenticated;
+
+revoke all on function public.log_login_attempt(text, boolean, text) from public;
+grant execute on function public.log_login_attempt(text, boolean, text) to anon, authenticated;
+
+-- Signed-in only. anon and PUBLIC do not need these. Body gates stay.
+revoke all on function public.clear_login_failures() from public, anon;
+grant execute on function public.clear_login_failures() to authenticated;
+
+revoke all on function public.app_role() from public, anon;
+grant execute on function public.app_role() to authenticated;
+
+revoke all on function public.app_agent_id() from public, anon;
+grant execute on function public.app_agent_id() to authenticated;
+
+revoke all on function public.has_role(user_role) from public, anon;
+grant execute on function public.has_role(user_role) to authenticated;
+
+revoke all on function public.is_owner_manager() from public, anon;
+grant execute on function public.is_owner_manager() to authenticated;
+
+revoke all on function public.is_staff_plus() from public, anon;
+grant execute on function public.is_staff_plus() to authenticated;
+
+revoke all on function public.agent_outstanding(uuid) from public, anon;
+grant execute on function public.agent_outstanding(uuid) to authenticated;
+
+revoke all on function public.agent_held_totals() from public, anon;
+grant execute on function public.agent_held_totals() to authenticated;
+
+revoke all on function public.agent_detail_stats(uuid) from public, anon;
+grant execute on function public.agent_detail_stats(uuid) to authenticated;
+
+revoke all on function public.collections_summary(date, date) from public, anon;
+grant execute on function public.collections_summary(date, date) to authenticated;
+
+revoke all on function public.inventory_totals() from public, anon;
+grant execute on function public.inventory_totals() to authenticated;
+
+revoke all on function public.report_range(date, date) from public, anon;
+grant execute on function public.report_range(date, date) to authenticated;
+
+revoke all on function public.report_months(text, integer, date, date) from public, anon;
+grant execute on function public.report_months(text, integer, date, date) to authenticated;
+
+revoke all on function public.report_aging(date) from public, anon;
+grant execute on function public.report_aging(date) to authenticated;
+
+revoke all on function public.data_quality_scan() from public, anon;
+grant execute on function public.data_quality_scan() to authenticated;
+
+revoke all on function public.my_card_tier() from public, anon;
+grant execute on function public.my_card_tier() to authenticated;
+
+revoke all on function public.finalize_closeout(uuid, integer, integer, text) from public, anon;
+grant execute on function public.finalize_closeout(uuid, integer, integer, text) to authenticated;
+
+revoke all on function public.hard_delete_agent(uuid) from public, anon;
+grant execute on function public.hard_delete_agent(uuid) to authenticated;
+
+revoke all on function public.pay_month(uuid, text) from public, anon;
+grant execute on function public.pay_month(uuid, text) to authenticated;
+
+revoke all on function public.admin_create_user(text, text, text, uuid, text) from public, anon;
+grant execute on function public.admin_create_user(text, text, text, uuid, text) to authenticated;
+
+revoke all on function public.admin_reset_pin(uuid, text) from public, anon;
+grant execute on function public.admin_reset_pin(uuid, text) to authenticated;
+-- END MIGRATION: 0038_definer_execute_grants.sql
