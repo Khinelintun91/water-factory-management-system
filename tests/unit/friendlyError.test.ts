@@ -132,6 +132,13 @@ describe('friendlyError', () => {
     )
   })
 
+  it('maps the damage-charge errors (migration 0042)', () => {
+    expect(
+      friendlyError({ message: 'damage_item_inactive: this damage item is not active' }),
+    ).toBe('ဒီ ပစ္စည်းကို ပိတ်ထားပြီးသားပါ — စရိတ် မှတ်တမ်းတင်၍ မရပါ')
+    expect(friendlyError({ message: 'damage_item_not_found' })).toBe(NOT_FOUND)
+  })
+
   it('passes through a message that is already Burmese', () => {
     expect(friendlyError({ message: 'တစ်ခုခု မှားနေပါတယ်' })).toBe('တစ်ခုခု မှားနေပါတယ်')
   })

@@ -83,6 +83,12 @@ export function friendlyError(err: unknown): string {
 
   if (msg.includes('agent_closed')) return 'ဒီ ကိုယ်စားလှယ်က စာရင်း ပိတ်ပြီးသား ဖြစ်ပါတယ်'
 
+  // Damage charges (migration 0042): the item was deactivated between
+  // opening the form and saving — it can no longer be charged.
+  if (msg.includes('damage_item_inactive'))
+    return 'ဒီ ပစ္စည်းကို ပိတ်ထားပြီးသားပါ — စရိတ် မှတ်တမ်းတင်၍ မရပါ'
+  if (msg.includes('damage_item_not_found')) return NOT_FOUND
+
   // Legacy bottle cap (superseded by the deposit rule in migration 0039,
   // but older function versions may still raise it).
   if (msg.includes('bottle_limit')) return 'ဗူး ကန့်သတ်ချက် ကျော်သွားပါတယ်'

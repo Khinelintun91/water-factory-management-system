@@ -5,13 +5,16 @@ import { supabase } from '../lib/supabase'
 import { friendlyError } from '../lib/friendlyError'
 import {
   formatMMK,
+  isTodayYangon,
   todayYangon,
   PRICE_DIFF_KIND_LABELS,
   type Agent,
+  type AgentDamageCharge,
   type AgentDeposit,
   type AgentPayment,
   type AgentSettlement,
   type DailyEntry,
+  type DamageItem,
   type WriteOff,
 } from '../lib/types'
 import {
@@ -121,10 +124,20 @@ export default function AgentDetailPage() {
   const [woAmount, setWoAmount] = useState('')
   const [woNote, setWoNote] = useState('')
 
+  // Damage charges (migration 0042): history for owner/manager, the
+  // recording form is owner-only (RLS enforces the same).
+  const [charges, setCharges] = useState<AgentDamageCharge[]>([])
+  const [damageItems, setDamageItems] = useState<DamageItem[]>([])
+  const [dmgItemId, setDmgItemId] = useState('')
+  const [dmgQty, setDmgQty] = useState('')
+  const [dmgDate, setDmgDate] = useState(todayYangon())
+  const [dmgNote, setDmgNote] = useState('')
+  const [confirmChargeId, setConfirmChargeId] = useState<string | null>(null)
+
   const load = useCallback(async () => {
     if (!id) return
     setLoading(true)
-    const [{ data: ag }, { data: ct }, { data: en }, { data: pm }, { data: dp }, { data: wo }, { data: st }, out, statsRes] =
+    const [{ data: ag }, { data: ct }, { data: en }, { data: pm }, { data: dp }, { data: wo }, { data: st }, { data: dc }, { data: di }, out, statsRes] =
       await Promise.all([
         supabase.from('agents').select('*').eq('id', id).maybeSingle(),
         supabase.from('agent_contacts').select('phone').eq('agent_id', id).maybeSingle(),
@@ -153,6 +166,13 @@ export default function AgentDetailPage() {
           .order('writeoff_date', { ascending: false })
           .order('created_at', { ascending: false }),
         supabase.from('agent_settlements').select('*').eq('agent_id', id).maybeSingle(),
+        supabase
+          .from('agent_damage_charges')
+          .select('*')
+          .eq('agent_id', id)
+          .order('charge_date', { ascending: false })
+          .order('created_at', { ascending: false }),
+        supabase.from('damage_items').select('*').eq('active', true).order('created_at', { ascending: true }),
         supabase.rpc('agent_outstanding', { p_agent: id }),
         supabase.rpc('agent_detail_stats', { p_agent: id }),
       ])
@@ -164,6 +184,8 @@ export default function AgentDetailPage() {
     setPayments((pm ?? []) as PaymentFull[])
     setDeposits((dp ?? []) as AgentDeposit[])
     setWriteOffs((wo ?? []) as WriteOff[])
+    setCharges((dc ?? []) as AgentDamageCharge[])
+    setDamageItems((di ?? []) as DamageItem[])
     setSettlement((st as AgentSettlement | null) ?? null)
     setOutstanding(typeof out.data === 'number' ? out.data : 0)
     setServerStats(
@@ -261,6 +283,51 @@ export default function AgentDetailPage() {
     }
     setWoAmount('')
     setWoNote('')
+    await load()
+  }
+
+  async function onAddCharge(e: FormEvent) {
+    e.preventDefault()
+    if (!id) return
+    setMsg(null)
+    const item = damageItems.find((it) => it.id === dmgItemId)
+    if (!item) {
+      setMsg('ပစ္စည်း ရွေးပါ')
+      return
+    }
+    const qty = Number(dmgQty) || 0
+    // item_name / unit_price / total are NOT NULL columns, so the client
+    // sends the item's current values — the BEFORE INSERT trigger
+    // (damage_charge_snapshot) re-reads the item row and overwrites all
+    // three, so what is stored is always the item's price at save time.
+    const { error } = await supabase.from('agent_damage_charges').insert({
+      agent_id: id,
+      item_id: item.id,
+      item_name: item.name,
+      unit_price: item.unit_price,
+      qty,
+      total: qty * item.unit_price,
+      charge_date: dmgDate,
+      note: dmgNote.trim() || null,
+    })
+    if (error) {
+      setMsg(friendlyError(error))
+      return
+    }
+    setDmgQty('')
+    setDmgNote('')
+    await load()
+  }
+
+  async function onDeleteCharge(chargeId: string) {
+    setMsg(null)
+    const { error } = await supabase.from('agent_damage_charges').delete().eq('id', chargeId)
+    if (error) {
+      setMsg(friendlyError(error))
+      setConfirmChargeId(null)
+      return
+    }
+    setConfirmChargeId(null)
     await load()
   }
 
@@ -537,6 +604,120 @@ export default function AgentDetailPage() {
             </PrimaryButton>
           </form>
         )}
+      </Card>
+
+      <Card>
+        <CardTitle>ပျက်စီးမှု မှတ်တမ်းများ</CardTitle>
+        <ul className="divide-y divide-stone-100 dark:divide-neutral-800">
+          {charges.map((c) => (
+            <li key={c.id} className="py-2 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span>
+                  {c.charge_date} · {c.item_name} × {c.qty.toLocaleString('en-US')}
+                </span>
+                <span className="font-semibold tabular-nums">{formatMMK(c.total)}</span>
+              </div>
+              <div className="opacity-75">
+                တစ်ခုဈေး {formatMMK(c.unit_price)}
+                {c.note ? ` · ${c.note}` : ''}
+              </div>
+              {isOwner && !closed && isTodayYangon(c.created_at) &&
+                (confirmChargeId === c.id ? (
+                  <div className="flex gap-2 pt-1.5">
+                    <DangerButton size="sm" onClick={() => void onDeleteCharge(c.id)}>
+                      သေချာပါတယ်, ဖျက်မည်
+                    </DangerButton>
+                    <SecondaryButton size="sm" onClick={() => setConfirmChargeId(null)}>
+                      မလုပ်တော့ပါ
+                    </SecondaryButton>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmChargeId(c.id)}
+                    className="inline-flex min-h-[36px] items-center text-sm font-medium text-red-600 dark:text-red-400"
+                  >
+                    ဖျက်ရန်
+                  </button>
+                ))}
+            </li>
+          ))}
+          {charges.length === 0 && <li className="py-2 text-sm opacity-70">မှတ်တမ် မရှိသေးပါ</li>}
+        </ul>
+        {charges.length > 0 && (
+          <div className="pt-2 text-sm opacity-75">
+            ပျက်စီးမှု စုစုပေါင်း: {formatMMK(charges.reduce((s, c) => s + c.total, 0))} (ရရန်ကျန်ထဲ
+            ပါဝင်ပြီး)
+          </div>
+        )}
+        {isOwner &&
+          !closed &&
+          (damageItems.length === 0 ? (
+            <p className="pt-3 text-sm opacity-75">
+              ဈေးနှုန်း စာရင်းမှာ ပစ္စည်း မရှိသေးပါ —{' '}
+              <Link to="/damage-items" className="font-medium text-brand-700 dark:text-brand-300">
+                ပျက်စီးမှု ဈေးနှုန်းများ
+              </Link>{' '}
+              မှာ အရင် ထည့်ပါ
+            </p>
+          ) : (
+            <form onSubmit={onAddCharge} className="space-y-2.5 pt-3">
+              <div className="grid grid-cols-2 gap-2.5">
+                <Field label="ပစ္စည်း">
+                  <select
+                    value={dmgItemId}
+                    onChange={(e) => setDmgItemId(e.target.value)}
+                    required
+                    className={inputCls}
+                  >
+                    <option value="">ရွေးပါ</option>
+                    {damageItems.map((it) => (
+                      <option key={it.id} value={it.id}>
+                        {it.name} — {formatMMK(it.unit_price)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="အရေအတွက်">
+                  <input
+                    value={dmgQty}
+                    onChange={(e) => setDmgQty(e.target.value.replace(/\D/g, ''))}
+                    inputMode="numeric"
+                    required
+                    className={inputCls}
+                  />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <Field label="ရက်စွဲ">
+                  <input
+                    type="date"
+                    value={dmgDate}
+                    onChange={(e) => setDmgDate(e.target.value)}
+                    max={todayYangon()}
+                    required
+                    className={inputCls}
+                  />
+                </Field>
+                <Field label="မှတ်ချက် (ရှိလျှင်)">
+                  <input
+                    value={dmgNote}
+                    onChange={(e) => setDmgNote(e.target.value)}
+                    className={inputCls}
+                  />
+                </Field>
+              </div>
+              <div className="text-sm opacity-75">
+                စုစုပေါင်း:{' '}
+                {formatMMK(
+                  (Number(dmgQty) || 0) *
+                    (damageItems.find((it) => it.id === dmgItemId)?.unit_price ?? 0),
+                )}
+              </div>
+              <PrimaryButton type="submit" className="w-full">
+                စရိတ် မှတ်တမ်းတင်ရန်
+              </PrimaryButton>
+            </form>
+          ))}
       </Card>
 
       {closed && settlement && (

@@ -11,9 +11,11 @@ import {
   personName,
   todayYangon,
   type Agent,
+  type AgentDamageCharge,
   type AgentDeposit,
   type AgentPayment,
   type DailyEntry,
+  type DamageItem,
 } from '../lib/types'
 import { fmtDateTime12 } from '../lib/types'
 import { fetchStaffDirectory, receiverName } from '../lib/staffDirectory'
@@ -608,6 +610,11 @@ function AgentHome() {
   const [agent, setAgent] = useState<Agent | null>(null)
   const [cardTier, setCardTier] = useState<{ tier: FaceTier; lifetimeSales: number } | null>(null)
   const [latest, setLatest] = useState<LatestRecord[]>([])
+  // Damage charges (0042): the shared price list (active items) + own
+  // charges — the total is the damage part of the outstanding breakdown.
+  const [damageItems, setDamageItems] = useState<DamageItem[]>([])
+  const [damageCharges, setDamageCharges] = useState<AgentDamageCharge[]>([])
+  const [damageTotal, setDamageTotal] = useState(0)
   const [figs, setFigs] = useState({
     todayOut: 0,
     todayIn: 0,
@@ -627,7 +634,7 @@ function AgentHome() {
     }
     try {
       const today = todayYangon()
-      const [en, pm, dep, ag, out, ct, dir] = await Promise.all([
+      const [en, pm, dep, ag, out, ct, dir, di, dc] = await Promise.all([
         fetchAll<Pick<DailyEntry, 'id' | 'entry_date' | 'created_at' | 'delivered_qty' | 'returned_qty' | 'amount' | 'amount_collected' | 'created_by' | 'received_by'>>(
           (from, to) =>
             supabase
@@ -659,7 +666,20 @@ function AgentHome() {
         supabase.rpc('agent_outstanding', { p_agent: agentId }),
         supabase.rpc('my_card_tier'),
         fetchStaffDirectory(),
+        supabase.from('damage_items').select('*').eq('active', true).order('created_at', { ascending: true }),
+        fetchAll<AgentDamageCharge>((from, to) =>
+          supabase
+            .from('agent_damage_charges')
+            .select('*')
+            .eq('agent_id', agentId)
+            .order('charge_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .range(from, to),
+        ),
       ])
+      setDamageItems((di.data ?? []) as DamageItem[])
+      setDamageCharges(dc)
+      setDamageTotal(dc.reduce((s, c) => s + Number(c.total), 0))
       const mine = en.filter((e) => e.entry_date === today)
       setFigs({
         todayOut: mine.reduce((s, e) => s + e.delivered_qty, 0),
@@ -764,6 +784,12 @@ function AgentHome() {
               <span className="block text-[28px] font-bold leading-[1.3] tabular-nums">
                 {formatMMK(Math.abs(faceOutstanding))}
               </span>
+              {faceOutstanding > 0 && damageTotal > 0 && faceOutstanding - damageTotal > 0 && (
+                <span className={`block text-xs ${faceTier.sub}`}>
+                  ကျသင့်ငွေကြွေး {formatMMK(faceOutstanding - damageTotal)} + ပျက်စီးမှု{' '}
+                  {formatMMK(damageTotal)}
+                </span>
+              )}
               <span className={`block text-xs ${faceTier.sub}`}>
                 ကျသင့်ငွေ {formatMMK(figs.lifetimeSales)} · ပေးချေပြီး {formatMMK(figs.lifetimeCollected)}
               </span>
@@ -825,6 +851,58 @@ function AgentHome() {
               <StatCard label="ရောင်းဈေး" value={`${formatMMK(agent.default_unit_price)}/ဗူး`} />
             )}
           </div>
+        )}
+      </Card>
+
+      <Card>
+        <CardTitle>ပျက်စီးမှု ဈေးနှုန်းစာရင်း</CardTitle>
+        {loading ? (
+          <LoadingState />
+        ) : damageItems.length === 0 && damageCharges.length === 0 ? (
+          <p className="mt-3 text-sm text-stone-500 dark:text-neutral-400">မရှိသေးပါ</p>
+        ) : (
+          <>
+            {damageItems.length > 0 && (
+              <ul className="mt-1 divide-y divide-stone-100 dark:divide-neutral-800/70">
+                {damageItems.map((it) => (
+                  <li
+                    key={it.id}
+                    className="flex items-baseline justify-between gap-2 py-2 text-sm"
+                  >
+                    <span className="min-w-0">{it.name}</span>
+                    <span className="shrink-0 font-semibold tabular-nums">
+                      {formatMMK(it.unit_price)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {damageCharges.length > 0 && (
+              <>
+                <p className="mt-3 text-xs font-medium text-stone-500 dark:text-neutral-400">
+                  နောက်ဆုံး ပျက်စီးမှု စရိတ်များ
+                </p>
+                <ul className="divide-y divide-stone-100 dark:divide-neutral-800/70">
+                  {damageCharges.slice(0, 3).map((c) => (
+                    <li
+                      key={c.id}
+                      className="flex items-baseline justify-between gap-2 py-2 text-sm"
+                    >
+                      <span className="min-w-0">
+                        {c.item_name} × {c.qty.toLocaleString('en-US')}
+                        <span className="block text-xs text-stone-500 dark:text-neutral-400">
+                          {c.charge_date}
+                        </span>
+                      </span>
+                      <span className="shrink-0 font-semibold tabular-nums">
+                        {formatMMK(c.total)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </>
         )}
       </Card>
 

@@ -36,6 +36,10 @@ const BACKUP_TABLES: { table: string; orderBy: string }[] = [
   { table: 'agent_deposits', orderBy: 'id' },
   { table: 'write_offs', orderBy: 'id' },
   { table: 'agent_settlements', orderBy: 'id' },
+  // Damage charges (migration 0042): the price list hangs off profiles;
+  // charges hang off agents + damage_items.
+  { table: 'damage_items', orderBy: 'id' },
+  { table: 'agent_damage_charges', orderBy: 'id' },
   { table: 'salary_settings', orderBy: 'user_id' },
   { table: 'advances', orderBy: 'id' },
   { table: 'bonuses', orderBy: 'id' },
