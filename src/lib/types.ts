@@ -60,6 +60,38 @@ export interface WriteOff {
   updated_at: string
 }
 
+/** One row of the owner's shared damage price list (migration 0042). */
+export interface DamageItem {
+  id: string
+  name: string
+  unit_price: number
+  active: boolean
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * A damage charge against one agent (migration 0042). item_name and
+ * unit_price are snapshots taken from the item row at charge time;
+ * total = qty × unit_price snapshot, stored. Counts into
+ * agent_outstanding().
+ */
+export interface AgentDamageCharge {
+  id: string
+  agent_id: string
+  item_id: string | null
+  item_name: string
+  unit_price: number
+  qty: number
+  total: number
+  charge_date: string
+  note: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface AgentSettlement {
   id: string
   agent_id: string | null

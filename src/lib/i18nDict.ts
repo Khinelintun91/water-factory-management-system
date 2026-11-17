@@ -1180,4 +1180,32 @@ export const EN: Record<string, string> = {
   "အပေါင် ဗူး မလောက်ပါ": "Not enough deposit bottles",
   "ထပ်တင်ရန် လိုပါတယ်": "a top-up is needed",
   "လ ပိတ်ထားပြီးသားပါ — စာရင်း သွင်း/ပြင်/ဖျက် လို့ မရပါ": "month is locked — records cannot be added, edited or deleted",
+
+  // Damage charges (migration 0042) — owner price list page, AgentDetail
+  // charge section, AgentHome price card, My Page charges list. Composed
+  // lines (totals with amounts inside) are entered as stable fragments.
+  "ပျက်စီးမှု ဈေးနှုန်းများ": "Damage prices",
+  "ကိုယ်စားလှယ် အားလုံးအတွက် ဈေးနှုန်း စာရင်း တစ်ခုတည်း — ဒီမှာ ပြောင်းလိုက်သည်နှင့် ကိုယ်စားလှယ်များ ချက်ချင်း မြင်ရပါမည်": "One price list for all agents — change it here and agents see it right away",
+  "ပစ္စည်း အသစ် ထည့်ရန်": "Add a new item",
+  "ဈေးနှုန်း (ကျပ်)": "Price (MMK)",
+  "ဈေးနှုန်း စာရင်း": "Price list",
+  "ပစ္စည်း မရှိသေးပါ": "No items yet",
+  "ပစ္စည်းကို ဖျက်၍ မရပါ — မသုံးတော့လျှင် ပိတ်ထားပါ။ မှတ်တမ်း အဟောင်းများမှာ မူရင်း ဈေးနှုန်း အတိုင်း ကျန်ပါမည်။": "Items cannot be deleted — deactivate one you no longer use. Old records keep their original price.",
+  "ပျက်စီးမှု မှတ်တမ်းများ": "Damage records",
+  "ပျက်စီးမှု စရိတ်များ": "Damage charges",
+  "ပျက်စီးမှု ဈေးနှုန်းစာရင်း": "Damage price list",
+  "နောက်ဆုံး ပျက်စီးမှု စရိတ်များ": "Latest damage charges",
+  "ပစ္စည်း": "Item",
+  "တစ်ခုဈေး": "Unit price",
+  "မှတ်ချက် (ရှိလျှင်)": "Note (optional)",
+  "ပျက်စီးမှု စုစုပေါင်း:": "Total damage charges:",
+  "(ရရန်ကျန်ထဲ ပါဝင်ပြီး)": "(included in the amount owed)",
+  "ဈေးနှုန်း စာရင်းမှာ ပစ္စည်း မရှိသေးပါ —": "There are no items in the price list yet —",
+  "မှာ အရင် ထည့်ပါ": "— add them there first",
+  "စရိတ် မှတ်တမ်းတင်ရန်": "Record charge",
+  "ပစ္စည်း ရွေးပါ": "Please choose an item",
+  "သေချာပါတယ်, ဖျက်မည်": "Yes, delete it",
+  "ကျသင့်ငွေကြွေး": "Amount-due debt",
+  "+ ပျက်စီးမှု": "+ damage",
+  "ဒီ ပစ္စည်းကို ပိတ်ထားပြီးသားပါ — စရိတ် မှတ်တမ်းတင်၍ မရပါ": "This item has been deactivated — it cannot be charged",
 };

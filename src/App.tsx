@@ -21,6 +21,7 @@ import PayrollPage from './pages/PayrollPage'
 import ReportsPage from './pages/ReportsPage'
 import HandoverPage from './pages/HandoverPage'
 import DataQualityPage from './pages/DataQualityPage'
+import DamageItemsPage from './pages/DamageItemsPage'
 import SettingsPage from './pages/SettingsPage'
 import NotificationBell from './components/NotificationBell'
 import ScrollNav from './components/ScrollNav'
@@ -62,6 +63,7 @@ const NAV: { to: string; label: string; agentLabel?: string; roles: string[] }[]
   { to: '/data-quality', label: 'ဒေတာ စစ်ဆေးမှု', roles: ['owner', 'manager'] },
   { to: '/history', label: 'ပြောင်းလဲမှုမှတ်တမ်း', roles: ['owner', 'manager'] },
   { to: '/disputes', label: 'အငြင်းပွားမှုများ', roles: ['owner', 'manager', 'agent'] },
+  { to: '/damage-items', label: 'ပျက်စီးမှု ဈေးနှုန်းများ', roles: ['owner'] },
   { to: '/users', label: 'အသုံးပြုသူများ', roles: ['owner'] },
   { to: '/my', label: 'ကျွန်ုပ်၏ စာရင်း', roles: ['agent'] },
   { to: '/settings', label: 'ဆက်တင်', roles: ['owner', 'manager', 'staff', 'agent'] },
@@ -342,6 +344,14 @@ export default function App() {
               element={
                 <Guard roles={['owner', 'manager', 'agent']}>
                   <DisputesPage />
+                </Guard>
+              }
+            />
+            <Route
+              path="/damage-items"
+              element={
+                <Guard roles={['owner']}>
+                  <DamageItemsPage />
                 </Guard>
               }
             />
