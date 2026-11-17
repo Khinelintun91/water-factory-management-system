@@ -631,7 +631,7 @@ function AgentHome() {
           (from, to) =>
             supabase
               .from('daily_entries')
-              .select('id, entry_date, created_at, delivered_qty, returned_qty, amount, amount_collected, created_by, received_by')
+              .select('*')
               .eq('agent_id', agentId)
               .order('entry_date', { ascending: false })
               .order('created_at', { ascending: false })
@@ -640,7 +640,7 @@ function AgentHome() {
         fetchAll<Pick<AgentPayment, 'id' | 'payment_date' | 'created_at' | 'amount' | 'created_by' | 'received_by'>>((from, to) =>
           supabase
             .from('agent_payments')
-            .select('id, payment_date, created_at, amount, created_by, received_by')
+            .select('*')
             .eq('agent_id', agentId)
             .order('payment_date', { ascending: false })
             .order('created_at', { ascending: false })
