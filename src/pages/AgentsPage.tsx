@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { formatMMK, personName, todayYangon, type Agent } from '../lib/types'
-import { FACE_TIERS, salesTierMap, type FaceTier } from '../lib/cardFace'
+import { FACE_TIERS, cardTierForSales, type FaceTier } from '../lib/cardFace'
 import {
   EmptyState,
   Field,
@@ -16,8 +17,6 @@ import {
 } from '../components/ui'
 
 interface AgentRow extends Agent {
-  /** Bottles sent per trip (agents.trip_qty, added after the shared Agent type). */
-  trip_qty: number
   phone: string | null
   held: number
   outstanding: number
@@ -31,7 +30,7 @@ interface LinkableProfile {
   display_name: string | null
 }
 
-type EditableField = 'default_unit_price' | 'deposit_per_bottle' | 'bottle_limit' | 'credit_limit' | 'trip_qty'
+type EditableField = 'default_unit_price' | 'deposit_per_bottle' | 'credit_limit'
 
 /** Inline numeric field for owner/manager: saves on blur when changed. */
 function InlineNumber({
@@ -72,10 +71,7 @@ export default function AgentsPage() {
   const [address, setAddress] = useState('')
   const [deposit, setDeposit] = useState('0')
   const [unitPrice, setUnitPrice] = useState('0')
-  const [bottleLimit, setBottleLimit] = useState('0')
   const [creditLimit, setCreditLimit] = useState('0')
-  // Bottles per trip — the live app's default is 10.
-  const [tripQty, setTripQty] = useState('10')
   const [agentNotes, setAgentNotes] = useState('')
   const [initDepBottles, setInitDepBottles] = useState('')
   const [initDepPrice, setInitDepPrice] = useState('')
@@ -143,9 +139,7 @@ export default function AgentsPage() {
     for (const h of (heldRows ?? []) as { agent_id: string; held: number }[]) {
       heldByAgent.set(h.agent_id, Number(h.held) || 0)
     }
-    // agents.trip_qty arrives with select('*'); it is not on the shared
-    // Agent type yet, so widen the row type locally.
-    const list = (agents ?? []) as (Agent & { trip_qty: number | null })[]
+    const list = (agents ?? []) as Agent[]
     // Outstanding comes from the server RPC (single source of truth for the
     // sales − cash − payments − write-offs balance).
     const outstanding = await Promise.all(
@@ -157,7 +151,6 @@ export default function AgentsPage() {
     setRows(
       list.map((a, i) => ({
         ...a,
-        trip_qty: a.trip_qty ?? 0,
         phone: phoneByAgent.get(a.id) ?? null,
         held: heldByAgent.get(a.id) ?? 0,
         outstanding: outstanding[i] ?? 0,
@@ -200,15 +193,13 @@ export default function AgentsPage() {
         address: address.trim() || null,
         deposit_per_bottle: Number(deposit) || 0,
         default_unit_price: Number(unitPrice) || 0,
-        bottle_limit: Number(bottleLimit) || 0,
         credit_limit: Number(creditLimit) || 0,
-        trip_qty: Number(tripQty) || 0,
         notes: agentNotes.trim() || null,
       })
       .select('id')
       .single()
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       return
     }
     const newId = (data as { id: string }).id
@@ -221,7 +212,7 @@ export default function AgentsPage() {
         .insert({ agent_id: newId, phone: phone.trim() })
       if (cErr) {
         hadIssue = true
-        setMsg(`Agent ဆောက်ပြီးပါပြီ၊ ဖုန်းနံပါတ် သိမ်း၍ မရပါ: ${cErr.message}`)
+        setMsg(`Agent ဆောက်ပြီးပါပြီ၊ ဖုန်းနံပါတ် သိမ်း၍ မရပါ: ${friendlyError(cErr)}`)
       }
     }
     // Optional opening deposit goes straight into the deposits ledger.
@@ -238,7 +229,7 @@ export default function AgentsPage() {
       })
       if (dErr) {
         hadIssue = true
-        setMsg(`Agent ဆောက်ပြီးပါပြီ၊ အစအပေါင် သိမ်း၍ မရပါ: ${dErr.message}`)
+        setMsg(`Agent ဆောက်ပြီးပါပြီ၊ အစအပေါင် သိမ်း၍ မရပါ: ${friendlyError(dErr)}`)
       }
     }
     // Optional: link an existing agent login account to the new agent.
@@ -249,7 +240,7 @@ export default function AgentsPage() {
         .eq('id', linkUserId)
       if (lErr) {
         hadIssue = true
-        setMsg(`Agent ဆောက်ပြီးပါပြီ၊ အကောင့် ချိတ်ဆက်၍ မရပါ: ${lErr.message}`)
+        setMsg(`Agent ဆောက်ပြီးပါပြီ၊ အကောင့် ချိတ်ဆက်၍ မရပါ: ${friendlyError(lErr)}`)
       }
     }
     if (!hadIssue) {
@@ -265,9 +256,7 @@ export default function AgentsPage() {
     setAddress('')
     setDeposit(defaultDeposit || '0')
     setUnitPrice(defaultPrice || '0')
-    setBottleLimit('0')
     setCreditLimit('0')
-    setTripQty('10')
     setAgentNotes('')
     setInitDepBottles('')
     setInitDepPrice('')
@@ -280,7 +269,7 @@ export default function AgentsPage() {
     setMsg(null)
     setOkMsg(null)
     const { error } = await supabase.from('agents').update({ active: !a.active }).eq('id', a.id)
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     await load()
   }
 
@@ -291,7 +280,13 @@ export default function AgentsPage() {
       .from('agents')
       .update({ [field]: value })
       .eq('id', a.id)
-    if (error) setMsg(error.message)
+    if (error) {
+      setMsg(
+        error.message.includes('month_locked')
+          ? 'ဒီလကို ပိတ်ထားလို့ ဈေးနှုန်း၊ အပေါင်၊ ကြွေးကန့်သတ် မပြင်နိုင်ပါ'
+          : friendlyError(error),
+      )
+    }
     await load()
   }
 
@@ -302,8 +297,11 @@ export default function AgentsPage() {
     (a.code ?? '').toLowerCase().includes(q) ||
     (a.phone ?? '').includes(q)
 
-  const open = rows.filter((a) => !a.closed_at)
-  const closed = rows.filter((a) => a.closed_at)
+  // Archived agents stay in the database (backup, ledger, audit). They
+  // leave this working list, which is what the archive button did.
+  const listed = rows.filter((a) => !a.archived_at)
+  const open = listed.filter((a) => !a.closed_at)
+  const closed = listed.filter((a) => a.closed_at)
   const displayOpen = open.filter(matches)
   const displayClosed = closed.filter(matches)
 
@@ -312,15 +310,16 @@ export default function AgentsPage() {
   const miniLabel = 'text-[11px] font-medium text-stone-500 dark:text-neutral-400'
   const miniValue = 'mt-0.5 text-sm font-bold tabular-nums'
 
-  // Face tiers by lifetime sales — the same rule as Collections (shared
-  // salesTierMap): rank in created_at order so sales ties break the same
-  // way on both pages.
+  // Face tiers by lifetime sales (shared cardTierForSales): fixed
+  // thresholds on each agent's own sales. Only agents still on this
+  // list get a tier, so an archived agent never affects the colours
+  // of the people who are left.
   const tierByAgent = useMemo(
     () =>
-      salesTierMap(
-        [...rows]
-          .sort((x, y) => x.created_at.localeCompare(y.created_at))
-          .map((r) => ({ id: r.id, sales: r.sales })),
+      new Map(
+        rows
+          .filter((r) => !r.archived_at)
+          .map((r) => [r.id, cardTierForSales(r.sales)] as const),
       ),
     [rows],
   )
@@ -461,27 +460,11 @@ export default function AgentsPage() {
                   )}
                 </label>
                 <label className="flex items-center justify-between gap-1">
-                  <span className="opacity-75">ဘူး ကန့်သတ်</span>
-                  {canManage && !a.closed_at ? (
-                    <InlineNumber value={a.bottle_limit} onSave={(v) => saveField(a, 'bottle_limit', v)} />
-                  ) : (
-                    <span>{a.bottle_limit > 0 ? `${a.bottle_limit.toLocaleString('en-US')} ဗူး` : 'မကန့်သတ်'}</span>
-                  )}
-                </label>
-                <label className="flex items-center justify-between gap-1">
                   <span className="opacity-75">ကြွေး ကန့်သတ်</span>
                   {canManage && !a.closed_at ? (
                     <InlineNumber value={a.credit_limit} onSave={(v) => saveField(a, 'credit_limit', v)} />
                   ) : (
                     <span>{a.credit_limit > 0 ? formatMMK(a.credit_limit) : 'မကန့်သတ်'}</span>
-                  )}
-                </label>
-                <label className="flex items-center justify-between gap-1">
-                  <span className="opacity-75">တစ်ခါပို့</span>
-                  {canManage && !a.closed_at ? (
-                    <InlineNumber value={a.trip_qty} onSave={(v) => saveField(a, 'trip_qty', v)} />
-                  ) : (
-                    <span>{a.trip_qty.toLocaleString('en-US')} ဗူး</span>
                   )}
                 </label>
               </div>
@@ -555,22 +538,6 @@ export default function AgentsPage() {
               <input
                 value={unitPrice}
                 onChange={(e) => setUnitPrice(e.target.value.replace(/\D/g, ''))}
-                inputMode="numeric"
-                className={inputCls}
-              />
-            </Field>
-            <Field label="တစ်ခါပို့ ဘူးအရေအတွက်">
-              <input
-                value={tripQty}
-                onChange={(e) => setTripQty(e.target.value.replace(/\D/g, ''))}
-                inputMode="numeric"
-                className={inputCls}
-              />
-            </Field>
-            <Field label="ဗူး ကန့်သတ်ချက် (ဗူး၊ 0 = မကန့်သတ်)">
-              <input
-                value={bottleLimit}
-                onChange={(e) => setBottleLimit(e.target.value.replace(/\D/g, ''))}
                 inputMode="numeric"
                 className={inputCls}
               />

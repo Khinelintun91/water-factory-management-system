@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import {
   formatMMK,
   todayYangon,
@@ -249,7 +250,7 @@ export default function CloseoutPage() {
       notes: payNote.trim() || null,
     })
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       return
     }
     setPayAmount('')
@@ -271,7 +272,7 @@ export default function CloseoutPage() {
       note: woNote.trim(),
     })
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       return
     }
     setWoAmount('')
@@ -291,7 +292,7 @@ export default function CloseoutPage() {
     })
     setBusy(false)
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       return
     }
     setResult(data as AgentSettlement)

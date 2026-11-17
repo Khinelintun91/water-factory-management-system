@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { isTodayYangon, todayYangon } from '../lib/types'
 import {
   Banner,
@@ -96,7 +97,7 @@ export default function InventoryPage() {
       setMoves(mv)
       setInvTotals(totals.data as typeof invTotals)
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err))
+      setMsg(friendlyError(err))
     }
     setLoading(false)
   }, [])
@@ -161,7 +162,7 @@ export default function InventoryPage() {
       notes: note.trim() || null,
     })
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       setBusy(false)
       return
     }
@@ -174,7 +175,7 @@ export default function InventoryPage() {
 
   async function onDelete(row: StockMove) {
     const { error } = await supabase.from('inventory_movements').delete().eq('id', row.id)
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     setConfirmId(null)
     await load()
   }
@@ -348,7 +349,7 @@ export default function InventoryPage() {
             className={inputCls}
           />
         </Field>
-        <div className="max-md:sticky max-md:bottom-[calc(70px_+_env(safe-area-inset-bottom))] max-md:z-10 max-md:-mx-4 max-md:border-t max-md:border-stone-200/90 max-md:bg-white/95 max-md:px-4 max-md:py-2.5 max-md:backdrop-blur dark:max-md:border-neutral-800 dark:max-md:bg-neutral-900/95">
+        <div className="max-md:sticky max-md:bottom-[calc(5.75rem_+_env(safe-area-inset-bottom))] max-md:z-10 max-md:-mx-4 max-md:border-t max-md:border-stone-200/90 max-md:bg-white/95 max-md:px-4 max-md:py-2.5 max-md:backdrop-blur dark:max-md:border-neutral-800 dark:max-md:bg-neutral-900/95">
           <PrimaryButton type="submit" disabled={busy} className="w-full">
             သိမ်းရန်
           </PrimaryButton>

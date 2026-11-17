@@ -63,6 +63,48 @@
   }
 }
 
+/* Phone notification menu.
+   The bell sits left of the sign-out button, so a panel with
+   `right: 0` and width min(20rem, 100vw - 1.5rem) crosses the left
+   edge of a 320–440px screen (the max-width is viewport-sized, but the
+   anchor is not the viewport). Below sm the bell wrapper is static, so
+   the absolute panel is positioned against the sticky header. These
+   rules pin it to the header's 1rem padding (and the notch, when there
+   is one) and cap the list so it scrolls inside the viewport, above
+   the bottom tabs. sm and up keep the Tailwind classes unchanged. */
+@media (max-width: 639px) {
+  .notif-panel {
+    left: max(1rem, env(safe-area-inset-left));
+    right: max(1rem, env(safe-area-inset-right));
+    width: auto;
+    max-width: none;
+  }
+
+  .notif-scroll {
+    max-height: min(24rem, calc(100dvh - 12.5rem - env(safe-area-inset-bottom)));
+  }
+}
+
+/* Phone bottom tabs and the More sheet.
+   Noto Sans Myanmar's ascender+descender is about 2.18em, so a 1.25
+   line-height with line-clamp (overflow: hidden) cuts off stacked marks
+   and, on a 5-column bar, the ends of long labels. 10px lets a 360px
+   bar show every label in at most two lines. 2.2 keeps the marks inside
+   the line box. The safe-area inset stays on the nav's own padding.
+   Desktop sidebar classes are unchanged. */
+.phone-nav-label {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  padding-inline: 1px;
+  font-size: 10px;
+  line-height: 2.2;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  text-wrap: balance;
+}
+
 /* Respect reduced motion globally (the Home number tween also checks). */
 @media (prefers-reduced-motion: reduce) {
   *,

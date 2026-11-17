@@ -1,11 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { supabase, usernameToEmail } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
+import { fetchAll } from '../lib/fetchAll'
 import { exportBackup, getLastBackupAt, isBackupOverdue } from '../lib/backup'
-import { dailySummaryCsv, monthlyBackupCsv, monthlyBackupXlsx } from '../lib/exports'
-import { formatMMK, personName, todayYangon } from '../lib/types'
+import { monthlyBackupCsv, monthlyBackupXlsx } from '../lib/exports'
+import {
+  formatMMK,
+  personName,
+  todayYangon,
+  type Agent,
+  type AgentDeposit,
+  type AgentPayment,
+  type DailyEntry,
+} from '../lib/types'
 import { fmtDateTime12 } from '../lib/types'
+import { fetchStaffDirectory, receiverName } from '../lib/staffDirectory'
+import { FACE_TIERS, type FaceTier } from '../lib/cardFace'
 import { NavIcon } from '../components/icons'
 import {
   Card,
@@ -35,7 +47,7 @@ function BackupCard() {
       else await monthlyBackupCsv(bkMonth)
       setMsg(`${bkMonth} အတွက် လစဉ် backup (${kind === 'xlsx' ? 'Excel' : 'CSV'}) ဒေါင်းလုပ် လုပ်ပြီးပါပြီ`)
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Export မအောင်မြင်ပါ')
+      setMsg(e instanceof Error ? friendlyError(e) : 'Export မအောင်မြင်ပါ')
     }
     setBkBusy(false)
   }
@@ -56,7 +68,7 @@ function BackupCard() {
       setMsg(`${filename} ကို ဒေါင်းလုပ် လုပ်ပြီးပါပြီ — ဖုန်း + Google Drive၊ ၂ နေရာ သိမ်းထားပါ`)
       await load()
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Export မအောင်မြင်ပါ')
+      setMsg(e instanceof Error ? friendlyError(e) : 'Export မအောင်မြင်ပါ')
     }
     setBusy(false)
   }
@@ -127,7 +139,7 @@ function MonthLockCard() {
     const { error } = await supabase
       .from('month_locks')
       .insert({ month: `${month}-01`, locked_by: profile?.id ?? null })
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     await load()
   }
 
@@ -135,7 +147,7 @@ function MonthLockCard() {
     if (!confirm(`${m.slice(0, 7)} ကို lock ပြန်ဖွင့်မှာ သေချာပါသလား?`)) return
     setMsg(null)
     const { error } = await supabase.from('month_locks').delete().eq('month', m)
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     await load()
   }
 
@@ -200,97 +212,6 @@ function MonthLockCard() {
           </div>
         </>
       )}
-    </Card>
-  )
-}
-
-function PinChangeCard() {
-  const { profile } = useAuth()
-  const [current, setCurrent] = useState('')
-  const [next, setNext] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
-
-  async function onChange() {
-    setMsg(null)
-    if (!profile) return
-    if (!/^\d{6,12}$/.test(next)) {
-      setMsg('PIN အသစ်သည် ဂဏန်း ၆ လုံးမှ ၁၂ လုံးအတွင်း ဖြစ်ရပါမယ်')
-      return
-    }
-    if (next !== confirm) {
-      setMsg('PIN အသစ် နှစ်ခါ ရိုက်တာ မတူပါ')
-      return
-    }
-    if (next === current) {
-      setMsg('PIN အသစ်သည် လက်ရှိ PIN နှင့် မတူရပါ')
-      return
-    }
-    setBusy(true)
-    try {
-      // Verify the current PIN by re-authenticating before changing it.
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: usernameToEmail(profile.username),
-        password: current,
-      })
-      if (signInError) {
-        setMsg('လက်ရှိ PIN မှားနေပါတယ်')
-        return
-      }
-      const { error } = await supabase.auth.updateUser({ password: next })
-      if (error) throw error
-      setCurrent('')
-      setNext('')
-      setConfirm('')
-      setMsg('PIN ပြောင်းပြီးပါပြီ — နောက်တစ်ခါ login ဝင်ရင် PIN အသစ် သုံးပါ')
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'PIN ပြောင်း၍ မရပါ')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Card>
-      <CardTitle>ကိုယ့် PIN ပြောင်းရန်</CardTitle>
-      <div className="mt-3 space-y-2">
-        <input
-          className={inputCls}
-          type="password"
-          inputMode="numeric"
-          autoComplete="current-password"
-          placeholder="လက်ရှိ PIN"
-          value={current}
-          onChange={(e) => setCurrent(e.target.value)}
-        />
-        <input
-          className={inputCls}
-          type="password"
-          inputMode="numeric"
-          autoComplete="new-password"
-          placeholder="PIN အသစ် (ဂဏန်း ၆–၁၂ လုံး)"
-          value={next}
-          onChange={(e) => setNext(e.target.value)}
-        />
-        <input
-          className={inputCls}
-          type="password"
-          inputMode="numeric"
-          autoComplete="new-password"
-          placeholder="PIN အသစ် ထပ်ရိုက်ပါ"
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-        />
-        <PrimaryButton
-          className="w-full"
-          onClick={onChange}
-          disabled={busy || !current || !next || !confirm}
-        >
-          {busy ? 'ပြောင်းနေသည်…' : 'PIN ပြောင်းမည်'}
-        </PrimaryButton>
-        {msg && <p className="text-sm opacity-80">{msg}</p>}
-      </div>
     </Card>
   )
 }
@@ -389,8 +310,6 @@ function Dashboard() {
   const [names, setNames] = useState<Map<string, string>>(new Map())
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
-  const [csvBusy, setCsvBusy] = useState(false)
-  const [csvMsg, setCsvMsg] = useState<string | null>(null)
   const [refreshSec, setRefreshSec] = useState(30)
 
   const staffView = ['owner', 'manager', 'co_owner', 'staff'].some(
@@ -417,7 +336,7 @@ function Dashboard() {
       )
       setMsg(null)
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err))
+      setMsg(friendlyError(err))
     }
     setLoading(false)
   }, [])
@@ -495,18 +414,6 @@ function Dashboard() {
     return [...m.values()].sort((a, b) => a.name.localeCompare(b.name))
   })()
 
-  async function onDailyCsv() {
-    setCsvBusy(true)
-    setCsvMsg(null)
-    try {
-      const filename = await dailySummaryCsv(date)
-      setCsvMsg(`${filename} ကို ဒေါင်းလုပ် လုပ်ပြီးပါပြီ`)
-    } catch (e) {
-      setCsvMsg(e instanceof Error ? e.message : 'CSV ထုတ်၍ မရပါ')
-    }
-    setCsvBusy(false)
-  }
-
   const dateInputCls =
     'min-h-[44px] rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/40 dark:border-neutral-700 dark:bg-neutral-900'
 
@@ -550,7 +457,7 @@ function Dashboard() {
                   </>
                 }
               />
-              <StatCard label="ရောင်းငွေ" value={<AnimMoney value={figs.sales} />} />
+              <StatCard label="ကျသင့်ငွေ" value={<AnimMoney value={figs.sales} />} />
               <StatCard label="ပို့ချိန် လက်ခံငွေ" value={<AnimMoney value={figs.entryCash} />} />
               <StatCard label="ကြွေးကောက်ငွေ" value={<AnimMoney value={figs.payments} />} />
               <StatCard
@@ -566,24 +473,19 @@ function Dashboard() {
                 value={<AnimMoney value={netCashAfterExpenses} />}
               />
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-2.5">
-              <Link to="/entries" className={btnPrimaryCls}>
-                <NavIcon to="/entries" className="h-5 w-5" />
-                ပို့ဆောင်မှု ထည့်ရန် / ကြည့်ရန်
+            {/* Narrow phones: one full-width row each, icon beside the
+                label, so the wording stays on one line. sm+ is wide
+                enough for the original two-column row. */}
+            <div className="mt-3 flex flex-col gap-2.5 sm:grid sm:grid-cols-2">
+              <Link to="/entries" className={`${btnPrimaryCls} w-full`}>
+                <NavIcon to="/entries" className="h-5 w-5 shrink-0" />
+                <span className="min-w-0 text-center">ပို့ဆောင်မှု ထည့်ရန် / ကြည့်ရန်</span>
               </Link>
-              <Link to="/payments" className={btnSecondaryCls}>
-                <NavIcon to="/payments" className="h-5 w-5" />
-                ငွေကောက်ခံမှု
+              <Link to="/payments" className={`${btnSecondaryCls} w-full`}>
+                <NavIcon to="/payments" className="h-5 w-5 shrink-0" />
+                <span className="min-w-0 text-center">ငွေကောက်ခံမှု</span>
               </Link>
             </div>
-            {staffView && (
-              <div className="mt-3">
-                <SecondaryButton onClick={onDailyCsv} disabled={csvBusy} className="w-full">
-                  {csvBusy ? 'ထုတ်နေပါတယ်…' : `⬇ နေ့စဉ် CSV (${date})`}
-                </SecondaryButton>
-                {csvMsg && <p className="mt-2 text-sm">{csvMsg}</p>}
-              </div>
-            )}
           </>
         )}
       </Card>
@@ -675,34 +577,328 @@ function Dashboard() {
   )
 }
 
+
+/**
+ * Agent home: the agent's OWN figures only — never the factory-wide
+ * daily dashboard. Every query is filtered by the agent's own id in
+ * the client as well (RLS also scopes the rows; the explicit filter
+ * is required for the same index/timeout reason documented in
+ * MyPage). No expenses, no factory net, no other agents or staff.
+ *
+ * Layout: own wallet face (same card as My Page) → today's figures →
+ * own status → latest own records → full-detail link to My Page.
+ */
+interface LatestRecord {
+  kind: 'entry' | 'payment'
+  id: string
+  date: string
+  createdAt: string
+  delivered: number
+  returned: number
+  amount: number
+  /** Resolved receiver name (0041) when cash moved on this record. */
+  receiver: string | null
+}
+
+function AgentHome() {
+  const { profile } = useAuth()
+  const agentId = profile?.agent_id ?? null
+  const [loading, setLoading] = useState(true)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [agent, setAgent] = useState<Agent | null>(null)
+  const [cardTier, setCardTier] = useState<{ tier: FaceTier; lifetimeSales: number } | null>(null)
+  const [latest, setLatest] = useState<LatestRecord[]>([])
+  const [figs, setFigs] = useState({
+    todayOut: 0,
+    todayIn: 0,
+    todaySales: 0,
+    held: 0,
+    depBottles: 0,
+    depTotal: 0,
+    outstanding: 0,
+    lifetimeSales: 0,
+    lifetimeCollected: 0,
+  })
+
+  const load = useCallback(async () => {
+    if (!agentId) {
+      setLoading(false)
+      return
+    }
+    try {
+      const today = todayYangon()
+      const [en, pm, dep, ag, out, ct, dir] = await Promise.all([
+        fetchAll<Pick<DailyEntry, 'id' | 'entry_date' | 'created_at' | 'delivered_qty' | 'returned_qty' | 'amount' | 'amount_collected' | 'created_by' | 'received_by'>>(
+          (from, to) =>
+            supabase
+              .from('daily_entries')
+              .select('*')
+              .eq('agent_id', agentId)
+              .order('entry_date', { ascending: false })
+              .order('created_at', { ascending: false })
+              .range(from, to),
+        ),
+        fetchAll<Pick<AgentPayment, 'id' | 'payment_date' | 'created_at' | 'amount' | 'created_by' | 'received_by'>>((from, to) =>
+          supabase
+            .from('agent_payments')
+            .select('*')
+            .eq('agent_id', agentId)
+            .order('payment_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .range(from, to),
+        ),
+        fetchAll<Pick<AgentDeposit, 'bottles' | 'amount'>>((from, to) =>
+          supabase
+            .from('agent_deposits')
+            .select('bottles, amount')
+            .eq('agent_id', agentId)
+            .order('id')
+            .range(from, to),
+        ),
+        supabase.from('agents').select('*').eq('id', agentId).maybeSingle(),
+        supabase.rpc('agent_outstanding', { p_agent: agentId }),
+        supabase.rpc('my_card_tier'),
+        fetchStaffDirectory(),
+      ])
+      const mine = en.filter((e) => e.entry_date === today)
+      setFigs({
+        todayOut: mine.reduce((s, e) => s + e.delivered_qty, 0),
+        todayIn: mine.reduce((s, e) => s + e.returned_qty, 0),
+        todaySales: mine.reduce((s, e) => s + Number(e.amount), 0),
+        held: en.reduce((s, e) => s + e.delivered_qty - e.returned_qty, 0),
+        depBottles: dep.reduce((s, d) => s + d.bottles, 0),
+        depTotal: dep.reduce((s, d) => s + Number(d.amount), 0),
+        outstanding: typeof out.data === 'number' ? out.data : 0,
+        lifetimeSales: en.reduce((s, e) => s + Number(e.amount), 0),
+        lifetimeCollected:
+          en.reduce((s, e) => s + Number(e.amount_collected), 0) +
+          pm.reduce((s, p) => s + Number(p.amount), 0),
+      })
+      setAgent((ag.data as Agent | null) ?? null)
+      const tierRows = (ct.data ?? []) as { tier: FaceTier; lifetime_sales: number }[]
+      setCardTier(
+        tierRows[0]
+          ? { tier: tierRows[0].tier, lifetimeSales: Number(tierRows[0].lifetime_sales) }
+          : null,
+      )
+      // Latest own activity, entries and payments merged newest-first
+      // (business date, then creation time within the day).
+      const merged: LatestRecord[] = [
+        ...en.map((e) => ({
+          kind: 'entry' as const,
+          id: e.id,
+          date: e.entry_date,
+          createdAt: e.created_at,
+          delivered: e.delivered_qty,
+          returned: e.returned_qty,
+          amount: Number(e.amount),
+          // Cash moved on an entry only when something was collected.
+          receiver: Number(e.amount_collected) > 0 ? receiverName(dir, e) : null,
+        })),
+        ...pm.map((p) => ({
+          kind: 'payment' as const,
+          id: p.id,
+          date: p.payment_date,
+          createdAt: p.created_at,
+          delivered: 0,
+          returned: 0,
+          amount: Number(p.amount),
+          receiver: receiverName(dir, p),
+        })),
+      ].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
+      setLatest(merged.slice(0, 5))
+      setMsg(null)
+    } catch (err) {
+      setMsg(friendlyError(err))
+    }
+    setLoading(false)
+  }, [agentId])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  if (!agentId) {
+    return (
+      <Card>
+        <CardTitle>ကျွန်ုပ်၏ စာရင်း</CardTitle>
+        <p className="mt-1 text-sm opacity-80">အကောင့် ချိတ်ဆက်မှု မရှိသေးပါ</p>
+      </Card>
+    )
+  }
+
+  // The agent's own wallet face (same card as My Page): the balance is
+  // signed internally; a negative balance is an overpayment and shows
+  // as ပိုပေးထားငွေ with a positive amount. A closed (settled) agent's
+  // face is black with settled zeroes, as on My Page.
+  const closed = agent?.closed_at != null
+  const faceOutstanding = closed ? 0 : figs.outstanding
+  const faceTier = cardTier ? FACE_TIERS[closed ? 'black' : cardTier.tier] : null
+
+  return (
+    <>
+      {cardTier && faceTier && agent && (
+        <div>
+          <div
+            style={{ background: faceTier.bg }}
+            className={`relative flex h-[168px] w-full flex-col justify-between rounded-2xl p-4 shadow-card lg:h-[184px] ${faceTier.text} ${faceTier.extra}`}
+          >
+            <span className="flex items-start justify-between gap-2">
+              <span className="min-w-0 font-semibold">
+                {agent.name}
+                {agent.code && (
+                  <span className={`ml-2 text-xs font-normal ${faceTier.sub}`}>({agent.code})</span>
+                )}
+                {!agent.active && !agent.closed_at && (
+                  <span className={`ml-2 text-xs ${faceTier.sub}`}>(ပိတ်ထားသည်)</span>
+                )}
+              </span>
+              <span
+                className={`shrink-0 font-bold tabular-nums ${faceOutstanding < 0 ? faceTier.neg : ''}`}
+              >
+                {formatMMK(Math.abs(faceOutstanding))}
+              </span>
+            </span>
+            <span className="block space-y-1.5">
+              <span className={`block text-xs ${faceTier.faint}`}>{faceOutstanding < 0 ? 'ပိုပေးထားငွေ' : 'ကျန်ကြွေ'}</span>
+              <span className="block text-[28px] font-bold leading-[1.3] tabular-nums">
+                {formatMMK(Math.abs(faceOutstanding))}
+              </span>
+              <span className={`block text-xs ${faceTier.sub}`}>
+                ကျသင့်ငွေ {formatMMK(figs.lifetimeSales)} · ပေးချေပြီး {formatMMK(figs.lifetimeCollected)}
+              </span>
+            </span>
+            <span
+              aria-hidden="true"
+              className={`pointer-events-none absolute bottom-4 right-4 opacity-25 ${faceTier.text}`}
+            >
+              <svg width="52" height="36" viewBox="0 0 52 36" fill="none">
+                <circle cx="18" cy="18" r="15" stroke="currentColor" strokeWidth="2" />
+                <circle cx="34" cy="18" r="15" stroke="currentColor" strokeWidth="2" />
+              </svg>
+            </span>
+          </div>
+          <p className="mt-1.5 px-0.5 text-xs text-stone-500 dark:text-neutral-400">
+            စုစုပေါင်း ကျသင့်ငွေ: {formatMMK(figs.lifetimeSales)}
+          </p>
+        </div>
+      )}
+
+      <Card>
+        <CardTitle>ယနေ့ ကျွန်ုပ်၏ အကျဉ်းချုပ်</CardTitle>
+        {msg && <p className="mt-2 text-sm text-red-600">{msg}</p>}
+        {loading ? (
+          <LoadingState />
+        ) : (
+          <div className="mt-3 grid grid-cols-2 gap-2.5">
+            <StatCard label="ယနေ့ ပို့ဘူး" value={`${figs.todayOut.toLocaleString('en-US')} ဗူး`} />
+            <StatCard label="ယနေ့ ဘူးခွံပြန်" value={`${figs.todayIn.toLocaleString('en-US')} ဗူး`} />
+            <StatCard label="ယနေ့ ကျသင့်ငွေ" value={formatMMK(figs.todaySales)} />
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <CardTitle>ကျွန်ုပ်၏ အခြေအနေ</CardTitle>
+        {loading ? (
+          <LoadingState />
+        ) : (
+          <div className="mt-3 grid grid-cols-2 gap-2.5">
+            <StatCard
+              label={figs.outstanding < 0 ? 'ပိုပေးထားငွေ' : 'စုစုပေါင်း ကျန်ကြွေး'}
+              value={formatMMK(Math.abs(figs.outstanding))}
+              tone="brand"
+            />
+            <StatCard label="ကိုင်ထားဘူး" value={`${figs.held.toLocaleString('en-US')} ဗူး`} />
+            <StatCard
+              label="အပေါင် စုစုပေါင်း"
+              value={formatMMK(figs.depTotal)}
+              sub={`${figs.depBottles.toLocaleString('en-US')} ဗူး`}
+            />
+            {agent && agent.deposit_per_bottle > 0 && (
+              <StatCard
+                label="ထပ်ယူနိုင်သောဘူး"
+                value={`${Math.max(0, figs.depBottles - figs.held).toLocaleString('en-US')} ဗူး`}
+              />
+            )}
+            {agent && (
+              <StatCard label="ရောင်းဈေး" value={`${formatMMK(agent.default_unit_price)}/ဗူး`} />
+            )}
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <CardTitle>နောက်ဆုံး မှတ်တမ်းများ</CardTitle>
+        {loading ? (
+          <LoadingState />
+        ) : latest.length === 0 ? (
+          <p className="mt-3 text-sm text-stone-500 dark:text-neutral-400">မရှိသေးပါ</p>
+        ) : (
+          <ul className="mt-1 divide-y divide-stone-100 dark:divide-neutral-800/70">
+            {latest.map((r) => (
+              <li
+                key={`${r.kind}:${r.id}`}
+                className="flex items-baseline justify-between gap-2 py-2.5 text-sm"
+              >
+                <span className="min-w-0">
+                  {r.kind === 'entry' ? (
+                    <>
+                      ပို့ဆောင်မှု — {r.delivered.toLocaleString('en-US')} ဗူး ပို့ ·{' '}
+                      {r.returned.toLocaleString('en-US')} ဗူး ပြန်
+                    </>
+                  ) : (
+                    <>ငွေပေးချေမှု</>
+                  )}
+                  <span className="block text-xs text-stone-500 dark:text-neutral-400">
+                    {r.date}
+                    {r.receiver ? ` · လက်ခံသူ ${r.receiver}` : ''}
+                  </span>
+                </span>
+                <span className="shrink-0 font-semibold tabular-nums">
+                  {formatMMK(r.amount)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      {!loading && (
+        <Link to="/my" className={`${btnPrimaryCls} w-full`}>
+          ကျွန်ုပ်၏ စာရင်း အပြည့်အစုံ
+        </Link>
+      )}
+    </>
+  )
+}
+
 export default function HomePage() {
   const { profile } = useAuth()
   const role = profile?.role
 
   return (
     <div className="space-y-4 lg:space-y-6">
-      <PageHeader title="ပင်မ" subtitle="ယနေ့ ရောင်းအား၊ လက်ခံငွေနှင့် လုပ်ရန်အလုပ်များ" />
+      <PageHeader
+        title="ပင်မ"
+        subtitle={
+          role === 'agent'
+            ? 'ယနေ့ ကျသင့်ငွေ၊ ပေးချေငွေနှင့် လုပ်ရန်အလုပ်များ'
+            : 'ယနေ့ ကျသင့်ငွေ၊ လက်ခံငွေနှင့် လုပ်ရန်အလုပ်များ'
+        }
+      />
 
-      <Dashboard />
+      {role === 'agent' ? <AgentHome /> : <Dashboard />}
 
-      {role === 'agent' && (
-        <Card>
-          <CardTitle>ကျွန်ုပ်၏ စာရင်း</CardTitle>
-          <p className="mt-1 text-sm opacity-80">သင့်ရဲ့ ကိုယ်ပိုင် မှတ်တမ်းများကိုပဲ မြင်ရပါမယ်။</p>
-          <Link to="/my" className={`${btnPrimaryCls} mt-3 w-full`}>
-            ကြည့်ရန်
-          </Link>
-        </Card>
-      )}
-
-      {/* Management tools: visually demoted below the daily summary. */}
-      {profile && (
+      {/* Management tools: visually demoted below the daily summary.
+          PIN changes are not here. Only the owner sets a PIN, from the
+          Users page, through admin_reset_pin. */}
+      {(role === 'owner' || role === 'manager') && (
         <section className="space-y-3">
           <h2 className="px-0.5 text-base font-bold">စီမံခန့်ခွဲမှု</h2>
           <div className="grid items-start gap-4 lg:grid-cols-3">
             {role === 'owner' && <BackupCard />}
-            {(role === 'owner' || role === 'manager') && <MonthLockCard />}
-            <PinChangeCard />
+            <MonthLockCard />
           </div>
         </section>
       )}

@@ -1,12 +1,13 @@
 -- ============================================================
 -- apply_all.sql -- GENERATED convenience file
--- Contains ALL migrations 0001-0030 concatenated in filename order.
--- Regenerated: 2026-11-07. Do NOT edit by hand.
+-- Contains migrations 0001-0041 concatenated in filename order.
+-- 0031 is not in this file (open pull request).
+-- Regenerated: 2026-11-17. Do NOT edit by hand.
 -- Paste this whole file ONCE into the Supabase SQL Editor of a
 -- FRESH project and Run. (The individual files in migrations/
 -- remain the source of truth.)
 --
--- Files included (30):
+-- Files included (40):
 --   0001_schema.sql
 --   0002_rls.sql
 --   0003_triggers.sql
@@ -37,6 +38,16 @@
 --   0028_function_grant_sweep.sql
 --   0029_agent_outstanding_caller_check.sql
 --   0030_co_owner_create_user.sql
+--   0032_archive_agent_instead_of_delete.sql
+--   0033_agent_money_settings_month_lock.sql
+--   0034_settlement_insert_via_closeout.sql
+--   0035_owner_only_pin_reset.sql
+--   0036_login_lockout_abuse.sql
+--   0037_pin_function_search_path.sql
+--   0038_definer_execute_grants.sql
+--   0039_drop_agent_bottle_limit_trip_qty.sql
+--   0040_card_tier_thresholds.sql
+--   0041_received_by.sql
 -- ============================================================
 
 -- ============================================================
@@ -5816,4 +5827,1690 @@ begin
   delete from public.pin_attempts where username = v_username;
 end;
 $$;
+
 -- END MIGRATION: 0030_co_owner_create_user.sql
+
+
+-- ============================================================
+-- BEGIN MIGRATION: 0032_archive_agent_instead_of_delete.sql
+-- ============================================================
+-- 0032: archive a closed agent instead of deleting the row.
+--
+-- SPEC (Backups and data safety): business data is never deleted.
+-- hard_delete_agent (0006, current body 0008) DELETE FROM agents, and
+-- agent_contacts is ON DELETE CASCADE, so the phone row disappeared
+-- with the agent. Ledger rows survived only because 0006 used
+-- ON DELETE SET NULL. This migration keeps the RPC name the Agents
+-- detail button already calls, and changes the body to an archive:
+-- the agents row, the phone row, and every ledger row stay, with
+-- agent_id still set. agents_audit already records the update
+-- (old_data / new_data). There is no purge.
+--
+-- archived_at / archived_by change only inside this function. A client
+-- can set the transaction-local GUC and still fail, because the
+-- trigger also requires current_user to be the function owner.
+-- current_user inside this SECURITY DEFINER function is that owner.
+-- A direct DELETE is rejected for every role, including the table
+-- owner (session_replication_role = replica still skips triggers;
+-- that path is maintenance and restore, not the app).
+--
+-- Does not read or replace anything from 0030 or 0031. The update
+-- below does not touch closed_at or closed_by, so 0031's close-column
+-- trigger (if already applied) lets it through. Apply 0030 then 0031
+-- first when those PRs are merged; this file does not require them.
+
+alter table public.agents
+  add column if not exists archived_at timestamptz,
+  add column if not exists archived_by uuid references public.profiles (id) on delete set null;
+
+comment on column public.agents.archived_at is
+  'Set by hard_delete_agent. The row stays; the working list hides it.';
+
+create or replace function public.hard_delete_agent(p_agent uuid) returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if app_role() <> 'owner' then
+    raise exception 'forbidden: owner only';
+  end if;
+  if not exists (select 1 from agents where id = p_agent) then
+    raise exception 'agent_not_found';
+  end if;
+  -- Second press of the same button is a no-op. The row is already kept.
+  if exists (select 1 from agents where id = p_agent and archived_at is not null) then
+    return;
+  end if;
+  if not exists (select 1 from agent_settlements where agent_id = p_agent) then
+    raise exception 'not_settled: စာရင်းမပိတ်ရသေးပါ';
+  end if;
+
+  perform set_config('wf.agent_archive', 'hard_delete_agent', true);
+  update agents
+     set archived_at = now(),
+         archived_by = auth.uid(),
+         active = false
+   where id = p_agent;
+  perform set_config('wf.agent_archive', '', true);
+end $$;
+
+create or replace function public.guard_agent_archive_columns()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_owner name;
+begin
+  if new.archived_at is not distinct from old.archived_at
+     and new.archived_by is not distinct from old.archived_by then
+    return new;
+  end if;
+
+  select pg_get_userbyid(p.proowner) into v_owner
+    from pg_proc p
+   where p.oid = 'public.hard_delete_agent(uuid)'::regprocedure;
+
+  if current_user is distinct from v_owner
+     or current_setting('wf.agent_archive', true) is distinct from 'hard_delete_agent' then
+    raise exception 'archive_columns_locked: archived_at and archived_by change only inside hard_delete_agent';
+  end if;
+  return new;
+end $$;
+
+create trigger agents_archive_columns
+  before update on public.agents
+  for each row execute function public.guard_agent_archive_columns();
+
+create or replace function public.guard_agent_not_deleted()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  raise exception 'business_data_kept: agents are archived, never deleted'
+    using errcode = 'P0001';
+end $$;
+
+create trigger agents_never_delete
+  before delete on public.agents
+  for each row execute function public.guard_agent_not_deleted();
+
+revoke all on function public.guard_agent_archive_columns() from public, anon, authenticated;
+revoke all on function public.guard_agent_not_deleted() from public, anon, authenticated;
+-- END MIGRATION: 0032_archive_agent_instead_of_delete.sql
+
+-- ============================================================
+-- BEGIN MIGRATION: 0033_agent_money_settings_month_lock.sql
+-- ============================================================
+-- 0033: month-lock the agent columns that feed new money, and keep
+-- the audit that already records every change.
+--
+-- OWNER DECISION (conservative, because SPEC is ambiguous here):
+--   SPEC rule 4 is same-day edit/delete of a record. An agent's price,
+--   deposit, bottle limit and credit limit are the live settings for
+--   the next delivery (SPEC rule 7). Freezing them on the creation day
+--   would make a price change impossible after that day, so this
+--   migration does NOT put guard_same_day_edit on agents.
+--   SPEC rule 6 is a locked month on business tables, with no role
+--   exemption. Historical money does not live on the agent row:
+--   daily_entries.unit_price is snapshotted at insert (0006) and
+--   agent_deposits stores price_per_bottle and amount. Those dated
+--   rows already have month-lock triggers. Changing the agent settings
+--   later does not rewrite them.
+--   What this migration adds: while the CURRENT Asia/Yangon month is
+--   locked, default_unit_price, deposit_per_bottle, bottle_limit and
+--   credit_limit cannot change (any role, owner included). A lock on
+--   a past month does not freeze them — one old lock would otherwise
+--   freeze prices forever. active, name, notes, trip_qty and the
+--   close/archive columns are not money snapshots and stay editable.
+--   agents_audit (0003) already writes old_data and new_data for every
+--   update. That trigger is unchanged.
+--
+-- The check reads month_locks. locks_select is true for every
+-- authenticated user (0002), same as guard_month_lock. Invoker, not
+-- definer, so current_user stays the caller.
+--
+-- Does not depend on 0030 or 0031. It does not touch closed_at or
+-- closed_by, so 0031's trigger ignores these updates.
+
+create or replace function public.guard_agent_money_settings()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_month date;
+begin
+  if new.default_unit_price is not distinct from old.default_unit_price
+     and new.deposit_per_bottle is not distinct from old.deposit_per_bottle
+     and new.bottle_limit is not distinct from old.bottle_limit
+     and new.credit_limit is not distinct from old.credit_limit then
+    return new;
+  end if;
+
+  v_month := date_trunc(
+    'month', (now() at time zone 'Asia/Yangon')::date
+  )::date;
+  if exists (select 1 from month_locks where month = v_month) then
+    raise exception 'month_locked: % is locked', v_month
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+create trigger agents_money_settings
+  before update on public.agents
+  for each row execute function public.guard_agent_money_settings();
+
+revoke all on function public.guard_agent_money_settings() from public, anon, authenticated;
+-- END MIGRATION: 0033_agent_money_settings_month_lock.sql
+
+-- ============================================================
+-- BEGIN MIGRATION: 0034_settlement_insert_via_closeout.sql
+-- ============================================================
+-- 0034: a direct insert into agent_settlements cannot skip
+-- finalize_closeout's checks.
+--
+-- 0006's settlements_insert policy let any owner/manager insert a
+-- settlement row. That row did not run the receivable, bottle, or
+-- price checks, and it did not set closed_at. finalize_closeout is
+-- SECURITY DEFINER, so it bypasses RLS and is the intended writer.
+--
+-- The trigger allows the insert only when current_user is the owner
+-- of finalize_closeout. Inside that function, current_user is the
+-- owner, so its INSERT still works. A client session stays
+-- `authenticated` and is rejected even if it sets a GUC. This does
+-- not replace finalize_closeout, so it stays valid whether or not
+-- 0031 has replaced that function (0031's body is still the same
+-- owner, and still inserts one settlement row). service_role is not
+-- the function owner, so it cannot insert either.
+--
+-- The client insert policy is dropped as well. Select stays.
+-- No update or delete policy is added.
+--
+-- Does not depend on 0030 or 0031.
+
+create or replace function public.guard_settlement_insert()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_owner name;
+begin
+  select pg_get_userbyid(p.proowner) into v_owner
+    from pg_proc p
+   where p.oid = 'public.finalize_closeout(uuid,integer,integer,text)'::regprocedure;
+
+  if current_user is distinct from v_owner then
+    raise exception 'settlement_via_closeout_only: agent_settlements are inserted only by finalize_closeout'
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+create trigger settlements_via_closeout
+  before insert on public.agent_settlements
+  for each row execute function public.guard_settlement_insert();
+
+revoke all on function public.guard_settlement_insert() from public, anon, authenticated;
+
+drop policy if exists settlements_insert on public.agent_settlements;
+-- END MIGRATION: 0034_settlement_insert_via_closeout.sql
+
+-- ============================================================
+-- BEGIN MIGRATION: 0035_owner_only_pin_reset.sql
+-- ============================================================
+-- 0035: only an active primary owner may set a PIN.
+--
+-- Owner decision 2026-11-16: co_owner, manager, staff, agent, and every
+-- other non-owner cannot change a PIN, including their own. There is
+-- no self-service PIN change. The Home screen does not offer one.
+--
+-- The allowed path is the existing admin_reset_pin (0014). This file
+-- does not replace that function, so 0030 can still replace it before
+-- or after this migration without losing its co_owner PIN floor. The
+-- caller gate and the digit rule stay inside admin_reset_pin:
+-- active primary profiles.role = 'owner', digits only, 6-12 for
+-- owner/manager and 4-12 for every other primary role (0014).
+--
+-- auth.users.encrypted_password may change only when current_user is
+-- the owner of admin_reset_pin. Inside that SECURITY DEFINER function,
+-- current_user is the function owner, and the owner check plus the
+-- digit rule have already run. A client session (authenticated, anon)
+-- is rejected. On hosted Supabase, GoTrue's updateUser and the
+-- recovery password write run as supabase_auth_admin, not as the
+-- function owner, so those writes are rejected too.
+--
+-- What this migration cannot close from here (do not treat as done):
+--   * If a host runs GoTrue as the same role that owns admin_reset_pin,
+--     this trigger cannot tell updateUser apart from the RPC. Hosted
+--     Supabase uses supabase_auth_admin for GoTrue and postgres /
+--     supabase_admin for SQL functions. Confirm that split on the live
+--     project; this repo cannot read the live role.
+--   * A session that is the function owner (SQL editor as postgres)
+--     can still set encrypted_password directly and skip the digit
+--     rule. That is the same privilege as owning the function.
+--   * INSERT of a new auth user is not blocked. Dashboard "add user"
+--     and admin_create_user stay available. The first owner is created
+--     that way (SETUP).
+--   * Leaked-password protection and the Auth dashboard's recovery
+--     toggle are hosted settings. This file does not change them.
+--     Recovery's password write is an UPDATE of encrypted_password, so
+--     the trigger rejects it when GoTrue is not the function owner.
+--
+-- The audit row records that a PIN was reset, for whom, and by whom.
+-- It does not store the PIN or the password hash. audit_log stays
+-- insert-only (no new update/delete policy).
+
+create or replace function public.guard_auth_password_change()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_owner name;
+begin
+  if new.encrypted_password is not distinct from old.encrypted_password then
+    return new;
+  end if;
+
+  select pg_get_userbyid(p.proowner) into v_owner
+    from pg_proc p
+   where p.oid = 'public.admin_reset_pin(uuid,text)'::regprocedure;
+
+  if current_user is distinct from v_owner then
+    raise exception 'pin_change_owner_only: only the owner can set a PIN, through admin_reset_pin'
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+create trigger auth_password_owner_only
+  before update of encrypted_password on auth.users
+  for each row execute function public.guard_auth_password_change();
+
+revoke all on function public.guard_auth_password_change() from public, anon, authenticated;
+
+create or replace function public.audit_pin_reset()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_username text;
+begin
+  if new.encrypted_password is not distinct from old.encrypted_password then
+    return new;
+  end if;
+
+  select username into v_username
+    from public.profiles
+   where id = new.id;
+
+  -- Names and the event only. Never the PIN, and never the hash.
+  insert into public.audit_log (table_name, row_id, action, old_data, new_data, actor)
+  values (
+    'auth.users',
+    new.id::text,
+    'update',
+    jsonb_build_object('event', 'pin_reset', 'username', v_username),
+    jsonb_build_object('event', 'pin_reset', 'username', v_username),
+    auth.uid()
+  );
+  return new;
+end $$;
+
+create trigger auth_password_audit
+  after update of encrypted_password on auth.users
+  for each row execute function public.audit_pin_reset();
+
+revoke all on function public.audit_pin_reset() from public, anon, authenticated;
+-- END MIGRATION: 0035_owner_only_pin_reset.sql
+
+-- ============================================================
+-- BEGIN MIGRATION: 0036_login_lockout_abuse.sql
+-- ============================================================
+-- 0036: anonymous callers cannot lock a username that is not an account.
+--
+-- log_failed_login (0026) is anon-callable on purpose: the login screen
+-- records a failure before a session exists, and 5 failures lock that
+-- username for 15 minutes. The same grant let anyone lock ANY string
+-- that matched ^[a-z0-9_.-]{1,64}$, including names that are not users,
+-- and walk every real username.
+--
+-- This keeps the 5-failure / 15-minute lock for a username that exists
+-- in profiles, including the "sixth call returns the same lock" rule.
+-- A well-formed unknown username is logged (the 0026 rate limits still
+-- apply) and returns null. It does not insert pin_attempts.
+--
+-- A second brake: at most 30 counted failures across all real accounts
+-- in one minute. The count is login_logs failure rows for a username
+-- that exists in profiles, not pin_attempts rows: a lock resets
+-- pin_attempts.fails to 0, so a row count cannot see the 5 failures.
+-- Already-locked calls return before this count, so one account still
+-- locks at 5 and does not keep adding. Past the ceiling, further
+-- counts are not started. Owner decision: 30 per minute.
+-- tests/sql/10_api_gap_fixes.sql asserts that number.
+--
+-- log_login_attempt still accepts anon failure rows (the locked-before
+-- sign-in path). A success row is written only when the caller is
+-- signed in as that active username. The app calls it after sign-in.
+--
+-- Grants are unchanged: anon + authenticated, not PUBLIC (0026).
+-- login_lock_status stays anon-callable so the screen can show a lock.
+-- Does not depend on 0030 or 0031.
+
+create or replace function public.log_login_attempt(
+  p_username text, p_success boolean, p_user_agent text default null
+) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_username text := lower(trim(coalesce(p_username, '')));
+  v_recent   integer;
+begin
+  if length(v_username) not between 1 and 64
+     or v_username !~ '^[a-z0-9_.-]+$'
+     or p_success is null then
+    return;
+  end if;
+
+  -- Success is only the signed-in user's own username. Anon cannot
+  -- write a fake successful login. Failures stay anon-callable.
+  if p_success then
+    if auth.uid() is null
+       or not exists (
+         select 1 from profiles
+          where id = auth.uid()
+            and lower(username) = v_username
+            and active
+       ) then
+      return;
+    end if;
+  end if;
+
+  select count(*) into v_recent from login_logs
+   where username = v_username and created_at > now() - interval '1 minute';
+  if v_recent >= 20 then return; end if;
+  select count(*) into v_recent from login_logs
+   where created_at > now() - interval '1 minute';
+  if v_recent >= 300 then return; end if;
+
+  insert into login_logs (username, success, user_agent)
+  values (v_username, p_success, left(p_user_agent, 512));
+end $$;
+
+create or replace function public.log_failed_login(
+  p_username text, p_user_agent text default null
+) returns timestamptz
+language plpgsql security definer set search_path = public as $$
+declare
+  v_username text := lower(trim(coalesce(p_username, '')));
+  v_lock     timestamptz;
+  v_recent   integer;
+begin
+  if length(v_username) not between 1 and 64
+     or v_username !~ '^[a-z0-9_.-]+$' then
+    return null;
+  end if;
+
+  select locked_until into v_lock from pin_attempts
+   where username = v_username and locked_until > now();
+  if v_lock is not null then
+    return v_lock;
+  end if;
+
+  -- Not an account: do not create a pin_attempts row and do not lock.
+  if not exists (
+    select 1 from profiles where lower(username) = v_username
+  ) then
+    perform public.log_login_attempt(v_username, false, p_user_agent);
+    return null;
+  end if;
+
+  -- 30 counted failures per minute, all real accounts together.
+  -- login_logs, not pin_attempts: locking a username sets fails back
+  -- to 0, so the attempt row no longer shows how many failures it took.
+  select count(*) into v_recent
+    from login_logs
+   where success = false
+     and created_at > now() - interval '1 minute'
+     and exists (
+       select 1 from profiles
+        where lower(username) = login_logs.username
+     );
+  if v_recent >= 30 then
+    perform public.log_login_attempt(v_username, false, p_user_agent);
+    return null;
+  end if;
+
+  v_lock := public.record_login_failure(v_username);
+  perform public.log_login_attempt(v_username, false, p_user_agent);
+  return v_lock;
+end $$;
+-- END MIGRATION: 0036_login_lockout_abuse.sql
+
+-- ============================================================
+-- BEGIN MIGRATION: 0037_pin_function_search_path.sql
+-- ============================================================
+-- 0037: pin search_path on the eight invoker trigger functions the
+-- security advisor flagged. Bodies are the latest definitions
+-- (0003 set_updated_at, 0005 force_insert_attribution, 0006
+-- fill_agent_name, 0008 guard_same_day_edit and guard_month_lock,
+-- 0009 guard_month_lock_text, 0018 guard_insert_today, 0026
+-- guard_last_owner). CREATE OR REPLACE keeps the triggers and the
+-- grants 0026/0028 already set. search_path = public matches every
+-- other function in this repo. auth.uid() in force_insert_attribution
+-- is schema-qualified, so it does not need auth on the path.
+--
+-- Does not depend on 0030 or 0031.
+
+create or replace function public.set_updated_at() returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end $$;
+
+create or replace function public.force_insert_attribution() returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  new := jsonb_populate_record(new, jsonb_build_object(
+    'created_at', now(),
+    'created_by', auth.uid()
+  ));
+  return new;
+end $$;
+
+create or replace function public.fill_agent_name() returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.agent_id is not null then
+    select name into new.agent_name from agents where id = new.agent_id;
+  end if;
+  return new;
+end $$;
+
+create or replace function public.guard_same_day_edit() returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  -- Agent hard-delete cascade: only agent_id was nulled -> allow.
+  -- 0032 no longer deletes agents. The bypass stays so a replica
+  -- restore or an old cascade shape is not rejected by this guard.
+  if tg_op = 'UPDATE'
+     and (to_jsonb(old) ? 'agent_id')
+     and (to_jsonb(old) ->> 'agent_id') is not null
+     and (to_jsonb(new) ->> 'agent_id') is null
+     and (to_jsonb(old) - 'agent_id' - 'updated_at')
+         = (to_jsonb(new) - 'agent_id' - 'updated_at') then
+    return new;
+  end if;
+  if (old.created_at at time zone 'Asia/Yangon')::date
+     <> (now() at time zone 'Asia/Yangon')::date then
+    raise exception 'same_day_only: records can only be edited or deleted on the day they were created';
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end $$;
+
+create or replace function public.guard_month_lock() returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_date_field text := tg_argv[0];
+  v_old_month date;
+  v_new_month date;
+begin
+  -- Agent hard-delete cascade: only agent_id was nulled -> allow.
+  if tg_op = 'UPDATE'
+     and (to_jsonb(old) ? 'agent_id')
+     and (to_jsonb(old) ->> 'agent_id') is not null
+     and (to_jsonb(new) ->> 'agent_id') is null
+     and (to_jsonb(old) - 'agent_id' - 'updated_at')
+         = (to_jsonb(new) - 'agent_id' - 'updated_at') then
+    return new;
+  end if;
+  if tg_op in ('UPDATE', 'DELETE') then
+    v_old_month := date_trunc('month', (to_jsonb(old) ->> v_date_field)::date)::date;
+    if exists (select 1 from month_locks where month = v_old_month) then
+      raise exception 'month_locked: % is locked', v_old_month;
+    end if;
+  end if;
+  if tg_op in ('INSERT', 'UPDATE') then
+    v_new_month := date_trunc('month', (to_jsonb(new) ->> v_date_field)::date)::date;
+    if exists (select 1 from month_locks where month = v_new_month) then
+      raise exception 'month_locked: % is locked', v_new_month;
+    end if;
+    return new;
+  end if;
+  return old;
+end $$;
+
+create or replace function public.guard_month_lock_text() returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_field text := tg_argv[0];
+  v_month date;
+begin
+  if tg_op in ('UPDATE', 'DELETE') then
+    v_month := ((to_jsonb(old) ->> v_field) || '-01')::date;
+    if exists (select 1 from month_locks where month = v_month) then
+      raise exception 'month_locked: % is locked', to_char(v_month, 'YYYY-MM');
+    end if;
+  end if;
+  if tg_op in ('INSERT', 'UPDATE') then
+    v_month := ((to_jsonb(new) ->> v_field) || '-01')::date;
+    if exists (select 1 from month_locks where month = v_month) then
+      raise exception 'month_locked: % is locked', to_char(v_month, 'YYYY-MM');
+    end if;
+    return new;
+  end if;
+  return old;
+end $$;
+
+create or replace function public.guard_insert_today() returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_date date;
+begin
+  if app_role() = 'owner' then
+    return new;
+  end if;
+  v_date := (to_jsonb(new) ->> tg_argv[0])::date;
+  if v_date is distinct from (now() at time zone 'Asia/Yangon')::date then
+    raise exception 'same_day_only: % must be today (Asia/Yangon)', tg_argv[0]
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+create or replace function public.guard_last_owner() returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if old.role = 'owner' and old.active then
+    if tg_op = 'DELETE'
+       or new.active is distinct from true
+       or new.role is distinct from 'owner' then
+      if not exists (
+        select 1 from profiles
+        where role = 'owner' and active and id <> old.id
+      ) then
+        raise exception
+          'last_owner: the final active owner account cannot be deactivated, re-roled, or deleted'
+          using errcode = 'P0001';
+      end if;
+    end if;
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end $$;
+-- END MIGRATION: 0037_pin_function_search_path.sql
+
+-- ============================================================
+-- BEGIN MIGRATION: 0038_definer_execute_grants.sql
+-- ============================================================
+-- 0038: execute grants for the 25 SECURITY DEFINER functions that
+-- authenticated can call (the RPC matrix through admin_reset_pin).
+--
+-- Review result: authenticated must KEEP execute on all 25.
+--   * The five helpers (app_role, app_agent_id, has_role,
+--     is_owner_manager, is_staff_plus) are evaluated as the signed-in
+--     user inside RLS policies. Revoking authenticated would break
+--     every policy.
+--   * The other twenty are called from the React app. Postgres has one
+--     role, `authenticated`, for owner, manager, co-owner, staff and
+--     agent. The business-role check stays in the function body
+--     (forbidden / owner_only / the 0029 outstanding gate). Revoking
+--     authenticated would take the screens down; it would not draw a
+--     finer line between those app roles.
+--   * anon keeps execute only on the four pre-login functions:
+--     public_factory_name, login_lock_status, log_failed_login,
+--     log_login_attempt. clear_login_failures stays authenticated-only.
+--   * PUBLIC does not need any of them. login_lock_status was the one
+--     still executable by PUBLIC, because 0006 granted anon and
+--     authenticated and 0026 left that function's grants unchanged, so
+--     the default PUBLIC grant survived. This file revokes PUBLIC and
+--     re-grants anon and authenticated.
+--   * service_role grants are not touched (0028).
+--
+-- In-function role checks are not removed.
+-- Does not depend on 0030 or 0031. 0035 adds no client RPC.
+
+-- Pre-login four: no PUBLIC, anon + authenticated kept.
+revoke all on function public.public_factory_name() from public;
+grant execute on function public.public_factory_name() to anon, authenticated;
+
+revoke all on function public.login_lock_status(text) from public;
+grant execute on function public.login_lock_status(text) to anon, authenticated;
+
+revoke all on function public.log_failed_login(text, text) from public;
+grant execute on function public.log_failed_login(text, text) to anon, authenticated;
+
+revoke all on function public.log_login_attempt(text, boolean, text) from public;
+grant execute on function public.log_login_attempt(text, boolean, text) to anon, authenticated;
+
+-- Signed-in only. anon and PUBLIC do not need these. Body gates stay.
+revoke all on function public.clear_login_failures() from public, anon;
+grant execute on function public.clear_login_failures() to authenticated;
+
+revoke all on function public.app_role() from public, anon;
+grant execute on function public.app_role() to authenticated;
+
+revoke all on function public.app_agent_id() from public, anon;
+grant execute on function public.app_agent_id() to authenticated;
+
+revoke all on function public.has_role(user_role) from public, anon;
+grant execute on function public.has_role(user_role) to authenticated;
+
+revoke all on function public.is_owner_manager() from public, anon;
+grant execute on function public.is_owner_manager() to authenticated;
+
+revoke all on function public.is_staff_plus() from public, anon;
+grant execute on function public.is_staff_plus() to authenticated;
+
+revoke all on function public.agent_outstanding(uuid) from public, anon;
+grant execute on function public.agent_outstanding(uuid) to authenticated;
+
+revoke all on function public.agent_held_totals() from public, anon;
+grant execute on function public.agent_held_totals() to authenticated;
+
+revoke all on function public.agent_detail_stats(uuid) from public, anon;
+grant execute on function public.agent_detail_stats(uuid) to authenticated;
+
+revoke all on function public.collections_summary(date, date) from public, anon;
+grant execute on function public.collections_summary(date, date) to authenticated;
+
+revoke all on function public.inventory_totals() from public, anon;
+grant execute on function public.inventory_totals() to authenticated;
+
+revoke all on function public.report_range(date, date) from public, anon;
+grant execute on function public.report_range(date, date) to authenticated;
+
+revoke all on function public.report_months(text, integer, date, date) from public, anon;
+grant execute on function public.report_months(text, integer, date, date) to authenticated;
+
+revoke all on function public.report_aging(date) from public, anon;
+grant execute on function public.report_aging(date) to authenticated;
+
+revoke all on function public.data_quality_scan() from public, anon;
+grant execute on function public.data_quality_scan() to authenticated;
+
+revoke all on function public.my_card_tier() from public, anon;
+grant execute on function public.my_card_tier() to authenticated;
+
+revoke all on function public.finalize_closeout(uuid, integer, integer, text) from public, anon;
+grant execute on function public.finalize_closeout(uuid, integer, integer, text) to authenticated;
+
+revoke all on function public.hard_delete_agent(uuid) from public, anon;
+grant execute on function public.hard_delete_agent(uuid) to authenticated;
+
+revoke all on function public.pay_month(uuid, text) from public, anon;
+grant execute on function public.pay_month(uuid, text) to authenticated;
+
+revoke all on function public.admin_create_user(text, text, text, uuid, text) from public, anon;
+grant execute on function public.admin_create_user(text, text, text, uuid, text) to authenticated;
+
+revoke all on function public.admin_reset_pin(uuid, text) from public, anon;
+grant execute on function public.admin_reset_pin(uuid, text) to authenticated;
+-- END MIGRATION: 0038_definer_execute_grants.sql
+
+-- ============================================================
+-- BEGIN MIGRATION: 0039_drop_agent_bottle_limit_trip_qty.sql
+-- ============================================================
+-- 0039: remove the agent bottle_limit and trip_qty settings entirely.
+--
+-- Owner decision 2026-11-16: the only cap on how many bottles an
+-- agent can hold out is the deposit itself -- the agent states how
+-- many bottles he deposits for, the per-bottle deposit rate is set
+-- at the current bottle price, and that deposit bottle count caps
+-- him. A second, separate bottle limit (and a per-trip quantity)
+-- only confused the workflow. PR #14 removed both settings from
+-- every screen; this migration removes them from the database too.
+--
+--   1. entries_before_write() (0006, replaced 0007): the explicit
+--      bottle_limit check is removed. The deposit check below it is
+--      unchanged and remains the only bottle cap.
+--   2. data_quality_scan() (0022, replaced 0025): the "held bottles
+--      exceed the bottle limit" issue check is removed.
+--   3. guard_agent_money_settings() (0033): bottle_limit is no
+--      longer one of the month-lock-frozen money fields.
+--   4. agents.bottle_limit and agents.trip_qty are dropped.
+--
+-- Historical migrations are not edited; this file supersedes their
+-- column references in order. Live apply is a separate owner
+-- decision, after 0030-0038.
+
+-- 1) entries_before_write: deposit cap only.
+create or replace function entries_before_write() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_agent       agents%rowtype;
+  v_held        integer;
+  v_dep_bottles integer;
+  v_due         bigint;
+  v_old_due     bigint := 0;
+begin
+  if new.agent_id is null then
+    return new;
+  end if;
+  select * into v_agent from agents where id = new.agent_id;
+  if v_agent.id is null then
+    raise exception 'agent_not_found';
+  end if;
+  if v_agent.closed_at is not null then
+    raise exception 'agent_closed: this agent has been closed out';
+  end if;
+
+  if tg_op = 'INSERT' then
+    new.unit_price := v_agent.default_unit_price;
+  end if;
+  new.amount := new.delivered_qty::bigint * new.unit_price;
+
+  select coalesce(sum(delivered_qty - returned_qty), 0) into v_held
+    from daily_entries
+    where agent_id = new.agent_id and (tg_op = 'INSERT' or id <> new.id);
+  v_held := v_held + (new.delivered_qty - new.returned_qty);
+
+  if v_agent.deposit_per_bottle > 0 then
+    select coalesce(sum(bottles), 0) into v_dep_bottles
+      from agent_deposits where agent_id = new.agent_id;
+    if v_held > v_dep_bottles then
+      raise exception 'deposit_limit: exceeds deposit bottles by % — top-up % MMK needed',
+        v_held - v_dep_bottles,
+        (v_held - v_dep_bottles) * v_agent.deposit_per_bottle;
+    end if;
+  end if;
+
+  if app_role() = 'staff' and v_agent.credit_limit > 0 then
+    v_due := new.delivered_qty::bigint * new.unit_price - new.amount_collected;
+    if tg_op = 'UPDATE' then
+      v_old_due := old.delivered_qty::bigint * old.unit_price - old.amount_collected;
+    end if;
+    if agent_outstanding(new.agent_id) - v_old_due + v_due > v_agent.credit_limit then
+      raise exception 'credit_limit: agent debt would exceed the credit limit';
+    end if;
+  end if;
+
+  return new;
+end $$;
+
+-- 2) data_quality_scan: no bottle-limit issue check.
+create or replace function data_quality_scan() returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_today date := (now() at time zone 'Asia/Yangon')::date;
+  v_bk_json jsonb;
+  v_bk text;
+  v_result jsonb;
+begin
+  if not is_owner_manager() then
+    raise exception 'data_quality_scan: owner/manager only'
+      using errcode = '42501';
+  end if;
+
+  -- Backup stamp, mirroring getLastBackupAt() (src/lib/backup.ts): the
+  -- app_settings value must be a JSON string; tolerate the legacy
+  -- double-encoded shape (a string containing a quoted ISO string).
+  select value into v_bk_json from app_settings where key = 'last_backup_at';
+  if v_bk_json is not null and jsonb_typeof(v_bk_json) = 'string' then
+    v_bk := v_bk_json #>> '{}';
+    if v_bk is not null and left(v_bk, 1) = '"' then
+      v_bk := v_bk::jsonb #>> '{}';
+    end if;
+  end if;
+
+  with
+  prof as (
+    select p.id, coalesce(nullif(btrim(p.display_name), ''), p.username) as pname
+    from profiles p
+  ),
+  entries_f as (
+    select e.*, row_number() over (order by e.created_at, e.id) as frn
+    from daily_entries e
+  ),
+  payments_f as (
+    select p.*, row_number() over (order by p.created_at, p.id) as frn
+    from agent_payments p
+  ),
+  writeoffs_f as (
+    select w.*, row_number() over (order by w.created_at, w.id) as frn
+    from write_offs w
+  ),
+  deposits_f as (
+    select d.*, row_number() over (order by d.created_at, d.id) as frn
+    from agent_deposits d
+  ),
+  payroll_f as (
+    select p.*, row_number() over (order by p.created_at, p.id) as frn
+    from payroll_runs p
+  ),
+  expenses_f as (
+    select x.*, row_number() over (order by x.created_at, x.id) as frn
+    from expenses x
+  ),
+  disputes_f as (
+    select d.*, row_number() over (order by d.created_at, d.id) as frn
+    from disputes d
+  ),
+  -- Per-entry iteration order: entry_date asc, stable over fetch order.
+  ent_sorted as (
+    select e.*, row_number() over (order by e.entry_date, e.created_at, e.id) as srn
+    from daily_entries e
+  ),
+  -- Running bottle balance (see header note for the clamp identity).
+  held1 as (
+    select s.id, s.agent_id, s.agent_name, s.entry_date, s.created_at, s.srn,
+           s.delivered_qty, s.returned_qty,
+           sum(s.delivered_qty - s.returned_qty) over (
+             partition by s.agent_id
+             order by s.entry_date, s.created_at, s.id
+             rows between unbounded preceding and current row
+           ) as ssum
+    from ent_sorted s
+    where s.agent_id is not null
+  ),
+  held2 as (
+    select h.*,
+           h.ssum - least(0::bigint, min(h.ssum) over (
+             partition by h.agent_id
+             order by h.entry_date, h.created_at, h.id
+             rows between unbounded preceding and current row
+           )) as cval
+    from held1 h
+  ),
+  held3 as (
+    select h.*,
+           lag(h.cval, 1, 0) over (
+             partition by h.agent_id
+             order by h.entry_date, h.created_at, h.id
+           ) + h.delivered_qty - h.returned_qty as hval
+    from held2 h
+  ),
+  final_held as (
+    select distinct on (h.agent_id) h.agent_id, h.cval
+    from held3 h
+    order by h.agent_id, h.entry_date desc, h.created_at desc, h.id desc
+  ),
+  -- First fetch-order appearance per agent (the page's Map order).
+  agent_first as (
+    select e.agent_id, min(e.frn) as ffrn
+    from entries_f e
+    where e.agent_id is not null
+    group by e.agent_id
+  ),
+  -- Debt FIFO: d = what a trip still owes before payments/write-offs.
+  entd as (
+    select e.*,
+           e.delivered_qty::bigint * e.unit_price - e.amount_collected as d
+    from daily_entries e
+    where e.agent_id is not null
+  ),
+  pool as (
+    select u.agent_id, sum(u.amount) as pool0
+    from (
+      select agent_id, amount from agent_payments where agent_id is not null
+      union all
+      select agent_id, amount from write_offs where agent_id is not null
+    ) u
+    group by u.agent_id
+  ),
+  fifo1 as (
+    select t.*,
+           coalesce(p.pool0, 0) + sum(case when t.d < 0 then -t.d else 0 end)
+             over (partition by t.agent_id) as pool1
+    from entd t
+    left join pool p on p.agent_id = t.agent_id
+  ),
+  fifo2 as (
+    select f.*,
+           sum(case when f.d > 0 then f.d else 0 end) over (
+             partition by f.agent_id
+             order by f.entry_date, f.created_at, f.id
+             rows between unbounded preceding and 1 preceding
+           ) as cum_before
+    from fifo1 f
+  ),
+  fifo3 as (
+    select f.*,
+           case when f.d > 0
+                then greatest(0::bigint, f.d - greatest(0::bigint, f.pool1 - coalesce(f.cum_before, 0)))
+                else 0::bigint end as left_amt
+    from fifo2 f
+  ),
+  aging as (
+    select a.agent_id, sum(a.left_amt) as owed
+    from fifo3 a
+    where a.left_amt > 0
+    group by a.agent_id
+  ),
+  oldest as (
+    select distinct on (o.agent_id) o.agent_id, o.entry_date, o.agent_name
+    from fifo3 o
+    where o.left_amt > 0
+    order by o.agent_id, o.entry_date, o.created_at, o.id
+  ),
+  -- Negative total balance per agent (over-collected).
+  bal as (
+    select u.aid, sum(u.delta) as bal
+    from (
+      select agent_id as aid, (amount - amount_collected) as delta
+      from daily_entries where agent_id is not null
+      union all
+      select agent_id, -amount from agent_payments where agent_id is not null
+      union all
+      select agent_id, -amount from write_offs where agent_id is not null
+    ) u
+    group by u.aid
+  ),
+  bal_ord as (
+    select z.aid, min(z.ordv) as o
+    from (
+      select agent_id as aid, frn as ordv from entries_f where agent_id is not null
+      union all
+      select agent_id, 1000000 + frn from payments_f where agent_id is not null
+      union all
+      select agent_id, 2000000 + frn from writeoffs_f where agent_id is not null
+    ) z
+    group by z.aid
+  ),
+  dep_bottles as (
+    select d.agent_id, sum(d.bottles)::bigint as db
+    from agent_deposits d
+    group by d.agent_id
+  )
+  select jsonb_build_object(
+    'issues', coalesce((
+      select jsonb_agg(s.iss order by s.rk, s.dt desc, s.sec, s.ord)
+      from (
+        select b.sec, b.ord, b.dt,
+               case b.severity when 'high' then 0 when 'medium' then 1 else 2 end as rk,
+               jsonb_build_object(
+                 'kind', b.kind, 'severity', b.severity, 'table', b.tbl,
+                 'recordId', b.rid, 'date', b.dt, 'name', b.nm,
+                 'problem', b.problem, 'suggestion', b.suggestion,
+                 -- When the flagged record was entered, and by whom
+                 -- (owner request: settle questions with staff by day,
+                 -- time and responsible person). Looked up by
+                 -- (table, recordId) so the per-check branches stay
+                 -- untouched; aggregate/system issues and the
+                 -- per-collector anomaly rows (recordId = the collector)
+                 -- find no row and keep null — date only, as before.
+                 'ts', case b.tbl
+                   when 'daily_entries' then (select e.created_at from daily_entries e where e.id = b.rid::uuid)
+                   when 'agent_payments' then (select p.created_at from agent_payments p where p.id = b.rid::uuid)
+                   when 'agent_deposits' then (select d.created_at from agent_deposits d where d.id = b.rid::uuid)
+                   when 'expenses' then (select x.created_at from expenses x where x.id = b.rid::uuid)
+                   when 'payroll_runs' then (select r.created_at from payroll_runs r where r.id = b.rid::uuid)
+                   when 'disputes' then (select q.created_at from disputes q where q.id = b.rid::uuid)
+                 end,
+                 'by', case b.tbl
+                   when 'daily_entries' then (select pr.pname from daily_entries e join prof pr on pr.id = e.created_by where e.id = b.rid::uuid)
+                   when 'agent_payments' then (select pr.pname from agent_payments p join prof pr on pr.id = p.created_by where p.id = b.rid::uuid)
+                   when 'agent_deposits' then (select pr.pname from agent_deposits d join prof pr on pr.id = d.created_by where d.id = b.rid::uuid)
+                   when 'expenses' then (select pr.pname from expenses x join prof pr on pr.id = x.created_by where x.id = b.rid::uuid)
+                   when 'payroll_runs' then (select pr.pname from payroll_runs r join prof pr on pr.id = r.created_by where r.id = b.rid::uuid)
+                 end
+               ) as iss
+        from (
+          -- sec 0: duplicates — same agent + day, identical numbers;
+          -- one issue per row after the first (fetch order).
+          select 0 as sec, r.frn as ord, 'duplicate' as kind, 'high' as severity,
+                 'daily_entries' as tbl, r.id::text as rid,
+                 r.entry_date::text as dt,
+                 coalesce(r.agent_name, a.name, '—') as nm,
+                 'တစ်ရက်တည်းတွင် မှတ်တမ်း ' || d.cnt || ' ခု (ဂဏန်းတူ)' as problem,
+                 'ထပ်နေသော မှတ်တမ်းကို ဖျက်ပါ' as suggestion
+          from (
+            select e.*,
+                   row_number() over (
+                     partition by e.agent_id, e.entry_date
+                     order by e.created_at, e.id
+                   ) as grn
+            from entries_f e
+            where e.agent_id is not null
+          ) r
+          join (
+            select agent_id, entry_date, count(*) as cnt
+            from daily_entries
+            where agent_id is not null
+            group by agent_id, entry_date
+            having count(*) >= 2
+               and min(delivered_qty) = max(delivered_qty)
+               and min(returned_qty) = max(returned_qty)
+               and min(amount_collected) = max(amount_collected)
+          ) d on d.agent_id = r.agent_id and d.entry_date = r.entry_date
+          left join agents a on a.id = r.agent_id
+          where r.grn > 1
+
+          union all
+          -- sec 1: per-entry checks (sub-order follows the page's
+          -- check order inside its per-entry loop).
+          select 1, e.srn * 16 + 1, 'impossible', 'high', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 'အနုတ်ဂဏန်း ပါနေသည်',
+                 'ဂဏန်းကို 0 သို့မဟုတ် အမှန်ဖြင့် ပြင်ပါ'
+          from ent_sorted e
+          left join agents a on a.id = e.agent_id
+          where e.delivered_qty < 0 or e.returned_qty < 0 or e.amount_collected < 0
+
+          union all
+          select 1, e.srn * 16 + 2, 'impossible', 'medium', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 'တစ်ရက် ' || to_char(e.delivered_qty::bigint, 'FM999,999,999,999,999') || ' ဘူး ပို့ — အလွန်များသည်',
+                 'ဂဏန်း ထပ်ရိုက်မိခြင်း ရှိမရှိ စစ်ပါ'
+          from ent_sorted e
+          left join agents a on a.id = e.agent_id
+          where e.delivered_qty > 2000
+
+          union all
+          select 1, e.srn * 16 + 3, 'impossible', 'medium', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 'အနာဂတ်ရက်စွဲ',
+                 'ရက်စွဲကို မှန်အောင် ပြင်ပါ'
+          from ent_sorted e
+          left join agents a on a.id = e.agent_id
+          where e.entry_date > v_today
+
+          union all
+          select 1, e.srn * 16 + 4, 'impossible', 'low', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 'ဂဏန်းအားလုံး 0 — အလွတ်မှတ်တမ်း',
+                 'မလိုအပ်ပါက ဖျက်ပါ'
+          from ent_sorted e
+          left join agents a on a.id = e.agent_id
+          where e.delivered_qty = 0 and e.returned_qty = 0 and e.amount_collected = 0
+            and (e.notes is null or btrim(e.notes) = '')
+
+          union all
+          select 1, e.srn * 16 + 5, 'mismatch', 'high', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 'ရောင်းငွေ မကိုက် — ' || to_char(e.delivered_qty::bigint, 'FM999,999,999,999,999')
+                   || ' × ' || to_char(e.unit_price::bigint, 'FM999,999,999,999,999')
+                   || ' = ' || to_char(e.delivered_qty::bigint * e.unit_price, 'FM999,999,999,999,999')
+                   || ' ဖြစ်ရမည် (မှတ်ထား ' || to_char(e.amount, 'FM999,999,999,999,999') || ')',
+                 'မှတ်တမ်းကို စစ်ပြီး ပြင်ပါ'
+          from ent_sorted e
+          left join agents a on a.id = e.agent_id
+          where e.amount <> e.delivered_qty::bigint * e.unit_price
+
+          union all
+          select 1, e.srn * 16 + 6, 'snapshot', 'medium', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 'ကိုယ်စားလှယ် အမည် မှတ်တမ်း (snapshot) ပျောက်နေသည်',
+                 'မှတ်တမ်းကို တစ်ခါ ပြန်သိမ်းပါ (အမည် အလိုအလျောက် ပြန်ဝင်မည်)'
+          from ent_sorted e
+          left join agents a on a.id = e.agent_id
+          where e.agent_id is not null
+            and (e.agent_name is null or btrim(e.agent_name) = '')
+
+          union all
+          select 1, h.srn * 16 + 7, 'impossible', 'high', 'daily_entries', h.id::text,
+                 h.entry_date::text,
+                 coalesce(h.agent_name, a.name, '—'),
+                 'ပို့ထားသည်ထက် ဗူးခွံ ပိုပြန်ယူ (လက်ကျန် ' || to_char(h.hval, 'FM999,999,999,999,999') || ')',
+                 'ပြန်ယူဗူးခွံ အရေအတွက် သို့မဟုတ် ယခင်ပို့ဘူးကို စစ်ပြီး ပြင်ပါ'
+          from held3 h
+          left join agents a on a.id = h.agent_id
+          where h.hval < 0
+
+          union all
+          select 1, e.srn * 16 + 9, 'mismatch', 'medium', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 'ယူနစ်ဈေး ' || to_char(e.unit_price::bigint, 'FM999,999,999,999,999')
+                   || ' ≠ ကိုယ်စားလှယ်ဈေး ' || to_char(a.default_unit_price::bigint, 'FM999,999,999,999,999'),
+                 'မှတ်တမ်းကို တစ်ခါ ပြန်သိမ်းပါ (ဈေး အလိုအလျောက် ညှိမည်)'
+          from ent_sorted e
+          join agents a on a.id = e.agent_id
+          where e.unit_price <> a.default_unit_price
+
+          union all
+          -- sec 2: deposit amount mismatch.
+          select 2, d.frn, 'mismatch', 'high', 'agent_deposits', d.id::text,
+                 d.deposit_date::text,
+                 coalesce(d.agent_name, a.name, '—'),
+                 'အပေါင် ' || to_char(d.bottles::bigint, 'FM999,999,999,999,999')
+                   || ' × ' || to_char(d.price_per_bottle::bigint, 'FM999,999,999,999,999')
+                   || ' = ' || to_char(d.bottles::bigint * d.price_per_bottle, 'FM999,999,999,999,999')
+                   || ' ဖြစ်ရမည် (မှတ်ထား ' || to_char(d.amount, 'FM999,999,999,999,999') || ')',
+                 'ပမာဏကို ' || to_char(d.bottles::bigint * d.price_per_bottle, 'FM999,999,999,999,999') || ' ကျပ် သို့ ပြင်ပါ'
+          from deposits_f d
+          left join agents a on a.id = d.agent_id
+          where d.amount <> d.bottles::bigint * d.price_per_bottle
+
+          union all
+          -- sec 3: payroll checks.
+          select 3, p.frn * 4 + 1, 'mismatch', 'high', 'payroll_runs', p.id::text,
+                 p.month,
+                 coalesce(pr.pname, ''),
+                 'လစာ ' || to_char(p.base, 'FM999,999,999,999,999')
+                   || ' + ' || to_char(p.bonus, 'FM999,999,999,999,999')
+                   || ' − ' || to_char(p.deduction, 'FM999,999,999,999,999')
+                   || ' = ' || to_char(p.base + p.bonus - p.deduction, 'FM999,999,999,999,999')
+                   || ' (မှတ်ထား ' || to_char(p.net, 'FM999,999,999,999,999') || ')',
+                 'လစာကို ပြန်တွက်ပါ'
+          from payroll_f p
+          left join prof pr on pr.id = p.user_id
+          where p.base + p.bonus - p.deduction <> p.net
+
+          union all
+          select 3, p.frn * 4 + 2, 'impossible', 'medium', 'payroll_runs', p.id::text,
+                 p.month,
+                 coalesce(pr.pname, ''),
+                 'အသားတင်လစာ အနုတ်',
+                 'advance အရစ်ကျ ပမာဏကို လျှော့ပါ'
+          from payroll_f p
+          left join prof pr on pr.id = p.user_id
+          where p.net < 0
+
+          union all
+          -- sec 4: expense checks.
+          select 4, x.frn * 4 + 1, 'impossible', 'medium', 'expenses', x.id::text,
+                 x.expense_date::text,
+                 x.title,
+                 'ကုန်ကျငွေ 0 သို့မဟုတ် အနုတ်',
+                 'ပမာဏကို ပြင်ပါ သို့မဟုတ် ဖျက်ပါ'
+          from expenses_f x
+          where x.amount <= 0
+
+          union all
+          select 4, x.frn * 4 + 2, 'impossible', 'medium', 'expenses', x.id::text,
+                 x.expense_date::text,
+                 x.title,
+                 'အနာဂတ်ရက်စွဲ',
+                 'ရက်စွဲကို ပြင်ပါ'
+          from expenses_f x
+          where x.expense_date > v_today
+
+          union all
+          -- sec 5: negative total balance per agent.
+          select 5, o.o, 'debt', 'high', 'agents', b.aid::text,
+                 v_today::text,
+                 coalesce(a.name, '—'),
+                 'ကိုယ်စားလှယ် လက်ကျန် အနုတ် ' || to_char(b.bal, 'FM999,999,999,999,999') || ' ကျပ် — ငွေ ပိုကောက်ခံထားသည်',
+                 'ကောက်ခံမှု မှတ်တမ်းများကို စစ်ပါ'
+          from bal b
+          join bal_ord o on o.aid = b.aid
+          left join agents a on a.id = b.aid
+          where b.bal < 0
+
+          union all
+          -- sec 6: debt aging (oldest unpaid trip older than 30 days).
+          select 6, f.ffrn * 2, 'debt',
+                 case when (v_today - o.entry_date) > 60 then 'high' else 'medium' end,
+                 'agents', g.agent_id::text,
+                 o.entry_date::text,
+                 coalesce(o.agent_name, a.name, '—'),
+                 'ကြွေး ' || to_char(g.owed, 'FM999,999,999,999,999')
+                   || ' ကျပ် — အဟောင်းဆုံး ' || (v_today - o.entry_date) || ' ရက် ကြာပြီ',
+                 case when (v_today - o.entry_date) > 60
+                      then 'ယနေ့ပဲ ဖုန်းဆက်ကောက်ပါ၊ ငွေမရမချင်း ထပ်မပို့ပါနှင့်'
+                      else 'ကိုယ်စားလှယ်ကို သတိပေးပြီး ကောက်ခံရန် စီစဉ်ပါ' end
+          from aging g
+          join oldest o on o.agent_id = g.agent_id
+          join agent_first f on f.agent_id = g.agent_id
+          left join agents a on a.id = g.agent_id
+          where (v_today - o.entry_date) > 30
+
+          union all
+          -- sec 6b: bottles held beyond deposit coverage.
+          select 6, f.ffrn * 2 + 1, 'mismatch', 'medium', 'agents', fh.agent_id::text,
+                 v_today::text,
+                 a.name,
+                 'လက်ကျန် ' || to_char(fh.cval, 'FM999,999,999,999,999')
+                   || ' ဘူး > အပေါင်ယူထား ' || to_char(db.db, 'FM999,999,999,999,999') || ' ဘူး',
+                 'ကျန် ' || to_char(fh.cval - db.db, 'FM999,999,999,999,999') || ' ဘူးအတွက် အပေါင် ထပ်ယူပါ သို့မဟုတ် ဘူးခွံ ပြန်သိမ်းပါ'
+          from final_held fh
+          join dep_bottles db on db.agent_id = fh.agent_id
+          join agents a on a.id = fh.agent_id
+          join agent_first f on f.agent_id = fh.agent_id
+          where db.db > 0 and fh.cval > db.db
+
+          union all
+          -- sec 7: suspicious habits (>=20 bottles with 0 collected;
+          -- records entered late at night, Yangon time).
+          select 7, e.frn * 4 + 1, 'suspicious', 'low', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 to_char(e.delivered_qty::bigint, 'FM999,999,999,999,999') || ' ဘူး ပို့ပြီး ငွေ 0 လက်ခံ',
+                 'အကြွေးသက်သက်ဟုတ်မဟုတ် ပို့သူဝန်ထမ်းကို မေးပါ'
+          from entries_f e
+          left join agents a on a.id = e.agent_id
+          where e.delivered_qty >= 20 and e.amount_collected = 0
+
+          union all
+          select 7, e.frn * 4 + 2, 'suspicious', 'low', 'daily_entries', e.id::text,
+                 e.entry_date::text,
+                 coalesce(e.agent_name, a.name, '—'),
+                 'ညနက် ' || lpad((extract(hour from (e.created_at at time zone 'Asia/Yangon'))::int)::text, 2, '0')
+                   || ' နာရီတွင် ထည့်သွင်း'
+                   || case when coalesce(pr.pname, '') <> '' then ' (' || pr.pname || ')' else '' end,
+                 'အချိန်လွန်ထည့်ရသည့် အကြောင်းကို စစ်ပါ'
+          from entries_f e
+          left join agents a on a.id = e.agent_id
+          left join prof pr on pr.id = e.created_by
+          where extract(hour from (e.created_at at time zone 'Asia/Yangon'))::int >= 22
+             or extract(hour from (e.created_at at time zone 'Asia/Yangon'))::int < 5
+
+          union all
+          -- sec 8: collection anomalies — per collector (payments
+          -- created_by), per day, totals >= 100,000 only. Rule (a):
+          -- day >= 3x the trailing-7-day daily average (only days
+          -- present in the data form the baseline; missing days count
+          -- as 0 in the average). Rule (b): day >= 1.5x previous day.
+          select 8, an.cord * 1000000 + an.first_frn * 4 + 0, 'collection_anomaly', 'high',
+                 'agent_payments', an.created_by::text,
+                 an.day::text,
+                 an.pname,
+                 an.pname || ' သည် ပုံမှန်ထက် ၃ ဆပိုများသော ငွေကို ကောက်ခံခဲ့သည်',
+                 'ကောက်ငွေ ' || to_char(an.total, 'FM999,999,999,999,999')
+                   || ' ကျပ် · ပုံမှန်ငွေ ' || to_char(round(an.wsum / 7.0)::bigint, 'FM999,999,999,999,999')
+                   || ' ကျပ် — ကောက်ခံမှု မှတ်တမ်းများကို စစ်ပါ'
+          from (
+            select d.created_by, d.day, d.total, d.first_frn, c.cord, pf.pname,
+                   (select sum(x.total) from (
+                      select created_by, payment_date as day, sum(amount) as total
+                      from agent_payments where created_by is not null
+                      group by created_by, payment_date
+                    ) x where x.created_by = d.created_by and x.day >= d.day - 7 and x.day < d.day) as wsum,
+                   (select count(*) from (
+                      select created_by, payment_date as day, sum(amount) as total
+                      from agent_payments where created_by is not null
+                      group by created_by, payment_date
+                    ) x where x.created_by = d.created_by and x.day >= d.day - 7 and x.day < d.day) as wcnt
+            from (
+              select created_by, payment_date as day, sum(amount) as total, min(frn) as first_frn
+              from payments_f where created_by is not null
+              group by created_by, payment_date
+            ) d
+            join (
+              select created_by, min(first_frn) as cord
+              from (
+                select created_by, payment_date as day, min(frn) as first_frn
+                from payments_f where created_by is not null
+                group by created_by, payment_date
+              ) dd
+              group by created_by
+            ) c on c.created_by = d.created_by
+            join prof pf on pf.id = d.created_by
+            where d.total >= 100000
+          ) an
+          where an.wcnt > 0 and an.wsum > 0 and an.total * 7 >= 3 * an.wsum
+
+          union all
+          select 8, an.cord * 1000000 + an.first_frn * 4 + 1, 'collection_anomaly', 'high',
+                 'agent_payments', an.created_by::text,
+                 an.day::text,
+                 an.pname,
+                 an.pname || ' ကောက်ခံသောငွေသည် ယမန်နေ့၏ ' || round(an.total * 100.0 / an.prev_total) || '% ရှိသည်',
+                 'ကောက်ငွေ ' || to_char(an.total, 'FM999,999,999,999,999')
+                   || ' ကျပ် · ယမန်နေ့ငွေ ' || to_char(an.prev_total, 'FM999,999,999,999,999')
+                   || ' ကျပ် — ကောက်ခံမှု မှတ်တမ်းများကို စစ်ပါ'
+          from (
+            select d.created_by, d.day, d.total, d.first_frn, c.cord, pf.pname,
+                   (select x.total from (
+                      select created_by, payment_date as day, sum(amount) as total
+                      from agent_payments where created_by is not null
+                      group by created_by, payment_date
+                    ) x where x.created_by = d.created_by and x.day = d.day - 1) as prev_total
+            from (
+              select created_by, payment_date as day, sum(amount) as total, min(frn) as first_frn
+              from payments_f where created_by is not null
+              group by created_by, payment_date
+            ) d
+            join (
+              select created_by, min(first_frn) as cord
+              from (
+                select created_by, payment_date as day, min(frn) as first_frn
+                from payments_f where created_by is not null
+                group by created_by, payment_date
+              ) dd
+              group by created_by
+            ) c on c.created_by = d.created_by
+            join prof pf on pf.id = d.created_by
+            where d.total >= 100000
+          ) an
+          where an.prev_total is not null and an.prev_total > 0 and an.total * 2 >= 3 * an.prev_total
+
+          union all
+          -- sec 9: disputes unresolved for more than 7 days.
+          select 9, d.frn, 'dispute', 'medium', 'disputes', d.id::text,
+                 ((d.created_at at time zone 'UTC')::date)::text,
+                 coalesce(a.name, '—'),
+                 'အငြင်းပွားမှု ' || (v_today - (d.created_at at time zone 'UTC')::date) || ' ရက် ကြာပြီ — မဖြေရှင်းရသေးပါ',
+                 'အငြင်းပွားမှု စာမျက်နှာတွင် ပြန်ဖြေပြီး ပိတ်ပါ'
+          from disputes_f d
+          left join agents a on a.id = d.agent_id
+          where d.status <> 'closed'
+            and (v_today - (d.created_at at time zone 'UTC')::date) > 7
+
+          union all
+          -- sec 10: backup freshness.
+          select 10, 0, 'system', 'medium', 'app_settings', 'last_backup_at',
+                 v_today::text,
+                 'Backup',
+                 'Backup တစ်ခါမှ မလုပ်ရသေးပါ',
+                 'ပင်မ စာမျက်နှာမှ Backup ဒေါင်းလုပ် လုပ်ပါ'
+          where v_bk is null
+
+          union all
+          select 10, 0, 'system', 'medium', 'app_settings', 'last_backup_at',
+                 left(v_bk, 10),
+                 'Backup',
+                 'နောက်ဆုံး Backup သည် ' || (v_today - left(v_bk, 10)::date) || ' ရက် ကြာပြီ',
+                 'ပင်မ စာမျက်နှာမှ Backup အသစ် ဒေါင်းလုပ် လုပ်ပါ'
+          where v_bk is not null
+            and v_bk ~ '^\d{4}-\d{2}-\d{2}'
+            and (v_today - left(v_bk, 10)::date) > 7
+        ) b
+      ) s
+    ), '[]'::jsonb),
+    'counts', jsonb_build_object(
+      'entries', (select count(*) from daily_entries),
+      'deposits', (select count(*) from agent_deposits),
+      'payroll', (select count(*) from payroll_runs),
+      'expenses', (select count(*) from expenses)
+    )
+  ) into v_result;
+
+  return v_result;
+end $$;
+
+-- 3) guard_agent_money_settings: price / deposit / credit limit only.
+create or replace function public.guard_agent_money_settings()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_month date;
+begin
+  if new.default_unit_price is not distinct from old.default_unit_price
+     and new.deposit_per_bottle is not distinct from old.deposit_per_bottle
+     and new.credit_limit is not distinct from old.credit_limit then
+    return new;
+  end if;
+
+  v_month := date_trunc(
+    'month', (now() at time zone 'Asia/Yangon')::date
+  )::date;
+  if exists (select 1 from month_locks where month = v_month) then
+    raise exception 'month_locked: % is locked', v_month
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+-- 4) Drop the columns.
+alter table agents drop column if exists bottle_limit;
+alter table agents drop column if exists trip_qty;
+-- END MIGRATION: 0039_drop_agent_bottle_limit_trip_qty.sql
+
+-- ============================================================
+-- BEGIN MIGRATION: 0040_card_tier_thresholds.sql
+-- ============================================================
+-- 0040: my_card_tier() — fixed lifetime amount-due thresholds replace
+-- the rank-thirds rule of 0024 (owner's rule, 2026-11-16):
+--   lifetime amount due >= 20,000,000 MMK  → 'gold'
+--   lifetime amount due >= 10,000,000 MMK  → 'white'
+--   below that (including zero)            → 'black'
+--
+-- "Amount due" (ကျသင့်ငွေ) is the sum of daily_entries.amount —
+-- bottles delivered × the factory's per-bottle price: what the agent
+-- owes the factory, not the agent's own resale.
+--
+-- The tier now depends ONLY on the caller's own lifetime amount due,
+-- so the ranked CTE over every agent is gone entirely: the function
+-- reads the caller's own agent id from profiles and sums only that
+-- agent's daily_entries.amount. It returns ONLY the caller's tier and
+-- their own lifetime amount-due total — never another agent's figures.
+--
+-- sales_rank / agent_count are dropped from the result: with fixed
+-- thresholds there is no rank to report. Callers (MyPage, AgentHome)
+-- are updated in the same change — My Page shows the lifetime
+-- amount-due caption instead of the rank caption. The client-side
+-- mirror is cardTierForSales() in src/lib/cardFace.ts.
+--
+-- CREATE OR REPLACE cannot change a function's return type, so the
+-- 0024 function is dropped and recreated; the grants from 0024 are
+-- re-asserted below (authenticated only, as before).
+drop function if exists public.my_card_tier();
+
+create function public.my_card_tier()
+returns table(tier text, lifetime_sales bigint)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_agent uuid;
+  v_sales bigint;
+begin
+  select agent_id into v_agent
+  from profiles
+  where id = auth.uid() and active;
+
+  if v_agent is null then
+    return;
+  end if;
+
+  select coalesce(sum(e.amount), 0)::bigint into v_sales
+  from daily_entries e
+  where e.agent_id = v_agent;
+
+  return query select
+    case
+      when v_sales >= 20000000 then 'gold'
+      when v_sales >= 10000000 then 'white'
+      else 'black'
+    end,
+    v_sales;
+end;
+$$;
+
+revoke execute on function public.my_card_tier() from public, anon;
+grant execute on function public.my_card_tier() to authenticated;
+-- END MIGRATION: 0040_card_tier_thresholds.sql
+
+-- ============================================================
+-- BEGIN MIGRATION: 0041_received_by.sql
+-- ============================================================
+-- 0041: received_by — cash accountability follows the staff member who
+-- physically RECEIVED the money, not necessarily the one who typed the
+-- record (owner's rule, 2026-11-17).
+--
+-- daily_entries.amount_collected and every agent_payments row are cash
+-- an agent handed to a person. Until now the only name on those rows
+-- was created_by (the typist). This migration adds received_by to both
+-- tables:
+--   * existing rows are backfilled received_by = created_by (the best
+--     available record of who took the cash at the time);
+--   * new rows may leave it NULL in the database — every reader
+--     (notification triggers, client display, the cash-handover
+--     expectation) derives the receiver as
+--     coalesce(received_by, created_by). The entry/payment forms send
+--     it explicitly (defaulting to the current user), so NULL remains
+--     only for rows written by older clients or direct SQL.
+--
+-- Agent receipts (the notifications an agent gets for their own
+-- deliveries and payments) now NAME the receiver when cash moved, so
+-- the agent can say exactly who they paid:
+--   "ပေးချေငွေ {amount} ကျပ်ကို {receiver name} လက်ခံပြီး မှတ်တမ်းတင်ပြီးပါပြီ"
+-- The receiver's display name resolves exactly like the UI's
+-- personName(): profiles.display_name when set (trimmed, non-empty),
+-- else the login username.
+--
+-- staff_directory(): agents and staff cannot read other users'
+-- profiles (profiles_select is owner/manager-or-self), yet the
+-- received-by form select (writers) and the agent-side "လက်ခံသူ:" lines
+-- both need staff names. This definer RPC is the narrow bridge: it
+-- returns ONLY id + display name + active flag for users holding a
+-- non-agent effective role (primary role or a user_roles grant) —
+-- no usernames beyond the display-name fallback, no agent accounts,
+-- no contact data.
+
+alter table daily_entries  add column if not exists received_by uuid references profiles (id);
+alter table agent_payments add column if not exists received_by uuid references profiles (id);
+
+-- The backfill runs under session_replication_role = 'replica' (the
+-- fixture's own pattern for system-level data surgery): the same-day
+-- edit guard and the month-lock guard would otherwise reject every
+-- historical row, and the audit trigger would log one pseudo-edit per
+-- row. The backfill changes no business fact — it materialises exactly
+-- what every reader already assumed (coalesce(received_by,
+-- created_by)) — so it is a system attribution, not a user edit.
+set session_replication_role = 'replica';
+update daily_entries  set received_by = created_by
+ where received_by is null and created_by is not null;
+update agent_payments set received_by = created_by
+ where received_by is null and created_by is not null;
+set session_replication_role = 'origin';
+
+create or replace function public.staff_directory()
+returns table(id uuid, name text, active boolean)
+language sql security definer set search_path = public as $$
+  select p.id,
+         coalesce(nullif(trim(p.display_name), ''), p.username),
+         p.active
+    from profiles p
+   where exists (
+           select 1
+             from (select p.role as r
+                   union all
+                   select ur.role from user_roles ur where ur.profile_id = p.id) roles
+            where roles.r in ('owner', 'manager', 'co_owner', 'staff')
+         )
+   order by p.active desc, 2
+$$;
+revoke all on function public.staff_directory() from public;
+grant execute on function public.staff_directory() to authenticated;
+
+-- Delivery entry -> OM notice + agent receipt (0015 body, with the
+-- receiver named on the agent receipt when cash was collected).
+create or replace function notify_on_entry() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_agent_user uuid;
+  v_recip      uuid;
+  v_credit     bigint;
+  v_balance    bigint;
+  v_priority   text := 'normal';
+  v_title      text := 'ရေပို့ မှတ်တမ်း အသစ်';
+  v_receiver   text;
+  v_body       text;
+begin
+  select credit_limit into v_credit from agents where id = new.agent_id;
+  if coalesce(v_credit, 0) > 0 then
+    select coalesce(sum(amount - amount_collected), 0) into v_balance
+      from daily_entries where agent_id = new.agent_id;
+    v_balance := v_balance - coalesce(
+      (select sum(amount) from agent_payments where agent_id = new.agent_id), 0);
+    if v_balance > v_credit then
+      v_priority := 'high';
+      v_title := '⚠ ကြွေးကန့်သတ် ကျော်လွန်နေသော ရေပို့ မှတ်တမ်း';
+    end if;
+  end if;
+
+  for v_recip in select om_recipients(new.created_by) loop
+    perform insert_notification(
+      v_recip, 'delivery', v_title,
+      coalesce(new.agent_name, '') || ' — ' || new.delivered_qty || ' ဗူး · '
+        || to_char(new.amount, 'FM999,999,999') || ' ကျပ်',
+      '/entries', v_priority,
+      'delivery:' || new.agent_id || ':' || new.entry_date);
+  end loop;
+
+  select id into v_agent_user from profiles
+   where agent_id = new.agent_id and active and id is distinct from new.created_by
+   limit 1;
+  if v_agent_user is not null then
+    select coalesce(nullif(trim(p.display_name), ''), p.username) into v_receiver
+      from profiles p
+     where p.id = coalesce(new.received_by, new.created_by);
+    if new.amount_collected > 0 and v_receiver is not null then
+      v_body := new.entry_date::text || ' — ' || new.delivered_qty || ' ဗူး ပို့ပြီး · ပေးချေငွေ '
+        || to_char(new.amount_collected, 'FM999,999,999') || ' ကျပ်ကို ' || v_receiver
+        || ' လက်ခံပြီး မှတ်တမ်းတင်ပြီးပါပြီ · ကြွေး '
+        || to_char(greatest(new.amount - new.amount_collected, 0), 'FM999,999,999') || ' ကျပ်';
+    else
+      v_body := new.entry_date::text || ' — ' || new.delivered_qty || ' ဗူး ပို့ပြီး · ငွေလက်ခံ '
+        || to_char(new.amount_collected, 'FM999,999,999') || ' ကျပ် · ကြွေး '
+        || to_char(greatest(new.amount - new.amount_collected, 0), 'FM999,999,999') || ' ကျပ်';
+    end if;
+    perform insert_notification(
+      v_agent_user, 'receipt', 'ရေပို့ မှတ်တမ်း', v_body,
+      '/my', 'normal',
+      'delivery:' || new.agent_id || ':' || new.entry_date);
+  end if;
+  return new;
+end $$;
+
+-- Payment -> OM notice + agent receipt (0011 body, with the receiver
+-- named on the agent receipt).
+create or replace function notify_on_payment() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_agent_user uuid;
+  v_recip      uuid;
+  v_receiver   text;
+  v_body       text;
+begin
+  for v_recip in select om_recipients(new.created_by) loop
+    perform insert_notification(
+      v_recip, 'collection', 'ငွေ ကောက်ခံမှု',
+      coalesce(new.agent_name, '') || ' — ' || to_char(new.amount, 'FM999,999,999') || ' ကျပ် ရရှိ',
+      '/payments', 'normal', 'collection:' || new.agent_id || ':' || new.payment_date);
+  end loop;
+
+  select id into v_agent_user from profiles
+   where agent_id = new.agent_id and active and id is distinct from new.created_by
+   limit 1;
+  if v_agent_user is not null then
+    select coalesce(nullif(trim(p.display_name), ''), p.username) into v_receiver
+      from profiles p
+     where p.id = coalesce(new.received_by, new.created_by);
+    if v_receiver is not null then
+      v_body := 'ပေးချေငွေ ' || to_char(new.amount, 'FM999,999,999') || ' ကျပ်ကို '
+        || v_receiver || ' လက်ခံပြီး မှတ်တမ်းတင်ပြီးပါပြီ';
+    else
+      v_body := to_char(new.amount, 'FM999,999,999') || ' ကျပ် လက်ခံရရှိပါတယ်';
+    end if;
+    perform insert_notification(
+      v_agent_user, 'receipt', 'ငွေ ပေးချေမှု မှတ်တမ်း', v_body,
+      '/my', 'normal', 'collection:' || new.agent_id || ':' || new.payment_date);
+  end if;
+  return new;
+end $$;
+-- END MIGRATION: 0041_received_by.sql

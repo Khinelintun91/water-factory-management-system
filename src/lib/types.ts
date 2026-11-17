@@ -23,10 +23,12 @@ export interface Agent {
   address: string | null
   deposit_per_bottle: number
   default_unit_price: number
-  bottle_limit: number
   credit_limit: number
   closed_at: string | null
   closed_by: string | null
+  /** Set by hard_delete_agent. The row is kept; the working list hides it. */
+  archived_at: string | null
+  archived_by: string | null
   active: boolean
   created_at: string
   updated_at: string
@@ -98,6 +100,8 @@ export interface DailyEntry {
   change_reason: string | null
   notes: string | null
   created_by: string | null
+  /** Who physically received the cash (0041); NULL reads as created_by. */
+  received_by: string | null
   created_at: string
   updated_at: string
 }
@@ -112,6 +116,8 @@ export interface AgentPayment {
   change_reason: string | null
   notes: string | null
   created_by: string | null
+  /** Who physically received the cash (0041); NULL reads as created_by. */
+  received_by: string | null
   created_at: string
   updated_at: string
 }

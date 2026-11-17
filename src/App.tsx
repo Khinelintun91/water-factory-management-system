@@ -48,10 +48,10 @@ function useFactoryName(): string {
   return name
 }
 
-const NAV: { to: string; label: string; roles: string[] }[] = [
+const NAV: { to: string; label: string; agentLabel?: string; roles: string[] }[] = [
   { to: '/', label: 'ပင်မ', roles: ['owner', 'manager', 'staff', 'agent'] },
   { to: '/entries', label: 'ပို့ဆောင်မှုများ', roles: ['owner', 'manager', 'staff', 'agent'] },
-  { to: '/payments', label: 'ငွေကောက်ခံမှုများ', roles: ['owner', 'manager', 'staff', 'agent'] },
+  { to: '/payments', label: 'ငွေကောက်ခံမှုများ', agentLabel: 'ငွေပေးချေမှုများ', roles: ['owner', 'manager', 'staff', 'agent'] },
   { to: '/agents', label: 'ကိုယ်စားလှယ်များ', roles: ['owner', 'manager', 'staff'] },
   { to: '/collections', label: 'ကောက်ခံမှုနှင့် ကြွေးစာရင်း', roles: ['owner', 'manager'] },
   { to: '/inventory', label: 'ဗူးလက်ကျန်', roles: ['owner', 'manager'] },
@@ -149,7 +149,13 @@ export default function App() {
     )
   }
 
-  const nav = NAV.filter((n) => n.roles.some((r) => roles.includes(r)))
+  // Agents see their own-side wording for shared destinations (money flows
+  // agent → factory: he pays, never receives). Keyed on the primary role,
+  // the same gate the pages themselves use; every other role's labels are
+  // exactly the NAV defaults.
+  const nav = NAV.filter((n) => n.roles.some((r) => roles.includes(r))).map((n) =>
+    profile.role === 'agent' && n.agentLabel ? { ...n, label: n.agentLabel } : n,
+  )
 
   // Phone bottom tabs: the role's primary destinations in priority order,
   // up to four; everything else lives under "More".
@@ -162,7 +168,7 @@ export default function App() {
     nav.some((n) => isNavActive(n.to, location.pathname))
 
   const tabItemCls = (active: boolean) =>
-    `flex min-h-[62px] flex-col items-center justify-center gap-1 px-1 py-1.5 text-center text-[11px] leading-tight ${
+    `flex flex-col items-center justify-center gap-0.5 px-0 py-1 text-center ${
       active
         ? 'font-semibold text-brand-700 dark:text-brand-300'
         : 'text-stone-500 dark:text-neutral-400'
@@ -224,7 +230,7 @@ export default function App() {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-[calc(6.5rem_+_env(safe-area-inset-bottom))] pt-4 md:max-w-3xl md:pb-10 lg:max-w-6xl lg:px-6 lg:pt-6">
+        <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-[calc(8rem_+_env(safe-area-inset-bottom))] pt-4 md:max-w-3xl md:pb-10 lg:max-w-6xl lg:px-6 lg:pt-6">
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route
@@ -388,7 +394,7 @@ export default function App() {
                 >
                   <NavIcon to={t.to} className="h-6 w-6" />
                 </span>
-                <span className="line-clamp-2 max-w-full">{t.label}</span>
+                <span className="phone-nav-label">{t.label}</span>
               </Link>
             )
           })}
@@ -405,7 +411,7 @@ export default function App() {
             >
               <MoreIcon className="h-6 w-6" />
             </span>
-            <span className="line-clamp-2 max-w-full">နောက်ထပ်</span>
+            <span className="phone-nav-label">နောက်ထပ်</span>
           </button>
         </div>
       </nav>
@@ -441,14 +447,14 @@ export default function App() {
                     to={n.to}
                     aria-current={active ? 'page' : undefined}
                     onClick={() => setMoreOpen(false)}
-                    className={`flex flex-col items-center gap-1.5 rounded-2xl border px-1 py-3 text-center text-[11px] leading-tight ${
+                    className={`flex flex-col items-center gap-1.5 rounded-2xl border px-0.5 py-2.5 text-center ${
                       active
                         ? 'border-brand-600 bg-brand-50 font-semibold text-brand-800 dark:border-brand-500 dark:bg-brand-950/50 dark:text-brand-200'
                         : 'border-stone-200 text-stone-600 dark:border-neutral-800 dark:text-neutral-300'
                     }`}
                   >
                     <NavIcon to={n.to} className="h-6 w-6" />
-                    <span className="line-clamp-2 max-w-full">{n.label}</span>
+                    <span className="phone-nav-label">{n.label}</span>
                   </Link>
                 )
               })}

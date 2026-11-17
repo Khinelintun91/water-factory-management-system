@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import {
   formatMMK,
   todayYangon,
@@ -28,8 +29,8 @@ import {
   inputCls,
 } from '../components/ui'
 
-/** agents.trip_qty / agents.notes are not on the shared Agent type yet. */
-type AgentFull = Agent & { trip_qty: number | null; notes: string | null }
+/** agents.notes is not on the shared Agent type yet. */
+type AgentFull = Agent & { notes: string | null }
 
 /** agent_payments.kind is not on the shared AgentPayment type yet. */
 type PaymentFull = AgentPayment & { kind: 'regular' | 'old_debt' | null }
@@ -213,11 +214,7 @@ export default function AgentDetailPage() {
     if (!agent) return '—'
     const { held, depBottles } = stats
     if (agent.deposit_per_bottle > 0) {
-      const cap = agent.bottle_limit > 0 ? Math.min(agent.bottle_limit, depBottles) : depBottles
-      return `${Math.max(0, cap - held).toLocaleString('en-US')} ဗူး`
-    }
-    if (agent.bottle_limit > 0) {
-      return `${Math.max(0, agent.bottle_limit - held).toLocaleString('en-US')} ဗူး`
+      return `${Math.max(0, depBottles - held).toLocaleString('en-US')} ဗူး`
     }
     return '—'
   }, [agent, stats])
@@ -237,7 +234,7 @@ export default function AgentDetailPage() {
       note: depNote.trim() || null,
     })
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       return
     }
     setDepBottles('')
@@ -259,7 +256,7 @@ export default function AgentDetailPage() {
       note: woNote.trim(),
     })
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       return
     }
     setWoAmount('')
@@ -272,7 +269,7 @@ export default function AgentDetailPage() {
     setMsg(null)
     const { error } = await supabase.rpc('hard_delete_agent', { p_agent: id })
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       setConfirmDelete(false)
       return
     }
@@ -289,7 +286,7 @@ export default function AgentDetailPage() {
     // live held / can-deliver figures no longer apply.
     { label: 'ကိုင်ထားဘူး', value: closed ? '0 ဗူး' : `${stats.held.toLocaleString('en-US')} ဗူး` },
     { label: 'အပေါင်ဘူး', value: `${stats.depBottles.toLocaleString('en-US')} ဗူး (${formatMMK(stats.depAmount)})` },
-    { label: 'စုစုပေါင်း ရောင်းရ', value: formatMMK(stats.sales) },
+    { label: 'စုစုပေါင်း ကျသင့်ငွေ', value: formatMMK(stats.sales) },
     { label: 'ကောက်ခံပြီး', value: formatMMK(stats.collected) },
     { label: outstanding < 0 ? 'ပိုပေးထားငွေ' : 'ရရန်ကျန်', value: formatMMK(Math.abs(outstanding)), tone: outstanding > 0 ? 'danger' : undefined },
     { label: 'ဆက်ပို့နိုင်ဘူး', value: closed ? 'စာရင်းပိတ်ပြီး' : canDeliver },
@@ -333,14 +330,14 @@ export default function AgentDetailPage() {
             {formatMMK(agent.deposit_per_bottle)}/ဗူး
           </div>
           <div>
-            ဘူး ကန့်သတ်: {agent.bottle_limit > 0 ? `${agent.bottle_limit.toLocaleString('en-US')} ဗူး` : 'မကန့်သတ်'} ·
             ကြွေး ကန့်သတ်: {agent.credit_limit > 0 ? formatMMK(agent.credit_limit) : 'မကန့်သတ်'}
           </div>
-          <div>တစ်ခါပို့ ဘူးအရေအတွက်: {(agent.trip_qty ?? 0).toLocaleString('en-US')} ဗူး</div>
           {agent.notes && <div>မှတ်ချက်: {agent.notes}</div>}
           <div>
             အခြေအနေ:{' '}
-            {closed ? (
+            {agent.archived_at ? (
+              <span className="text-red-500">မှတ်တမ်းသိမ်းပြီး</span>
+            ) : closed ? (
               <span className="text-red-500">
                 စာရင်းပိတ်ပြီး ({agent.closed_at ? agent.closed_at.slice(0, 10) : ''})
               </span>
@@ -545,22 +542,27 @@ export default function AgentDetailPage() {
       {closed && settlement && (
         <>
           <SettlementSummary s={settlement} />
-          {isOwner &&
+          {isOwner && !agent.archived_at &&
             (confirmDelete ? (
-              <div className="flex flex-wrap gap-2">
-                <DangerButton size="sm" onClick={onHardDelete}>
-                  သေချာပါတယ်, အပြီးဖျက်မည်
-                </DangerButton>
-                <SecondaryButton size="sm" onClick={() => setConfirmDelete(false)}>
-                  မဖျက်တော့ပါ
-                </SecondaryButton>
+              <div className="space-y-2">
+                <p className="text-sm text-stone-500 dark:text-neutral-400">
+                  ဖုန်းနံပါတ်နှင့် စာရင်းများ ဖျက်မည်မဟုတ်ပါ။ အလုပ်စာရင်းကနေပဲ ဖယ်ပါတယ်။
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <DangerButton size="sm" onClick={onHardDelete}>
+                    သေချာပါတယ်, မှတ်တမ်းသိမ်းမည်
+                  </DangerButton>
+                  <SecondaryButton size="sm" onClick={() => setConfirmDelete(false)}>
+                    မလုပ်တော့ပါ
+                  </SecondaryButton>
+                </div>
               </div>
             ) : (
               <button
                 onClick={() => setConfirmDelete(true)}
                 className="inline-flex min-h-[44px] items-center px-1 text-sm font-medium text-red-600 dark:text-red-400"
               >
-                ကိုယ်စားလှယ်ကို အပြီးဖျက်ရန် (Owner သာ)
+                ကိုယ်စားလှယ်ကို မှတ်တမ်းသိမ်းရန် (Owner သာ)
               </button>
             ))}
         </>

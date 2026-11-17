@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { fetchAll } from '../lib/fetchAll'
 import { fmtDateTime12 } from '../lib/types'
 import {
@@ -100,7 +101,7 @@ export default function DisputesPage() {
       .from('disputes')
       .insert({ agent_id: profile.agent_id, message: message.trim() })
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       return
     }
     setMessage('')
@@ -118,7 +119,7 @@ export default function DisputesPage() {
       .from('disputes')
       .update({ reply, status: 'replied', replied_by: profile?.id ?? null })
       .eq('id', d.id)
-    if (error) setCardError(d.id, error.message)
+    if (error) setCardError(d.id, friendlyError(error))
     await load()
   }
 
@@ -137,7 +138,7 @@ export default function DisputesPage() {
       payload.replied_by = profile?.id ?? null
     }
     const { error } = await supabase.from('disputes').update(payload).eq('id', d.id)
-    if (error) setCardError(d.id, error.message)
+    if (error) setCardError(d.id, friendlyError(error))
     await load()
   }
 
