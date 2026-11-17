@@ -18,7 +18,7 @@ Two equivalent ways (pick one):
 
 The individual files in `migrations/` remain the source of truth; `apply_all.sql` is regenerated from them, never edited by hand.
 
-This branch's `apply_all.sql` covers `0001`–`0041`, with `0031_agent_close_columns.sql` in numeric order. `0030` is not in this branch; it is PR #4. When the owner applies both approved migrations, apply `0030` first and `0031` second. `0031` does not depend on `0030`.
+This branch's `apply_all.sql` covers `0001`–`0042`, with `0031_agent_close_columns.sql` in numeric order. `0030` is not in this branch; it is PR #4. When the owner applies both approved migrations, apply `0030` first and `0031` second. `0031` does not depend on `0030`.
 
 ## 3. Create the first Owner account
 The very first owner is bootstrapped manually (later accounts are created inside the app — see §4):

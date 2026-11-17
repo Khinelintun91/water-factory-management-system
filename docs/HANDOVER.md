@@ -70,7 +70,7 @@ service_role key anywhere in the repo). The owner has been asked to make it priv
   form. `admin_create_user()` rejects a primary role outside the four
   (`invalid_role`). A `user_roles` grant of `co_owner` matches the column
   type and the owner-only insert policy (`app_role() = 'owner'`).
-- Migrations `0001`–`0041` in `supabase/migrations/`, including `0031`.
+- Migrations `0001`–`0042` in `supabase/migrations/`, including `0031`.
   `0030` is not in this branch: it is PR #4 (`co_owner` account creation)
   and stays on that branch. `supabase/apply_all.sql` is the regenerated
   concatenation (0001–0042) used for fresh installs and tests. When the
