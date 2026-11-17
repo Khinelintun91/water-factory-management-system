@@ -8,6 +8,7 @@ import {
   todayYangon,
   type Agent,
   type AgentPayment,
+  type DailyEntry,
 } from '../lib/types'
 import {
   DangerButton,
@@ -87,6 +88,7 @@ export default function PaymentsPage() {
   const { profile } = useAuth()
   const canWrite = profile?.role === 'owner' || profile?.role === 'manager' || profile?.role === 'staff'
   const isAgent = profile?.role === 'agent'
+  const myAgentId = profile?.agent_id ?? null
   const [agents, setAgents] = useState<Agent[]>([])
   const [rows, setRows] = useState<PaymentRow[]>([])
   const [monthFilter, setMonthFilter] = useState(() => todayYangon().slice(0, 7))
@@ -142,9 +144,52 @@ export default function PaymentsPage() {
       ),
     ])
     setAgents((ag ?? []) as Agent[])
-    setRows(pm)
+    if (isAgent && myAgentId) {
+      // Agent view only (owner's decision): an agent sees ALL of his
+      // payments in this one list. Cash paid together with a delivery
+      // lives on the entry itself (daily_entries.amount_collected), not
+      // in agent_payments, so merge those in as display-only rows
+      // labelled "paid together with the delivery record". An 'old_debt'
+      // payment recorded in the same visit is different money and stays
+      // its own row — nothing is merged or deduped. The synthetic rows
+      // can never reach edit/delete: rowButtons/rowPanel are gated by
+      // canWrite (agents are read-only) and their `entry:` ids match no
+      // agent_payments row.
+      const entries = await fetchAll<DailyEntry>((from, to) =>
+        supabase
+          .from('daily_entries')
+          .select('*')
+          .eq('agent_id', myAgentId)
+          .gt('amount_collected', 0)
+          .order('created_at', { ascending: false })
+          .range(from, to),
+      )
+      const entryRows: PaymentRow[] = entries.map((e) => ({
+        id: `entry:${e.id}`,
+        payment_date: e.entry_date,
+        agent_id: e.agent_id,
+        agent_name: e.agent_name,
+        amount: e.amount_collected,
+        method: 'cash',
+        change_reason: null,
+        notes: 'ရေပို့မှတ်တမ်းနှင့်အတူ ပေးချေသည်',
+        created_by: e.created_by,
+        created_at: e.created_at,
+        updated_at: e.updated_at,
+        kind: null,
+      }))
+      setRows(
+        [...pm, ...entryRows].sort(
+          (a, b) =>
+            b.payment_date.localeCompare(a.payment_date) ||
+            b.created_at.localeCompare(a.created_at),
+        ),
+      )
+    } else {
+      setRows(pm)
+    }
     setLoading(false)
-  }, [])
+  }, [isAgent, myAgentId])
 
   useEffect(() => {
     load()
