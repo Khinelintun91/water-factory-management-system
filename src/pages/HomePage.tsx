@@ -15,6 +15,7 @@ import {
   type DailyEntry,
 } from '../lib/types'
 import { fmtDateTime12 } from '../lib/types'
+import { fetchStaffDirectory, receiverName } from '../lib/staffDirectory'
 import { FACE_TIERS, type FaceTier } from '../lib/cardFace'
 import { NavIcon } from '../components/icons'
 import {
@@ -594,6 +595,8 @@ interface LatestRecord {
   delivered: number
   returned: number
   amount: number
+  /** Resolved receiver name (0041) when cash moved on this record. */
+  receiver: string | null
 }
 
 function AgentHome() {
@@ -623,21 +626,21 @@ function AgentHome() {
     }
     try {
       const today = todayYangon()
-      const [en, pm, dep, ag, out, ct] = await Promise.all([
-        fetchAll<Pick<DailyEntry, 'id' | 'entry_date' | 'created_at' | 'delivered_qty' | 'returned_qty' | 'amount' | 'amount_collected'>>(
+      const [en, pm, dep, ag, out, ct, dir] = await Promise.all([
+        fetchAll<Pick<DailyEntry, 'id' | 'entry_date' | 'created_at' | 'delivered_qty' | 'returned_qty' | 'amount' | 'amount_collected' | 'created_by' | 'received_by'>>(
           (from, to) =>
             supabase
               .from('daily_entries')
-              .select('id, entry_date, created_at, delivered_qty, returned_qty, amount, amount_collected')
+              .select('id, entry_date, created_at, delivered_qty, returned_qty, amount, amount_collected, created_by, received_by')
               .eq('agent_id', agentId)
               .order('entry_date', { ascending: false })
               .order('created_at', { ascending: false })
               .range(from, to),
         ),
-        fetchAll<Pick<AgentPayment, 'id' | 'payment_date' | 'created_at' | 'amount'>>((from, to) =>
+        fetchAll<Pick<AgentPayment, 'id' | 'payment_date' | 'created_at' | 'amount' | 'created_by' | 'received_by'>>((from, to) =>
           supabase
             .from('agent_payments')
-            .select('id, payment_date, created_at, amount')
+            .select('id, payment_date, created_at, amount, created_by, received_by')
             .eq('agent_id', agentId)
             .order('payment_date', { ascending: false })
             .order('created_at', { ascending: false })
@@ -654,6 +657,7 @@ function AgentHome() {
         supabase.from('agents').select('*').eq('id', agentId).maybeSingle(),
         supabase.rpc('agent_outstanding', { p_agent: agentId }),
         supabase.rpc('my_card_tier'),
+        fetchStaffDirectory(),
       ])
       const mine = en.filter((e) => e.entry_date === today)
       setFigs({
@@ -687,6 +691,8 @@ function AgentHome() {
           delivered: e.delivered_qty,
           returned: e.returned_qty,
           amount: Number(e.amount),
+          // Cash moved on an entry only when something was collected.
+          receiver: Number(e.amount_collected) > 0 ? receiverName(dir, e) : null,
         })),
         ...pm.map((p) => ({
           kind: 'payment' as const,
@@ -696,6 +702,7 @@ function AgentHome() {
           delivered: 0,
           returned: 0,
           amount: Number(p.amount),
+          receiver: receiverName(dir, p),
         })),
       ].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
       setLatest(merged.slice(0, 5))
@@ -844,6 +851,7 @@ function AgentHome() {
                   )}
                   <span className="block text-xs text-stone-500 dark:text-neutral-400">
                     {r.date}
+                    {r.receiver ? ` · လက်ခံသူ ${r.receiver}` : ''}
                   </span>
                 </span>
                 <span className="shrink-0 font-semibold tabular-nums">

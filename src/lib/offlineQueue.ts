@@ -20,6 +20,11 @@ export interface EntryInsert {
   amount_collected: number
   notes: string | null
   created_by: string | null
+  /** Who physically received the cash (0041); rides the queue like every
+   * other field so a queued entry keeps its receiver. Older queued
+   * payloads lack it — the insert then leaves the column NULL, which
+   * every reader treats as "same as created_by". */
+  received_by?: string | null
 }
 
 export interface QueuedEntry {

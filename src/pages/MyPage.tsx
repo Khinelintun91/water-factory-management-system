@@ -14,6 +14,11 @@ import {
 } from '../lib/types'
 import { FACE_TIERS, type FaceTier } from '../lib/cardFace'
 import {
+  fetchStaffDirectory,
+  receiverName,
+  type StaffDirectory,
+} from '../lib/staffDirectory'
+import {
   Banner,
   Card,
   LoadingState,
@@ -47,6 +52,7 @@ export default function MyPage() {
   const [writeOffTotal, setWriteOffTotal] = useState(0)
   const [depositTotal, setDepositTotal] = useState(0)
   const [agent, setAgent] = useState<Agent | null>(null)
+  const [directory, setDirectory] = useState<StaffDirectory | null>(null)
   const [cardTier, setCardTier] = useState<{ tier: FaceTier; lifetimeSales: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
@@ -80,7 +86,7 @@ export default function MyPage() {
       // left every total at zero. With the filter, Postgres drives the query
       // from the (agent_id, date) index and only this agent's rows are ever
       // touched. RLS still applies on top, so access is unchanged.
-      const [en, pm, wo, dep, ag, ct] = await Promise.all([
+      const [en, pm, wo, dep, ag, ct, dir] = await Promise.all([
         fetchAll<DailyEntry>((from, to) =>
           supabase
             .from('daily_entries')
@@ -118,10 +124,12 @@ export default function MyPage() {
         ),
         supabase.from('agents').select('*').eq('id', agentId).maybeSingle(),
         supabase.rpc('my_card_tier'),
+        fetchStaffDirectory(),
       ])
       if (runRef.current !== run) return
       setEntries(en)
       setPayments(pm)
+      setDirectory(dir)
       setWriteOffTotal(wo.reduce((s, w) => s + w.amount, 0))
       setDepositTotal(dep.reduce((s, d) => s + d.amount, 0))
       setAgent((ag.data ?? null) as Agent | null)
@@ -459,13 +467,20 @@ export default function MyPage() {
                       >
                         {formatMMK(due)}
                       </span>
+                      {r.amount_collected > 0 && directory && receiverName(directory, r)
+                        ? ` · လက်ခံသူ: ${receiverName(directory, r)}`
+                        : ''}
                     </div>
                     {renderDispute({
                       key: `entry:${r.id}`,
                       kind: 'entry',
                       recordId: r.id,
                       recordDate: r.entry_date,
-                      summary: `${r.entry_date} · ပို့ ${r.delivered_qty} · ပြန် ${r.returned_qty} · ${formatMMK(r.amount)} · ပေးချေပြီး ${formatMMK(r.amount_collected)}`,
+                      summary:
+                        `${r.entry_date} · ပို့ ${r.delivered_qty} · ပြန် ${r.returned_qty} · ${formatMMK(r.amount)} · ပေးချေပြီး ${formatMMK(r.amount_collected)}` +
+                        (r.amount_collected > 0 && directory && receiverName(directory, r)
+                          ? ` · လက်ခံသူ ${receiverName(directory, r)}`
+                          : ''),
                     })}
                   </li>
                 )
@@ -486,13 +501,20 @@ export default function MyPage() {
                 <li key={r.id} className="p-3.5 text-sm">
                   <div>
                     {r.payment_date} · {formatMMK(r.amount)} · {r.method}
+                    {directory && receiverName(directory, r)
+                      ? ` · လက်ခံသူ: ${receiverName(directory, r)}`
+                      : ''}
                   </div>
                   {renderDispute({
                     key: `payment:${r.id}`,
                     kind: 'payment',
                     recordId: r.id,
                     recordDate: r.payment_date,
-                    summary: `${r.payment_date} · ${formatMMK(r.amount)} · ${r.method}`,
+                    summary:
+                      `${r.payment_date} · ${formatMMK(r.amount)} · ${r.method}` +
+                      (directory && receiverName(directory, r)
+                        ? ` · လက်ခံသူ ${receiverName(directory, r)}`
+                        : ''),
                   })}
                 </li>
               ))}

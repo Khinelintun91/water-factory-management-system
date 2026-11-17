@@ -277,6 +277,7 @@ export const EN: Record<string, string> = {
   "စက္ကန့် ၃၀ တိုင်း အလိုအလျောက် အသစ်ပြပါသည်": "Refreshes automatically every 30 seconds",
   "အသားတင် (ကောက်ငွေ − ကုန်ကျစရိတ်)": "Net (collected − expenses)",
   "ကောက်ခံသူ": "Collected by",
+  "လက်ခံသူ": "Received by",
   "ကြွေးကောက်ငွေ စာရင်း": "Debt collections",
   "ကြွေးကျန် စာရင်း (ကိုယ်စားလှယ်အားလုံး)": "Outstanding debt (all agents)",
   "ကိုယ်စားလှယ်တစ်ဦးချင်းစီ၏ ရောင်းဈေးဖြင့် တွက်ထားပါသည် · စုစုပေါင်းကျန်": "Calculated at each agent's bottle price · Total outstanding",

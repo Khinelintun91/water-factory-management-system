@@ -100,6 +100,8 @@ export interface DailyEntry {
   change_reason: string | null
   notes: string | null
   created_by: string | null
+  /** Who physically received the cash (0041); NULL reads as created_by. */
+  received_by: string | null
   created_at: string
   updated_at: string
 }
@@ -114,6 +116,8 @@ export interface AgentPayment {
   change_reason: string | null
   notes: string | null
   created_by: string | null
+  /** Who physically received the cash (0041); NULL reads as created_by. */
+  received_by: string | null
   created_at: string
   updated_at: string
 }

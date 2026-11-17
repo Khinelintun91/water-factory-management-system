@@ -5,11 +5,17 @@ import { fetchAll } from '../lib/fetchAll'
 import {
   formatMMK,
   isTodayYangon,
+  personName,
   todayYangon,
   type Agent,
   type AgentPayment,
   type DailyEntry,
 } from '../lib/types'
+import {
+  fetchStaffDirectory,
+  receiverName,
+  type StaffDirectory,
+} from '../lib/staffDirectory'
 import {
   DangerButton,
   EmptyState,
@@ -90,6 +96,7 @@ export default function PaymentsPage() {
   const isAgent = profile?.role === 'agent'
   const myAgentId = profile?.agent_id ?? null
   const [agents, setAgents] = useState<Agent[]>([])
+  const [directory, setDirectory] = useState<StaffDirectory | null>(null)
   const [rows, setRows] = useState<PaymentRow[]>([])
   const [monthFilter, setMonthFilter] = useState(() => todayYangon().slice(0, 7))
   const [shown, setShown] = useState(200)
@@ -111,6 +118,9 @@ export default function PaymentsPage() {
   const [amount, setAmount] = useState('')
   const [method, setMethod] = useState('cash')
   const [kind, setKind] = useState<PaymentKind>('regular')
+  // Who physically received the cash (0041). '' means "me" — the
+  // current user is the default receiver and is sent explicitly.
+  const [receivedBy, setReceivedBy] = useState('')
   const [notes, setNotes] = useState('')
   // Owner-only backdating (same exception as EntriesPage): only the owner
   // sees a date field; every other role's payments are dated today.
@@ -121,6 +131,17 @@ export default function PaymentsPage() {
     const m = new Map(agents.map((a) => [a.id, a.name]))
     return (id: string) => m.get(id) ?? '—'
   }, [agents])
+
+  // Receiver options for the form: active staff from the directory,
+  // with the current user always present (they are the default) even
+  // if the directory fetch failed.
+  const receiverOptions = useMemo(() => {
+    const opts = directory?.active ?? []
+    if (profile && !opts.some((o) => o.id === profile.id)) {
+      return [{ id: profile.id, name: personName(profile), active: true }, ...opts]
+    }
+    return opts
+  }, [directory, profile])
 
   const filteredRows = useMemo(
     () =>
@@ -133,7 +154,7 @@ export default function PaymentsPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: ag }, pm] = await Promise.all([
+    const [{ data: ag }, pm, dir] = await Promise.all([
       supabase.from('agents').select('*').order('created_at'),
       fetchAll<PaymentRow>((from, to) =>
         supabase
@@ -142,8 +163,10 @@ export default function PaymentsPage() {
           .order('created_at', { ascending: false })
           .range(from, to),
       ),
+      fetchStaffDirectory(),
     ])
     setAgents((ag ?? []) as Agent[])
+    setDirectory(dir)
     if (isAgent && myAgentId) {
       // Agent view only (owner's decision): an agent sees ALL of his
       // payments in this one list. Cash paid together with a delivery
@@ -174,6 +197,7 @@ export default function PaymentsPage() {
         change_reason: null,
         notes: 'ရေပို့မှတ်တမ်းနှင့်အတူ ပေးချေသည်',
         created_by: e.created_by,
+        received_by: e.received_by,
         created_at: e.created_at,
         updated_at: e.updated_at,
         kind: null,
@@ -213,6 +237,7 @@ export default function PaymentsPage() {
       kind,
       notes: notes.trim() || null,
       created_by: profile?.id ?? null,
+      received_by: receivedBy || profile?.id || null,
     })
     if (error) {
       setMsg(error.message)
@@ -221,6 +246,7 @@ export default function PaymentsPage() {
     }
     setAmount('')
     setKind('regular')
+    setReceivedBy('')
     setNotes('')
     setPayDate(todayYangon())
     await load()
@@ -459,6 +485,19 @@ export default function PaymentsPage() {
               ))}
             </select>
           </Field>
+          <Field label="လက်ခံသူ">
+            <select
+              value={receivedBy || profile?.id || ''}
+              onChange={(e) => setReceivedBy(e.target.value)}
+              className={inputCls}
+            >
+              {receiverOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </Field>
           <div className="grid grid-cols-2 gap-2.5">
             <Field label="ပမာဏ (ကျပ်)">
               <input
@@ -556,6 +595,9 @@ export default function PaymentsPage() {
                 </div>
                 <div className="mt-0.5 text-sm text-stone-500 dark:text-neutral-400">
                   {r.payment_date} · {METHOD_LABELS[r.method] ?? r.method}
+                  {isAgent && directory && receiverName(directory, r)
+                    ? ` · လက်ခံသူ: ${receiverName(directory, r)}`
+                    : ''}
                   {r.notes ? ` · ${r.notes}` : ''}
                 </div>
                 <div className="mt-2.5 empty:hidden">{rowButtons(r)}</div>
@@ -589,6 +631,11 @@ export default function PaymentsPage() {
                             {agentName(r.agent_id)}
                             {kindChip(r)}
                           </div>
+                          {isAgent && directory && receiverName(directory, r) && (
+                            <div className="text-xs opacity-60">
+                              လက်ခံသူ: {receiverName(directory, r)}
+                            </div>
+                          )}
                           {r.notes && <div className="text-xs opacity-60">{r.notes}</div>}
                         </td>
                         <td className={`${tdCls} whitespace-nowrap`}>{r.payment_date}</td>

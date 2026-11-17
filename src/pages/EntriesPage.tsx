@@ -13,10 +13,16 @@ import {
 import {
   formatMMK,
   isTodayYangon,
+  personName,
   todayYangon,
   type Agent,
   type DailyEntry,
 } from '../lib/types'
+import {
+  fetchStaffDirectory,
+  receiverName,
+  type StaffDirectory,
+} from '../lib/staffDirectory'
 import {
   Banner,
   DangerButton,
@@ -85,6 +91,7 @@ export default function EntriesPage() {
   const canWrite = profile?.role === 'owner' || profile?.role === 'manager' || profile?.role === 'staff'
   const isAgent = profile?.role === 'agent'
   const [agents, setAgents] = useState<Agent[]>([])
+  const [directory, setDirectory] = useState<StaffDirectory | null>(null)
   const [rows, setRows] = useState<EntryRow[]>([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
@@ -105,6 +112,9 @@ export default function EntriesPage() {
   // On save it becomes a separate agent_payments row (kind 'old_debt'),
   // never part of this entry's amount/amount_collected.
   const [oldDebt, setOldDebt] = useState('')
+  // Who physically received this visit's cash (0041). '' means "me" —
+  // the current user is the default receiver and is sent explicitly.
+  const [receivedBy, setReceivedBy] = useState('')
   const [notes, setNotes] = useState('')
   const [confirming, setConfirming] = useState(false)
   // Owner-only backdating: only the owner sees a date field and may file an
@@ -134,7 +144,7 @@ export default function EntriesPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: ag }, en] = await Promise.all([
+    const [{ data: ag }, en, dir] = await Promise.all([
       supabase.from('agents').select('*').order('created_at'),
       // The selected month is filtered server-side by entry_date range and
       // every page is fetched — the old client-side filter over a capped
@@ -155,8 +165,10 @@ export default function EntriesPage() {
           .order('created_at', { ascending: false })
           .range(from, to)
       }),
+      fetchStaffDirectory(),
     ])
     setAgents((ag ?? []) as Agent[])
+    setDirectory(dir)
     setRows(en)
     setLoading(false)
   }, [monthFilter])
@@ -224,6 +236,21 @@ export default function EntriesPage() {
     return () => window.removeEventListener('online', onOnline)
   }, [flushQueue])
 
+  // Receiver options for the form: active staff from the directory,
+  // with the current user always present (they are the default) even
+  // if the directory fetch failed.
+  const receiverOptions = useMemo(() => {
+    const opts = directory?.active ?? []
+    if (profile && !opts.some((o) => o.id === profile.id)) {
+      return [{ id: profile.id, name: personName(profile), active: true }, ...opts]
+    }
+    return opts
+  }, [directory, profile])
+  const chosenReceiverId = receivedBy || profile?.id || ''
+  const chosenReceiverName =
+    receiverOptions.find((o) => o.id === chosenReceiverId)?.name ??
+    (profile ? personName(profile) : '—')
+
   // Live preview from the selected agent's price (server snapshots the same
   // price and computes the amount; this is display-only).
   const selectedAgent = agents.find((a) => a.id === agentId) ?? null
@@ -269,6 +296,7 @@ export default function EntriesPage() {
       amount_collected: cashNum,
       notes: notes.trim() || null,
       created_by: profile?.id ?? null,
+      received_by: receivedBy || profile?.id || null,
     }
     // Offline right now: queue the exact payload instead of losing the form.
     // The queue stores daily_entries payloads only (lib/offlineQueue), so a
@@ -319,6 +347,9 @@ export default function EntriesPage() {
           kind: 'old_debt',
           notes: 'ရေပို့မှတ်တမ်းနှင့်အတူ ပေးချေသည်',
           created_by: profile?.id ?? null,
+          // Same visit, same hands: the old-debt cash was received by
+          // the same person as the entry's own cash.
+          received_by: receivedBy || profile?.id || null,
         })
         pFailure = error
       } catch (err) {
@@ -333,6 +364,7 @@ export default function EntriesPage() {
     setReturned('')
     setCash('')
     setOldDebt('')
+    setReceivedBy('')
     setNotes('')
     setEntryDate(todayYangon())
     setConfirming(false)
@@ -352,6 +384,7 @@ export default function EntriesPage() {
     setReturned('')
     setCash('')
     setOldDebt('')
+    setReceivedBy('')
     setNotes('')
     setEntryDate(todayYangon())
     setConfirming(false)
@@ -623,6 +656,22 @@ export default function EntriesPage() {
               ))}
             </select>
           </Field>
+          <Field label="လက်ခံသူ">
+            <select
+              value={chosenReceiverId}
+              onChange={(e) => {
+                setReceivedBy(e.target.value)
+                setConfirming(false)
+              }}
+              className={inputCls}
+            >
+              {receiverOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </Field>
           <div className="grid grid-cols-2 gap-2.5">
             <Field label="ပို့သည့် ဗူး">
               <input
@@ -720,6 +769,10 @@ export default function EntriesPage() {
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="opacity-70">ကိုယ်စားလှယ်</dt>
                   <dd className="font-semibold">{selectedAgent.name}</dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <dt className="opacity-70">လက်ခံသူ</dt>
+                  <dd className="font-medium">{chosenReceiverName}</dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="opacity-70">ပို့သည့် ဗူး</dt>
@@ -841,6 +894,11 @@ export default function EntriesPage() {
                     {formatMMK(r.amount - r.amount_collected)}
                   </span>
                 </div>
+                {isAgent && r.amount_collected > 0 && directory && receiverName(directory, r) && (
+                  <div className="text-sm text-stone-500 dark:text-neutral-400">
+                    လက်ခံသူ: {receiverName(directory, r)}
+                  </div>
+                )}
                 <div className="mt-2.5 empty:hidden">{rowButtons(r)}</div>
                 <div className="mt-2.5 empty:hidden">{rowPanel(r)}</div>
               </li>
@@ -880,7 +938,14 @@ export default function EntriesPage() {
                         <td className={`${tdCls} text-right`}>{r.returned_qty}</td>
                         <td className={`${tdCls} text-right`}>{formatMMK(r.unit_price)}</td>
                         <td className={`${tdCls} text-right font-semibold`}>{formatMMK(r.amount)}</td>
-                        <td className={`${tdCls} text-right`}>{formatMMK(r.amount_collected)}</td>
+                        <td className={`${tdCls} text-right`}>
+                          {formatMMK(r.amount_collected)}
+                          {isAgent && r.amount_collected > 0 && directory && receiverName(directory, r) && (
+                            <div className="text-xs font-normal opacity-60">
+                              လက်ခံသူ: {receiverName(directory, r)}
+                            </div>
+                          )}
+                        </td>
                         <td
                           className={`${tdCls} text-right ${
                             r.amount - r.amount_collected > 0

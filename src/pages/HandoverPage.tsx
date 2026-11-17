@@ -16,10 +16,13 @@ import {
 } from '../components/ui'
 
 // Cash handover (old ops.ts rule): what an employee should hand over for a
-// day = delivery cash they collected (daily_entries.amount_collected where
-// they are created_by) + later debt collections they took (agent_payments
-// where they are created_by). The received amount is typed in by OM and the
-// difference is badged match / short / over.
+// day = delivery cash they received (daily_entries.amount_collected) +
+// later debt collections they took (agent_payments) — attributed since
+// migration 0041 to the RECEIVER, coalesce(received_by, created_by), not
+// the typist: the person who physically took the cash hands it over.
+// (Rows where both are NULL — legacy system rows — are attributed to
+// nobody.) The received amount is typed in by OM and the difference is
+// badged match / short / over.
 
 interface HandoverRow {
   id: string
@@ -94,15 +97,15 @@ export default function HandoverPage() {
       setEmployees(emps)
 
       const [entryRows, paymentRows, handoverRows] = await Promise.all([
-        fetchDay<{ created_by: string | null; amount_collected: number }>(
+        fetchDay<{ created_by: string | null; received_by: string | null; amount_collected: number }>(
           'daily_entries',
-          'created_by, amount_collected',
+          'created_by, received_by, amount_collected',
           'entry_date',
           date,
         ),
-        fetchDay<{ created_by: string | null; amount: number }>(
+        fetchDay<{ created_by: string | null; received_by: string | null; amount: number }>(
           'agent_payments',
-          'created_by, amount',
+          'created_by, received_by, amount',
           'payment_date',
           date,
         ),
@@ -116,12 +119,14 @@ export default function HandoverPage() {
 
       const exp = new Map<string, number>()
       for (const e of entryRows) {
-        if (!e.created_by) continue
-        exp.set(e.created_by, (exp.get(e.created_by) ?? 0) + Number(e.amount_collected))
+        const holder = e.received_by ?? e.created_by
+        if (!holder) continue
+        exp.set(holder, (exp.get(holder) ?? 0) + Number(e.amount_collected))
       }
       for (const p of paymentRows) {
-        if (!p.created_by) continue
-        exp.set(p.created_by, (exp.get(p.created_by) ?? 0) + Number(p.amount))
+        const holder = p.received_by ?? p.created_by
+        if (!holder) continue
+        exp.set(holder, (exp.get(holder) ?? 0) + Number(p.amount))
       }
       setExpected(exp)
 

@@ -52,6 +52,8 @@ interface PaymentRow {
   method: string
   notes: string | null
   created_by: string | null
+  /** Who physically received the cash (0041); NULL reads as created_by. */
+  received_by: string | null
   created_at: string
 }
 
@@ -98,7 +100,7 @@ async function fetchPaymentsFiltered(f: {
     let q = supabase
       .from('agent_payments')
       .select(
-        'id, agent_id, agent_name, payment_date, amount, method, notes, created_by, created_at',
+        'id, agent_id, agent_name, payment_date, amount, method, notes, created_by, received_by, created_at',
       )
       .order('payment_date', { ascending: false })
       .order('created_at', { ascending: false })
@@ -254,7 +256,7 @@ export default function CollectionsPage() {
           ),
           fetchAgentRows<PaymentRow>(
             'agent_payments',
-            'id, agent_id, agent_name, payment_date, amount, method, notes, created_by, created_at',
+            'id, agent_id, agent_name, payment_date, amount, method, notes, created_by, received_by, created_at',
             expandedId,
           ),
           fetchAgentRows<WriteOffLite>(
@@ -696,6 +698,9 @@ export default function CollectionsPage() {
                     <div className="mt-0.5 text-sm text-stone-500 dark:text-neutral-400">
                       {p.payment_date} · {METHOD_LABELS[p.method] ?? p.method} · ထည့်သွင်းသူ{' '}
                       {usernameOf(p.created_by)}
+                      {p.received_by && p.received_by !== p.created_by
+                        ? ` · လက်ခံသူ ${usernameOf(p.received_by)}`
+                        : ''}
                       {p.notes ? ` · ${p.notes}` : ''}
                     </div>
                   </li>
@@ -726,7 +731,14 @@ export default function CollectionsPage() {
                         </td>
                         <td className={`${tdCls} whitespace-nowrap`}>{p.payment_date}</td>
                         <td className="px-3 py-3">{METHOD_LABELS[p.method] ?? p.method}</td>
-                        <td className="px-3 py-3">{usernameOf(p.created_by)}</td>
+                        <td className="px-3 py-3">
+                          {usernameOf(p.created_by)}
+                          {p.received_by && p.received_by !== p.created_by && (
+                            <div className="text-xs opacity-60">
+                              လက်ခံသူ {usernameOf(p.received_by)}
+                            </div>
+                          )}
+                        </td>
                         <td className={`${tdCls} pr-4 text-right font-semibold`}>
                           {formatMMK(p.amount)}
                         </td>
