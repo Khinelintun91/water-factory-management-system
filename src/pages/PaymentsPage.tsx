@@ -86,6 +86,7 @@ function monthOptions(): { value: string; label: string }[] {
 export default function PaymentsPage() {
   const { profile } = useAuth()
   const canWrite = profile?.role === 'owner' || profile?.role === 'manager' || profile?.role === 'staff'
+  const isAgent = profile?.role === 'agent'
   const [agents, setAgents] = useState<Agent[]>([])
   const [rows, setRows] = useState<PaymentRow[]>([])
   const [monthFilter, setMonthFilter] = useState(() => todayYangon().slice(0, 7))
@@ -376,8 +377,12 @@ export default function PaymentsPage() {
   return (
     <div className="space-y-4 lg:space-y-6">
       <PageHeader
-        title="ငွေကောက်ခံမှုများ"
-        subtitle="ကိုယ်စားလှယ်များထံမှ ကြွေးကောက် လက်ခံငွေ မှတ်ရန်"
+        title={isAgent ? 'ငွေပေးချေမှုများ' : 'ငွေကောက်ခံမှုများ'}
+        subtitle={
+          isAgent
+            ? 'ကျွန်ုပ်၏ ပေးချေငွေ မှတ်တမ်းများ'
+            : 'ကိုယ်စားလှယ်များထံမှ ကြွေးကောက် လက်ခံငွေ မှတ်ရန်'
+        }
       />
 
       {canWrite && (
@@ -479,9 +484,11 @@ export default function PaymentsPage() {
         </select>
         <span className="text-sm text-stone-500 dark:text-neutral-400">{filteredRows.length} ခု</span>
       </div>
-      <p className="text-xs text-stone-500 dark:text-neutral-400">
-        ပြင်/ဖျက် လုပ်ခွင့်က ထည့်သွင်းသည့် နေ့ တစ်နေ့တည်းသာ ရပါမယ် (ပိုင်ရှင် အပါအဝင် အားလုံး)။
-      </p>
+      {canWrite && (
+        <p className="text-xs text-stone-500 dark:text-neutral-400">
+          ပြင်/ဖျက် လုပ်ခွင့်က ထည့်သွင်းသည့် နေ့ တစ်နေ့တည်းသာ ရပါမယ် (ပိုင်ရှင် အပါအဝင် အားလုံး)။
+        </p>
+      )}
 
       {loading ? (
         <LoadingState />

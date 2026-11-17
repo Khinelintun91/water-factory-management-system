@@ -83,6 +83,7 @@ const compactSelectCls =
 export default function EntriesPage() {
   const { profile } = useAuth()
   const canWrite = profile?.role === 'owner' || profile?.role === 'manager' || profile?.role === 'staff'
+  const isAgent = profile?.role === 'agent'
   const [agents, setAgents] = useState<Agent[]>([])
   const [rows, setRows] = useState<EntryRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -316,7 +317,7 @@ export default function EntriesPage() {
           amount: oldDebtNum,
           method: 'cash',
           kind: 'old_debt',
-          notes: 'ရေပို့မှတ်တမ်းနှင့်အတူ ကောက်ခံသည်',
+          notes: 'ရေပို့မှတ်တမ်းနှင့်အတူ ပေးချေသည်',
           created_by: profile?.id ?? null,
         })
         pFailure = error
@@ -553,10 +554,14 @@ export default function EntriesPage() {
     <div className="space-y-4 lg:space-y-6">
       <PageHeader
         title="ပို့ဆောင်မှု မှတ်တမ်းများ"
-        subtitle="ပို့ဘူး၊ ပြန်အပ်ဘူးနှင့် လက်ခံငွေ နေ့စဉ် မှတ်ရန်"
+        subtitle={
+          isAgent
+            ? 'ပို့ဘူး၊ ပြန်အပ်ဘူးနှင့် ပေးချေငွေ မှတ်တမ်းများ'
+            : 'ပို့ဘူး၊ ပြန်အပ်ဘူးနှင့် လက်ခံငွေ နေ့စဉ် မှတ်ရန်'
+        }
       />
 
-      {queued > 0 && (
+      {canWrite && queued > 0 && (
         <Banner
           tone="amber"
           action={
@@ -577,7 +582,7 @@ export default function EntriesPage() {
         </Banner>
       )}
 
-      {droppedStale > 0 && (
+      {canWrite && droppedStale > 0 && (
         <Banner tone="red">
           ⚠️ ရက်ကျော်သွားလို့ တင်လို့ မရတော့သော မှတ်တမ်း {droppedStale} ခု ရှိပါတယ် — စီမံသူကို အကြောင်းကြားပါ
         </Banner>
@@ -825,7 +830,7 @@ export default function EntriesPage() {
                   {r.notes ? ` · ${r.notes}` : ''}
                 </div>
                 <div className="text-sm text-stone-500 dark:text-neutral-400">
-                  လက်ခံရရှိငွေ {formatMMK(r.amount_collected)} · ကျန်ပေးရန်{' '}
+                  {isAgent ? 'ပေးချေပြီး' : 'လက်ခံရရှိငွေ'} {formatMMK(r.amount_collected)} · ကျန်ပေးရန်{' '}
                   <span
                     className={
                       r.amount - r.amount_collected > 0
@@ -853,7 +858,7 @@ export default function EntriesPage() {
                   <th className={`${thCls} text-right`}>ပြန်အပ်သည့် ဗူး</th>
                   <th className={`${thCls} text-right`}>ဈေးနှုန်း (၁ ဗူး)</th>
                   <th className={`${thCls} text-right`}>ပေးရန် စုစုပေါင်း</th>
-                  <th className={`${thCls} text-right`}>လက်ခံရရှိငွေ (ကျပ်)</th>
+                  <th className={`${thCls} text-right`}>{isAgent ? 'ပေးချေပြီး (ကျပ်)' : 'လက်ခံရရှိငွေ (ကျပ်)'}</th>
                   <th className={`${thCls} text-right`}>ကျန်ပေးရန်</th>
                   <th className={`${thCls} pr-4`}>
                     <span className="sr-only">လုပ်ဆောင်ချက်</span>

@@ -48,10 +48,10 @@ function useFactoryName(): string {
   return name
 }
 
-const NAV: { to: string; label: string; roles: string[] }[] = [
+const NAV: { to: string; label: string; agentLabel?: string; roles: string[] }[] = [
   { to: '/', label: 'ပင်မ', roles: ['owner', 'manager', 'staff', 'agent'] },
   { to: '/entries', label: 'ပို့ဆောင်မှုများ', roles: ['owner', 'manager', 'staff', 'agent'] },
-  { to: '/payments', label: 'ငွေကောက်ခံမှုများ', roles: ['owner', 'manager', 'staff', 'agent'] },
+  { to: '/payments', label: 'ငွေကောက်ခံမှုများ', agentLabel: 'ငွေပေးချေမှုများ', roles: ['owner', 'manager', 'staff', 'agent'] },
   { to: '/agents', label: 'ကိုယ်စားလှယ်များ', roles: ['owner', 'manager', 'staff'] },
   { to: '/collections', label: 'ကောက်ခံမှုနှင့် ကြွေးစာရင်း', roles: ['owner', 'manager'] },
   { to: '/inventory', label: 'ဗူးလက်ကျန်', roles: ['owner', 'manager'] },
@@ -149,7 +149,13 @@ export default function App() {
     )
   }
 
-  const nav = NAV.filter((n) => n.roles.some((r) => roles.includes(r)))
+  // Agents see their own-side wording for shared destinations (money flows
+  // agent → factory: he pays, never receives). Keyed on the primary role,
+  // the same gate the pages themselves use; every other role's labels are
+  // exactly the NAV defaults.
+  const nav = NAV.filter((n) => n.roles.some((r) => roles.includes(r))).map((n) =>
+    profile.role === 'agent' && n.agentLabel ? { ...n, label: n.agentLabel } : n,
+  )
 
   // Phone bottom tabs: the role's primary destinations in priority order,
   // up to four; everything else lives under "More".
