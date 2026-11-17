@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { fetchAll } from '../lib/fetchAll'
 import {
   formatMMK,
@@ -73,7 +74,7 @@ function readablePayError(message: string, month: string): string {
     return `${MONTH_NAMES[m - 1]} ${y} လ ပိတ်ထားပြီး ဖြစ်လို့ လစာ ပေးလို့ မရပါ`
   }
   if (message.startsWith('forbidden')) return 'ပိုင်ရှင် / မန်နေဂျာ သာ လစာ ပေးနိုင်ပါတယ်'
-  return message
+  return friendlyError(message)
 }
 
 interface AdvanceView extends Advance {
@@ -140,7 +141,7 @@ export default function PayrollPage() {
       setRepayments(rep)
       setRuns((run.data ?? []) as PayrollRun[])
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err))
+      setMsg(friendlyError(err))
     }
     setLoading(false)
   }, [month])
@@ -323,7 +324,7 @@ function PayrollCard({
         { user_id: row.user.id, monthly_salary: Number(salaryValue) || 0 },
         { onConflict: 'user_id' },
       )
-    if (error) onError(error.message)
+    if (error) onError(friendlyError(error))
     else {
       setSalaryDraft(null)
       await onChanged()
@@ -347,7 +348,7 @@ function PayrollCard({
       amount,
       note: bonusNote.trim() || null,
     })
-    if (error) onError(error.message)
+    if (error) onError(friendlyError(error))
     else {
       setBonusAmount('')
       setBonusNote('')
@@ -361,7 +362,7 @@ function PayrollCard({
     setBusy(true)
     onError(null)
     const { error } = await supabase.from('bonuses').delete().eq('id', b.id)
-    if (error) onError(error.message)
+    if (error) onError(friendlyError(error))
     setConfirmBonusId(null)
     await onChanged()
     setBusy(false)
@@ -389,7 +390,7 @@ function PayrollCard({
       installment,
       note: advNote.trim() || null,
     })
-    if (error) onError(error.message)
+    if (error) onError(friendlyError(error))
     else {
       setAdvAmount('')
       setAdvInstallment('')
@@ -404,7 +405,7 @@ function PayrollCard({
     setBusy(true)
     onError(null)
     const { error } = await supabase.from('advances').delete().eq('id', a.id)
-    if (error) onError(error.message)
+    if (error) onError(friendlyError(error))
     setConfirmAdvanceId(null)
     await onChanged()
     setBusy(false)

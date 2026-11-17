@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { fetchAll } from '../lib/fetchAll'
 import { formatMMK, personName, todayYangon, type Agent } from '../lib/types'
 import {
@@ -234,7 +235,7 @@ function MonthLockSection() {
     const { error } = await supabase
       .from('month_locks')
       .insert({ month: `${month}-01`, locked_by: profile?.id ?? null })
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     await load()
   }
 
@@ -242,7 +243,7 @@ function MonthLockSection() {
     if (!confirm(`${m.slice(0, 7)} ကို lock ပြန်ဖွင့်မှာ သေချာပါသလား?`)) return
     setMsg(null)
     const { error } = await supabase.from('month_locks').delete().eq('month', m)
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     await load()
   }
 
@@ -387,7 +388,7 @@ export default function ReportsPage() {
       setOpenDisputes(dsp.length)
       setBriefEntries(bEn)
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err))
+      setMsg(friendlyError(err))
     }
     setLoading(false)
   }, [applied])
@@ -567,19 +568,19 @@ export default function ReportsPage() {
       items.push({
         group: 'sales',
         severity: 'warn',
-        text: 'ဒီနေ့ အရောင်း မှတ်တမ်း မရှိသေးပါ',
+        text: 'ဒီနေ့ ကျသင့်ငွေ မှတ်တမ်း မရှိသေးပါ',
       })
     } else if (prev7Avg > 0 && todaySales < prev7Avg * 0.8) {
       items.push({
         group: 'sales',
         severity: 'warn',
-        text: 'ဒီနေ့ အရောင်း ပျမ်းမျှ အောက် နည်းနေပါသည်',
+        text: 'ဒီနေ့ ကျသင့်ငွေ ပျမ်းမျှ အောက် နည်းနေပါသည်',
       })
     } else if (todaySales > 0) {
       items.push({
         group: 'sales',
         severity: 'info',
-        text: 'ဒီနေ့ အရောင်း ပုံမှန် အခြေအနေပါ',
+        text: 'ဒီနေ့ ကျသင့်ငွေ ပုံမှန် အခြေအနေပါ',
       })
     }
     const deliveredPrev7 = new Set(
@@ -639,7 +640,7 @@ export default function ReportsPage() {
       created_by: profile.id,
     })
     if (error) {
-      setWoMsg(error.message)
+      setWoMsg(friendlyError(error))
     } else {
       setWoOk('ကြွေးပယ်ဖျက် မှတ်တမ်း သိမ်းပြီးပါပြီ')
       setWoAmount('')
@@ -661,7 +662,7 @@ export default function ReportsPage() {
       const wb = XLSX.utils.book_new()
       const summary: (string | number)[][] = [
         ['အချိန်ကာလ', `${applied.from} မှ ${applied.to}`],
-        ['ရောင်းရငွေ', report.sales],
+        ['ကျသင့်ငွေ', report.sales],
         ['ကောက်ခံရငွေ', report.collected],
         ['ကြွေးကျန်', report.receivable],
         ['ပိုပေးထားငွေ', report.receivable - report.receivableRaw],
@@ -679,7 +680,7 @@ export default function ReportsPage() {
         'အကျဉ်းချုပ်',
       )
       const perAgentRows: (string | number)[][] = [
-        ['အမည်', 'ရောင်းရငွေ', 'ကောက်ခံရငွေ', 'လျော်ကြေး/စွန့်ပစ်', 'ကြွေးကျန်', 'လက်ထဲ ဘူး', 'အပေါင်'],
+        ['အမည်', 'ကျသင့်ငွေ', 'ကောက်ခံရငွေ', 'လျော်ကြေး/စွန့်ပစ်', 'ကြွေးကျန်', 'လက်ထဲ ဘူး', 'အပေါင်'],
         ...report.perAgent.map((a) => [
           a.name,
           a.sales,
@@ -708,13 +709,13 @@ export default function ReportsPage() {
       XLSX.writeFile(wb, `report-${applied.from}-${applied.to}.xlsx`)
       setOkMsg('Excel ဖိုင် ဒေါင်းလုပ် လုပ်ပြီးပါပြီ')
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err))
+      setMsg(friendlyError(err))
     }
     setExporting(false)
   }
 
   const cards: { label: string; value: number; highlight?: boolean }[] = [
-    { label: 'ရောင်းရငွေ', value: report.sales },
+    { label: 'ကျသင့်ငွေ', value: report.sales },
     { label: 'ကောက်ခံရငွေ', value: report.collected },
     { label: 'ကြွေးကျန်', value: report.receivable },
     // Agents who overpaid: floored receivable minus the raw ledger net is
@@ -735,10 +736,10 @@ export default function ReportsPage() {
     <div className="space-y-4 lg:space-y-6">
       <PageHeader
         title="အစီရင်ခံစာများ"
-        subtitle="ကာလအလိုက် ရောင်းအား၊ စရိတ်၊ လစာနှင့် အမြတ် ကြည့်ရန်"
+        subtitle="ကာလအလိုက် ကျသင့်ငွေ၊ စရိတ်၊ လစာနှင့် အမြတ် ကြည့်ရန်"
       />
       <p className="text-sm text-stone-500 dark:text-neutral-400">
-        ရွေးထားတဲ့ ကာလအတွင်း ရောင်းအား၊ ကောက်ခံမှု၊ စရိတ်၊ လစာ နဲ့ အမြတ်ကို ဒီနေရာမှာ
+        ရွေးထားတဲ့ ကာလအတွင်း ကျသင့်ငွေ၊ ကောက်ခံမှု၊ စရိတ်၊ လစာ နဲ့ အမြတ်ကို ဒီနေရာမှာ
         ကြည့်နိုင်ပါတယ်။
       </p>
 
@@ -770,7 +771,7 @@ export default function ReportsPage() {
               onChange={(e) => setFocusSales(e.target.checked)}
               className="h-5 w-5 accent-brand-700"
             />
-            အရောင်း
+            ကျသင့်ငွေ
           </label>
         </div>
         {loading ? (
@@ -953,7 +954,7 @@ export default function ReportsPage() {
                 <thead>
                   <tr className="border-b border-stone-200 text-left text-stone-500 dark:border-neutral-800 dark:text-neutral-400">
                     <th className="py-2 pr-2 font-medium">အမည်</th>
-                    <th className="py-2 pr-2 text-right font-medium">ရောင်းရငွေ</th>
+                    <th className="py-2 pr-2 text-right font-medium">ကျသင့်ငွေ</th>
                     <th className="py-2 pr-2 text-right font-medium">ကောက်ခံရငွေ</th>
                     <th className="py-2 pr-2 text-right font-medium">လျော်ကြေး</th>
                     <th className="py-2 pr-2 text-right font-medium">ကြွေးကျန်</th>
@@ -1131,8 +1132,8 @@ export default function ReportsPage() {
           <Card className="space-y-3">
             <CardTitle>
               {trendYear
-                ? `${trendYear} ခုနှစ် လအလိုက် အရောင်း နှင့် အမြတ်`
-                : `လအလိုက် အရောင်း နှင့် အမြတ် (${trendCount} လ)`}
+                ? `${trendYear} ခုနှစ် လအလိုက် ကျသင့်ငွေ နှင့် အမြတ်`
+                : `လအလိုက် ကျသင့်ငွေ နှင့် အမြတ် (${trendCount} လ)`}
             </CardTitle>
             <div className="flex flex-wrap items-center gap-2 print:hidden">
               <select
@@ -1166,7 +1167,7 @@ export default function ReportsPage() {
             {!trendYear && (
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
                 <StatCard
-                  label="ယခုလ အရောင်း"
+                  label="ယခုလ ကျသင့်ငွေ"
                   value={formatMMK(currentTrendMonth?.sales ?? 0)}
                 />
                 <StatCard
@@ -1220,7 +1221,7 @@ export default function ReportsPage() {
                 <thead>
                   <tr className="border-b border-stone-200 text-left text-stone-500 dark:border-neutral-800 dark:text-neutral-400">
                     <th className="py-2 pr-2 font-medium">လ</th>
-                    <th className="py-2 pr-2 text-right font-medium">ရောင်းရငွေ</th>
+                    <th className="py-2 pr-2 text-right font-medium">ကျသင့်ငွေ</th>
                     <th className="py-2 pr-2 text-right font-medium">ကုန်ကျစရိတ်</th>
                     <th className="py-2 text-right font-medium">အမြတ်</th>
                   </tr>

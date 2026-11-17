@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { isTodayYangon, todayYangon } from '../lib/types'
 import {
   Banner,
@@ -96,7 +97,7 @@ export default function InventoryPage() {
       setMoves(mv)
       setInvTotals(totals.data as typeof invTotals)
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err))
+      setMsg(friendlyError(err))
     }
     setLoading(false)
   }, [])
@@ -161,7 +162,7 @@ export default function InventoryPage() {
       notes: note.trim() || null,
     })
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       setBusy(false)
       return
     }
@@ -174,7 +175,7 @@ export default function InventoryPage() {
 
   async function onDelete(row: StockMove) {
     const { error } = await supabase.from('inventory_movements').delete().eq('id', row.id)
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     setConfirmId(null)
     await load()
   }

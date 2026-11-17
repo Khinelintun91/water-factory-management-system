@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { useAuth } from '../context/AuthContext'
 import {
   formatMMK,
@@ -103,7 +104,7 @@ export default function UsersPage() {
   async function grantRole(p: Profile, r: Role) {
     setMsg(null)
     const { error } = await supabase.from('user_roles').insert({ profile_id: p.id, role: r })
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     await load()
   }
 
@@ -114,7 +115,7 @@ export default function UsersPage() {
       .delete()
       .eq('profile_id', p.id)
       .eq('role', r)
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     await load()
   }
 
@@ -140,7 +141,7 @@ export default function UsersPage() {
     }
     if (p.active && !confirm(`${p.username} အကောင့်ကို ပိတ်မှာ သေချာပါသလား?`)) return
     const { error } = await supabase.from('profiles').update({ active: !p.active }).eq('id', p.id)
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     await load()
   }
 
@@ -162,7 +163,7 @@ export default function UsersPage() {
     })
     setBusy(false)
     if (error) {
-      setMsg(rpcCodeMessage(error.message) ?? `အကောင့် ဆောက်၍ မရပါ: ${error.message}`)
+      setMsg(rpcCodeMessage(error.message) ?? `အကောင့် ဆောက်၍ မရပါ: ${friendlyError(error)}`)
       return
     }
     setUsername('')
@@ -502,7 +503,7 @@ function DisplayNameEditor({
       .eq('id', profile.id)
     setBusy(false)
     if (error) {
-      onMsg(error.message)
+      onMsg(friendlyError(error))
       return
     }
     setEditing(false)
@@ -574,7 +575,7 @@ function PinResetEditor({
     })
     setBusy(false)
     if (error) {
-      onMsg(rpcCodeMessage(error.message) ?? `PIN အသစ် သတ်မှတ်၍ မရပါ: ${error.message}`)
+      onMsg(rpcCodeMessage(error.message) ?? `PIN အသစ် သတ်မှတ်၍ မရပါ: ${friendlyError(error)}`)
       return
     }
     setOpen(false)
