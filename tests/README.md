@@ -59,6 +59,7 @@ file prints its own PASS/FAIL line.
 | `08_payroll_golden.sql` | `pay_month`: 320,000 net flat case; the 2026-11-03 QA case 300,000 + 20,000 − 30,000 = 290,000 with repayment rows; double-pay rejected |
 | `09_closeout_golden.sql` | `finalize_closeout` on a fixture agent: refund 10,000, no price diff, agent closed, second run rejected |
 | `10_api_gap_fixes.sql` | 0032–0038: archive instead of delete, money-setting month lock + audit, settlement insert closed, owner-only PIN reset, login lockout abuse brake, pinned search_path, definer grants |
+| `14_admin_create_co_owner.sql` | `0030`: owner creates `co_owner` with a 6-digit PIN; 5-digit and 13-digit PINs rejected; `employee` and `primary_agent` rejected; owner/manager stay at 6 and staff at 4; co-owner, manager, staff, and anon cannot create accounts |
 
 ## How it works
 
