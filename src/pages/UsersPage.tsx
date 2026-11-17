@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { useAuth } from '../context/AuthContext'
 import {
   formatMMK,
@@ -103,7 +104,7 @@ export default function UsersPage() {
   async function grantRole(p: Profile, r: Role) {
     setMsg(null)
     const { error } = await supabase.from('user_roles').insert({ profile_id: p.id, role: r })
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     await load()
   }
 
@@ -114,7 +115,7 @@ export default function UsersPage() {
       .delete()
       .eq('profile_id', p.id)
       .eq('role', r)
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     await load()
   }
 
@@ -140,7 +141,7 @@ export default function UsersPage() {
     }
     if (p.active && !confirm(`${p.username} အကောင့်ကို ပိတ်မှာ သေချာပါသလား?`)) return
     const { error } = await supabase.from('profiles').update({ active: !p.active }).eq('id', p.id)
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     await load()
   }
 
@@ -162,7 +163,7 @@ export default function UsersPage() {
     })
     setBusy(false)
     if (error) {
-      setMsg(rpcCodeMessage(error.message) ?? `အကောင့် ဆောက်၍ မရပါ: ${error.message}`)
+      setMsg(rpcCodeMessage(error.message) ?? `အကောင့် ဆောက်၍ မရပါ: ${friendlyError(error)}`)
       return
     }
     setUsername('')
@@ -257,7 +258,7 @@ export default function UsersPage() {
                 className={inputCls}
               >
                 <option value="">agent ရွေးပါ</option>
-                {agents.map((a) => (
+                {agents.filter((a) => !a.archived_at).map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
                   </option>
@@ -302,9 +303,7 @@ export default function UsersPage() {
                   </SecondaryButton>
                 </div>
                 <DisplayNameEditor profile={p} onMsg={showMsg} onChanged={load} />
-                {p.id !== me?.id && (
-                  <PinResetEditor profile={p} onMsg={showMsg} onOk={showOk} />
-                )}
+                <PinResetEditor profile={p} onMsg={showMsg} onOk={showOk} />
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   {(extras[p.id] ?? []).map((r) => (
                     <span
@@ -504,7 +503,7 @@ function DisplayNameEditor({
       .eq('id', profile.id)
     setBusy(false)
     if (error) {
-      onMsg(error.message)
+      onMsg(friendlyError(error))
       return
     }
     setEditing(false)
@@ -549,9 +548,10 @@ function DisplayNameEditor({
 }
 
 /**
- * Inline PIN reset for another user's account (admin_reset_pin RPC; a reset
- * also clears the account's login lockout). Not rendered for the signed-in
- * owner's own row — owners change their own PIN on the Home page.
+ * Owner PIN reset (admin_reset_pin). The database allows only an active
+ * primary owner, including when the target is that owner's own row.
+ * A reset also clears the account's login lockout. The PIN is not written
+ * to the audit log.
  */
 function PinResetEditor({
   profile,
@@ -575,7 +575,7 @@ function PinResetEditor({
     })
     setBusy(false)
     if (error) {
-      onMsg(rpcCodeMessage(error.message) ?? `PIN အသစ် သတ်မှတ်၍ မရပါ: ${error.message}`)
+      onMsg(rpcCodeMessage(error.message) ?? `PIN အသစ် သတ်မှတ်၍ မရပါ: ${friendlyError(error)}`)
       return
     }
     setOpen(false)

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { dailySummaryCsv } from '../lib/exports'
 import { formatMMK, personName, todayYangon, type Agent, type Profile } from '../lib/types'
-import { FACE_TIERS, salesTierMap } from '../lib/cardFace'
+import { FACE_TIERS, cardTierForSales } from '../lib/cardFace'
 import {
   Banner,
   Card,
@@ -52,6 +53,8 @@ interface PaymentRow {
   method: string
   notes: string | null
   created_by: string | null
+  /** Who physically received the cash (0041); NULL reads as created_by. */
+  received_by: string | null
   created_at: string
 }
 
@@ -98,7 +101,7 @@ async function fetchPaymentsFiltered(f: {
     let q = supabase
       .from('agent_payments')
       .select(
-        'id, agent_id, agent_name, payment_date, amount, method, notes, created_by, created_at',
+        'id, agent_id, agent_name, payment_date, amount, method, notes, created_by, received_by, created_at',
       )
       .order('payment_date', { ascending: false })
       .order('created_at', { ascending: false })
@@ -213,7 +216,7 @@ export default function CollectionsPage() {
       setTotals(m)
       setProfiles((pf ?? []) as Pick<Profile, 'id' | 'username' | 'display_name'>[])
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err))
+      setMsg(friendlyError(err))
     }
     setLoading(false)
   }, [])
@@ -232,7 +235,7 @@ export default function CollectionsPage() {
         const rows = await fetchPaymentsFiltered({ agent: fAgent, from: fFrom, to: fTo, by: fBy })
         if (!cancelled) setPayments(rows)
       } catch (err) {
-        if (!cancelled) setMsg(err instanceof Error ? err.message : String(err))
+        if (!cancelled) setMsg(friendlyError(err))
       }
     })()
     return () => {
@@ -254,7 +257,7 @@ export default function CollectionsPage() {
           ),
           fetchAgentRows<PaymentRow>(
             'agent_payments',
-            'id, agent_id, agent_name, payment_date, amount, method, notes, created_by, created_at',
+            'id, agent_id, agent_name, payment_date, amount, method, notes, created_by, received_by, created_at',
             expandedId,
           ),
           fetchAgentRows<WriteOffLite>(
@@ -267,7 +270,7 @@ export default function CollectionsPage() {
           setLedger((prev) => ({ ...prev, [expandedId]: { entries: en, payments: pm, writeOffs: wo } }))
         }
       } catch (err) {
-        if (!cancelled) setMsg(err instanceof Error ? err.message : String(err))
+        if (!cancelled) setMsg(friendlyError(err))
       }
     })()
     return () => {
@@ -285,7 +288,7 @@ export default function CollectionsPage() {
       const filename = await dailySummaryCsv(todayYangon())
       setCsvMsg(`${filename} ကို ဒေါင်းလုပ် လုပ်ပြီးပါပြီ`)
     } catch (e) {
-      setCsvMsg(e instanceof Error ? e.message : 'CSV ထုတ်၍ မရပါ')
+      setCsvMsg(e instanceof Error ? friendlyError(e) : 'CSV ထုတ်၍ မရပါ')
     }
     setCsvBusy(false)
   }
@@ -364,11 +367,16 @@ export default function CollectionsPage() {
     })
   }
 
-  // Face tier per agent: rank all agents by lifetime sales and split into
-  // thirds — top gold, middle white, bottom black (shared salesTierMap;
-  // agents arrive in created_at order, matching the My Page RPC).
+  // Face tier per agent: fixed lifetime-sales thresholds (shared
+  // cardTierForSales) — each agent's colour depends only on their own
+  // sales, never on how the other agents are doing.
   const tierByAgent = useMemo(
-    () => salesTierMap(agents.map((a) => ({ id: a.id, sales: totals.get(a.id)?.sales ?? 0 }))),
+    () =>
+      new Map(
+        agents.map(
+          (a) => [a.id, cardTierForSales(totals.get(a.id)?.sales ?? 0)] as const,
+        ),
+      ),
     [agents, totals],
   )
 
@@ -404,7 +412,7 @@ export default function CollectionsPage() {
     <div className="space-y-4 lg:space-y-6">
       <PageHeader
         title="ကောက်ခံမှုနှင့် ကြွေးစာရင်း"
-        subtitle="ကိုယ်စားလှယ်အလိုက် ရောင်းအား၊ ကောက်ခံငွေနှင့် ကျန်ကြွေး ကြည့်ရန်"
+        subtitle="ကိုယ်စားလှယ်အလိုက် ကျသင့်ငွေ၊ ကောက်ခံငွေနှင့် ကျန်ကြွေး ကြည့်ရန်"
       />
 
       <div>
@@ -493,7 +501,7 @@ export default function CollectionsPage() {
                         {formatMMK(Math.abs(t.outstanding))}
                       </span>
                       <span className={`block text-xs ${tier.sub}`}>
-                        ရောင်းအား {formatMMK(t.sales)} · ကောက်ခံပြီး{' '}
+                        ကျသင့်ငွေ {formatMMK(t.sales)} · ကောက်ခံပြီး{' '}
                         {formatMMK(t.cash + t.payments)}
                       </span>
                     </span>
@@ -524,7 +532,7 @@ export default function CollectionsPage() {
                         <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm lg:grid-cols-4">
                           <div>
                             <div className="text-xs font-medium text-stone-500 dark:text-neutral-400">
-                              စုစုပေါင်း ရောင်းအား
+                              စုစုပေါင်း ကျသင့်ငွေ
                             </div>
                             <div className="mt-0.5 font-semibold tabular-nums">{formatMMK(t.sales)}</div>
                           </div>
@@ -691,6 +699,9 @@ export default function CollectionsPage() {
                     <div className="mt-0.5 text-sm text-stone-500 dark:text-neutral-400">
                       {p.payment_date} · {METHOD_LABELS[p.method] ?? p.method} · ထည့်သွင်းသူ{' '}
                       {usernameOf(p.created_by)}
+                      {p.received_by && p.received_by !== p.created_by
+                        ? ` · လက်ခံသူ ${usernameOf(p.received_by)}`
+                        : ''}
                       {p.notes ? ` · ${p.notes}` : ''}
                     </div>
                   </li>
@@ -721,7 +732,14 @@ export default function CollectionsPage() {
                         </td>
                         <td className={`${tdCls} whitespace-nowrap`}>{p.payment_date}</td>
                         <td className="px-3 py-3">{METHOD_LABELS[p.method] ?? p.method}</td>
-                        <td className="px-3 py-3">{usernameOf(p.created_by)}</td>
+                        <td className="px-3 py-3">
+                          {usernameOf(p.created_by)}
+                          {p.received_by && p.received_by !== p.created_by && (
+                            <div className="text-xs opacity-60">
+                              လက်ခံသူ {usernameOf(p.received_by)}
+                            </div>
+                          )}
+                        </td>
                         <td className={`${tdCls} pr-4 text-right font-semibold`}>
                           {formatMMK(p.amount)}
                         </td>

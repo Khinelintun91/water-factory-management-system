@@ -1,18 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { fetchAll } from '../lib/fetchAll'
 import {
   formatMMK,
   personName,
   todayYangon,
   type Agent,
+  type AgentDamageCharge,
   type AgentDeposit,
   type AgentPayment,
   type DailyEntry,
   type WriteOff,
 } from '../lib/types'
 import { FACE_TIERS, type FaceTier } from '../lib/cardFace'
+import {
+  fetchStaffDirectory,
+  receiverName,
+  type StaffDirectory,
+} from '../lib/staffDirectory'
 import {
   Banner,
   Card,
@@ -44,10 +51,12 @@ export default function MyPage() {
   const agentId = profile?.agent_id ?? null
   const [entries, setEntries] = useState<DailyEntry[]>([])
   const [payments, setPayments] = useState<AgentPayment[]>([])
+  const [charges, setCharges] = useState<AgentDamageCharge[]>([])
   const [writeOffTotal, setWriteOffTotal] = useState(0)
   const [depositTotal, setDepositTotal] = useState(0)
   const [agent, setAgent] = useState<Agent | null>(null)
-  const [cardTier, setCardTier] = useState<{ tier: FaceTier; rank: number; count: number } | null>(null)
+  const [directory, setDirectory] = useState<StaffDirectory | null>(null)
+  const [cardTier, setCardTier] = useState<{ tier: FaceTier; lifetimeSales: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [monthFilter, setMonthFilter] = useState('all')
@@ -80,7 +89,7 @@ export default function MyPage() {
       // left every total at zero. With the filter, Postgres drives the query
       // from the (agent_id, date) index and only this agent's rows are ever
       // touched. RLS still applies on top, so access is unchanged.
-      const [en, pm, wo, dep, ag, ct] = await Promise.all([
+      const [en, pm, wo, dep, ag, ct, dir, dc] = await Promise.all([
         fetchAll<DailyEntry>((from, to) =>
           supabase
             .from('daily_entries')
@@ -118,17 +127,29 @@ export default function MyPage() {
         ),
         supabase.from('agents').select('*').eq('id', agentId).maybeSingle(),
         supabase.rpc('my_card_tier'),
+        fetchStaffDirectory(),
+        fetchAll<AgentDamageCharge>((from, to) =>
+          supabase
+            .from('agent_damage_charges')
+            .select('*')
+            .eq('agent_id', agentId)
+            .order('charge_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .range(from, to),
+        ),
       ])
       if (runRef.current !== run) return
       setEntries(en)
       setPayments(pm)
+      setCharges(dc)
+      setDirectory(dir)
       setWriteOffTotal(wo.reduce((s, w) => s + w.amount, 0))
       setDepositTotal(dep.reduce((s, d) => s + d.amount, 0))
       setAgent((ag.data ?? null) as Agent | null)
-      const tierRows = (ct.data ?? []) as { tier: FaceTier; sales_rank: number; agent_count: number }[]
+      const tierRows = (ct.data ?? []) as { tier: FaceTier; lifetime_sales: number }[]
       setCardTier(
         tierRows[0]
-          ? { tier: tierRows[0].tier, rank: tierRows[0].sales_rank, count: tierRows[0].agent_count }
+          ? { tier: tierRows[0].tier, lifetimeSales: Number(tierRows[0].lifetime_sales) }
           : null,
       )
     } catch {
@@ -150,6 +171,7 @@ export default function MyPage() {
     const months = new Set<string>()
     entries.forEach((r) => months.add(r.entry_date.slice(0, 7)))
     payments.forEach((r) => months.add(r.payment_date.slice(0, 7)))
+    charges.forEach((r) => months.add(r.charge_date.slice(0, 7)))
     return [
       { value: 'all', label: 'အားလုံး' },
       ...[...months]
@@ -157,7 +179,7 @@ export default function MyPage() {
         .reverse()
         .map((ym) => ({ value: ym, label: monthLabel(ym) })),
     ]
-  }, [entries, payments])
+  }, [entries, payments, charges])
 
   const visibleEntries =
     monthFilter === 'all'
@@ -167,6 +189,10 @@ export default function MyPage() {
     monthFilter === 'all'
       ? payments
       : payments.filter((r) => r.payment_date.startsWith(monthFilter))
+  const visibleCharges =
+    monthFilter === 'all'
+      ? charges
+      : charges.filter((r) => r.charge_date.startsWith(monthFilter))
 
   const today = todayYangon()
   const todayEntries = entries.filter((r) => r.entry_date === today)
@@ -175,10 +201,13 @@ export default function MyPage() {
 
   const lifetimeDue = entries.reduce((s, r) => s + (r.amount - r.amount_collected), 0)
   const totalPayments = payments.reduce((s, r) => s + r.amount, 0)
+  const damageTotal = charges.reduce((s, r) => s + r.total, 0)
   // Owner-side debt ledger (CollectionsPage) nets write-offs against the
   // balance, so the agent's own card must too — otherwise the two sides
-  // disagree by exactly the written-off amount.
-  const owed = Math.max(0, lifetimeDue - totalPayments - writeOffTotal)
+  // disagree by exactly the written-off amount. Damage charges are in
+  // agent_outstanding() since migration 0042, so they are added here
+  // for the same reason.
+  const owed = Math.max(0, lifetimeDue - totalPayments - writeOffTotal + damageTotal)
   const held = entries.reduce((s, r) => s + (r.delivered_qty - r.returned_qty), 0)
 
   // A closed (settled) agent keeps their history visible, but balances are
@@ -195,7 +224,7 @@ export default function MyPage() {
   // amount (owner's wording rule — overpayment is not a debt or an error).
   const salesTotal = entries.reduce((s, r) => s + r.amount, 0)
   const collectedTotal = entries.reduce((s, r) => s + r.amount_collected, 0) + totalPayments
-  const faceOutstanding = closed ? 0 : lifetimeDue - totalPayments - writeOffTotal
+  const faceOutstanding = closed ? 0 : lifetimeDue - totalPayments - writeOffTotal + damageTotal
   const faceTier = cardTier ? FACE_TIERS[closed ? 'black' : cardTier.tier] : null
 
   function openDispute(key: string) {
@@ -244,7 +273,7 @@ export default function MyPage() {
       setDisputeMsg(
         error.code === '23505'
           ? 'ဒီမှတ်တမ်အတွက် အမှားတင်ပြချက် ဖွင့်ထားပြီး ဖြစ်ပါတယ်'
-          : `တင်ပြ၍ မရပါ: ${error.message}`,
+          : `တင်ပြ၍ မရပါ: ${friendlyError(error)}`,
       )
       return
     }
@@ -383,8 +412,14 @@ export default function MyPage() {
               <span className="block text-[28px] font-bold leading-[1.3] tabular-nums">
                 {formatMMK(Math.abs(faceOutstanding))}
               </span>
+              {faceOutstanding > 0 && damageTotal > 0 && faceOutstanding - damageTotal > 0 && (
+                <span className={`block text-xs ${faceTier.sub}`}>
+                  ကျသင့်ငွေကြွေး {formatMMK(faceOutstanding - damageTotal)} + ပျက်စီးမှု{' '}
+                  {formatMMK(damageTotal)}
+                </span>
+              )}
               <span className={`block text-xs ${faceTier.sub}`}>
-                ရောင်းအား {formatMMK(salesTotal)} · ကောက်ခံပြီး {formatMMK(collectedTotal)}
+                ကျသင့်ငွေ {formatMMK(salesTotal)} · ပေးချေပြီး {formatMMK(collectedTotal)}
               </span>
             </span>
             <span
@@ -398,7 +433,7 @@ export default function MyPage() {
             </span>
           </div>
           <p className="mt-1.5 px-0.5 text-xs text-stone-500 dark:text-neutral-400">
-            ရောင်းအား အဆင့်: {cardTier.rank} / {cardTier.count}
+            စုစုပေါင်း ကျသင့်ငွေ: {formatMMK(salesTotal)}
           </p>
         </div>
       )}
@@ -449,7 +484,7 @@ export default function MyPage() {
                       {formatMMK(r.amount)}
                     </div>
                     <div className="mt-0.5 text-stone-500 dark:text-neutral-400">
-                      လက်ခံရရှိငွေ {formatMMK(r.amount_collected)} · ကျန်ပေးရန်{' '}
+                      ပေးချေပြီး {formatMMK(r.amount_collected)} · ကျန်ပေးရန်{' '}
                       <span
                         className={
                           due > 0
@@ -459,13 +494,20 @@ export default function MyPage() {
                       >
                         {formatMMK(due)}
                       </span>
+                      {r.amount_collected > 0 && directory && receiverName(directory, r)
+                        ? ` · လက်ခံသူ: ${receiverName(directory, r)}`
+                        : ''}
                     </div>
                     {renderDispute({
                       key: `entry:${r.id}`,
                       kind: 'entry',
                       recordId: r.id,
                       recordDate: r.entry_date,
-                      summary: `${r.entry_date} · ပို့ ${r.delivered_qty} · ပြန် ${r.returned_qty} · ${formatMMK(r.amount)} · လက်ခံရရှိငွေ ${formatMMK(r.amount_collected)}`,
+                      summary:
+                        `${r.entry_date} · ပို့ ${r.delivered_qty} · ပြန် ${r.returned_qty} · ${formatMMK(r.amount)} · ပေးချေပြီး ${formatMMK(r.amount_collected)}` +
+                        (r.amount_collected > 0 && directory && receiverName(directory, r)
+                          ? ` · လက်ခံသူ ${receiverName(directory, r)}`
+                          : ''),
                     })}
                   </li>
                 )
@@ -486,17 +528,48 @@ export default function MyPage() {
                 <li key={r.id} className="p-3.5 text-sm">
                   <div>
                     {r.payment_date} · {formatMMK(r.amount)} · {r.method}
+                    {directory && receiverName(directory, r)
+                      ? ` · လက်ခံသူ: ${receiverName(directory, r)}`
+                      : ''}
                   </div>
                   {renderDispute({
                     key: `payment:${r.id}`,
                     kind: 'payment',
                     recordId: r.id,
                     recordDate: r.payment_date,
-                    summary: `${r.payment_date} · ${formatMMK(r.amount)} · ${r.method}`,
+                    summary:
+                      `${r.payment_date} · ${formatMMK(r.amount)} · ${r.method}` +
+                      (directory && receiverName(directory, r)
+                        ? ` · လက်ခံသူ ${receiverName(directory, r)}`
+                        : ''),
                   })}
                 </li>
               ))}
               {visiblePayments.length === 0 && (
+                <li className="p-3.5 text-sm text-stone-500 dark:text-neutral-400">
+                  {monthFilter === 'all'
+                    ? 'မရှိသေးပါ'
+                    : 'ရွေးထားသော လတွင် မှတ်တမ် မရှိပါ'}
+                </li>
+              )}
+            </ul>
+          </section>
+          <section>
+            <h2 className="mb-2 px-0.5 text-base font-bold">ပျက်စီးမှု စရိတ်များ</h2>
+            <ul className={`${cardCls} divide-y divide-stone-100 overflow-hidden dark:divide-neutral-800/70`}>
+              {visibleCharges.map((r) => (
+                <li key={r.id} className="p-3.5 text-sm">
+                  <div>
+                    {r.charge_date} · {r.item_name} × {r.qty.toLocaleString('en-US')} ·{' '}
+                    {formatMMK(r.total)}
+                  </div>
+                  <div className="mt-0.5 text-stone-500 dark:text-neutral-400">
+                    တစ်ခုဈေး {formatMMK(r.unit_price)}
+                    {r.note ? ` · ${r.note}` : ''}
+                  </div>
+                </li>
+              ))}
+              {visibleCharges.length === 0 && (
                 <li className="p-3.5 text-sm text-stone-500 dark:text-neutral-400">
                   {monthFilter === 'all'
                     ? 'မရှိသေးပါ'

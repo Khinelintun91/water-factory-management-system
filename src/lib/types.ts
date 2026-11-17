@@ -23,10 +23,12 @@ export interface Agent {
   address: string | null
   deposit_per_bottle: number
   default_unit_price: number
-  bottle_limit: number
   credit_limit: number
   closed_at: string | null
   closed_by: string | null
+  /** Set by hard_delete_agent. The row is kept; the working list hides it. */
+  archived_at: string | null
+  archived_by: string | null
   active: boolean
   created_at: string
   updated_at: string
@@ -53,6 +55,38 @@ export interface WriteOff {
   writeoff_date: string
   amount: number
   note: string
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** One row of the owner's shared damage price list (migration 0042). */
+export interface DamageItem {
+  id: string
+  name: string
+  unit_price: number
+  active: boolean
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * A damage charge against one agent (migration 0042). item_name and
+ * unit_price are snapshots taken from the item row at charge time;
+ * total = qty × unit_price snapshot, stored. Counts into
+ * agent_outstanding().
+ */
+export interface AgentDamageCharge {
+  id: string
+  agent_id: string
+  item_id: string | null
+  item_name: string
+  unit_price: number
+  qty: number
+  total: number
+  charge_date: string
+  note: string | null
   created_by: string | null
   created_at: string
   updated_at: string
@@ -98,6 +132,8 @@ export interface DailyEntry {
   change_reason: string | null
   notes: string | null
   created_by: string | null
+  /** Who physically received the cash (0041); NULL reads as created_by. */
+  received_by: string | null
   created_at: string
   updated_at: string
 }
@@ -112,6 +148,8 @@ export interface AgentPayment {
   change_reason: string | null
   notes: string | null
   created_by: string | null
+  /** Who physically received the cash (0041); NULL reads as created_by. */
+  received_by: string | null
   created_at: string
   updated_at: string
 }

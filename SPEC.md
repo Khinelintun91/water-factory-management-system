@@ -20,6 +20,7 @@ This system is the rebuild of Aqua Crate Ledger: same functions, bugs fixed, str
 6. **Month lock:** a locked month cannot be edited by ANY role, Owner included — enforced by trigger on all business tables. Locking/unlocking is itself audited. (Who may lock/unlock: see TBD.)
 7. **Per-agent bottle-deposit settings:** the agent record carries its own deposit settings. Never apply one agent's deposit settings to another agent.
 8. **Push notifications cover:** collections, disputes, data-quality alerts.
+9. **PIN changes are Owner-only (decided 2026-11-16):** only an active primary Owner may set or reset a PIN. That includes every other account and the Owner's own PIN. Co-owner, Manager, Staff, Agent, and any other non-owner cannot change a PIN, including their own. There is no self-service PIN change and no email recovery path in this product. The Owner does it from the Users page. The database checks the caller and the digit rule. The audit log records that a PIN was reset and who it was for. It does not store the PIN.
 
 ## Phase 1 scope (this build)
 Login with 4 roles (username + PIN), agent list with per-agent bottle-deposit settings, staff delivery entry page, collections (agent payments), expenses, same-day edit/delete, immutable audit log + change-history view, month locks, Owner one-tap backup export with last-backup tracking, agent-only-own-data isolation.

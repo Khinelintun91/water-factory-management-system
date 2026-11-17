@@ -55,7 +55,7 @@ function TrendTooltip({
   return (
     <div className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
       <div className="mb-1 font-semibold text-stone-700 dark:text-neutral-100">{row.month}</div>
-      {line('အရောင်း', row.sales, GREEN)}
+      {line('ကျသင့်ငွေ', row.sales, GREEN)}
       {line('ကုန်ကျငွေ', row.costs, RED)}
       {line('အမြတ်', row.profit, BLUE)}
     </div>
@@ -87,7 +87,7 @@ export default function MonthlyTrendChart({ rows }: { rows: TrendChartRow[] }) {
         />
         <Tooltip content={<TrendTooltip />} />
         <Legend />
-        <Bar dataKey="sales" name="အရောင်း" fill={GREEN} />
+        <Bar dataKey="sales" name="ကျသင့်ငွေ" fill={GREEN} />
         <Bar dataKey="costs" name="ကုန်ကျငွေ" fill={RED} />
         <Line type="monotone" dataKey="profit" name="အမြတ်" stroke={BLUE} strokeWidth={2} dot={{ r: 3 }} />
       </ComposedChart>

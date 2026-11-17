@@ -44,7 +44,7 @@ export default function ScrollNav() {
     'flex h-11 w-11 items-center justify-center rounded-full border border-white/25 bg-brand-700/90 text-white shadow-lg backdrop-blur transition hover:bg-brand-700 active:scale-95 dark:bg-neutral-800/90 dark:hover:bg-neutral-800'
 
   return (
-    <div className="fixed bottom-[calc(6rem_+_env(safe-area-inset-bottom))] right-3 z-30 flex flex-col gap-2 print:hidden md:bottom-6 md:right-6">
+    <div className="fixed bottom-[calc(7.5rem_+_env(safe-area-inset-bottom))] right-3 z-30 flex flex-col gap-2 print:hidden md:bottom-6 md:right-6">
       {showUp && (
         <button
           type="button"

@@ -200,7 +200,7 @@ export async function dailySummaryCsv(dateStr: string): Promise<string> {
         ပို့ဘူး: e.delivered_qty,
         ဘူးခွံပြန်: e.returned_qty,
         တစ်ဘူးဈေး: Number(e.unit_price),
-        ရောင်းငွေ: Number(e.amount),
+        ကျသင့်ငွေ: Number(e.amount),
         လက်ခံငွေ: Number(e.amount_collected),
         ကျန်ကြွေး: Number(e.amount) - Number(e.amount_collected),
       })),
@@ -226,7 +226,7 @@ export async function dailySummaryCsv(dateStr: string): Promise<string> {
     {
       name: 'စုစုပေါင်း',
       rows: [
-        { အချက်: 'စုစုပေါင်း ရောင်း', ကျပ်: sales },
+        { အချက်: 'စုစုပေါင်း ကျသင့်ငွေ', ကျပ်: sales },
         { အချက်: 'ငွေလက်ခံ (ပို့ချိန်)', ကျပ်: entryCash },
         { အချက်: 'ငွေလက်ခံ (ကြွေးကောက်)', ကျပ်: collected },
         { အချက်: 'ငွေလက်ခံ စုစုပေါင်း', ကျပ်: received },

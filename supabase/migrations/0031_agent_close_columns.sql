@@ -28,8 +28,8 @@
 -- current value back is not a change.
 --
 -- AgentsPage updates that do not touch those columns stay allowed:
--- active, default_unit_price, deposit_per_bottle, bottle_limit,
--- credit_limit, trip_qty. Inserts are unchanged. RLS, the
+-- active, default_unit_price, deposit_per_bottle, credit_limit.
+-- Inserts are unchanged. RLS, the
 -- finalize_closeout owner/manager gate, audit, month lock, and
 -- same-day guards are unchanged. agents still has no same-day guard
 -- (0027).

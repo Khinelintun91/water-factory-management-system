@@ -70,12 +70,12 @@ service_role key anywhere in the repo). The owner has been asked to make it priv
   form. `admin_create_user()` rejects a primary role outside the four
   (`invalid_role`). A `user_roles` grant of `co_owner` matches the column
   type and the owner-only insert policy (`app_role() = 'owner'`).
-- Migrations `0001`–`0029` plus `0031` are in this branch. `0030` is not:
-  it is PR #4 (`co_owner` account creation) and stays on that branch.
-  `supabase/apply_all.sql` here is 0001–0029 followed by 0031. When the
+- Migrations `0001`–`0041` in `supabase/migrations/`, including `0031`.
+  `0030` is not in this branch: it is PR #4 (`co_owner` account creation)
+  and stays on that branch. `supabase/apply_all.sql` is the regenerated
+  concatenation (0001–0042) used for fresh installs and tests. When the
   owner applies both, the order is 0030 then 0031. `0031` does not require
-  objects from 0030. Neither file is applied to the live database by this
-  work. Live migrations remain 0001–0029.
+  objects from 0030.
 
 ## 4. Non-negotiable rules (owner's firm decisions — never weaken silently)
 
@@ -153,8 +153,10 @@ conflicts with one of these, stop and flag it to the owner first.
   timeouts are **Pro-plan only** on Supabase (the Free plan rejects them with 402).
   Supabase **Free has no automatic backups** — see §7.
 - PINs are short by design for staff usability; the compensating controls are the
-  lockout gateways above. The owner has been advised to use an 8–12 digit owner PIN
-  and to enable MFA on his Supabase/GitHub/Cloudflare accounts (his action, pending).
+  lockout gateways above. Only an active primary owner may set a PIN, including
+  their own, from the Users page (`admin_reset_pin`). There is no self-service PIN
+  change (SPEC rule 9, 2026-11-16). The owner has been advised to use an 8–12 digit
+  owner PIN and to enable MFA on his Supabase/GitHub/Cloudflare accounts (his action, pending).
 
 ## 7. Backup & restore (proven, not theoretical)
 
@@ -174,7 +176,7 @@ conflicts with one of these, stop and flag it to the owner first.
 
 ## 8. Testing & how changes ship
 
-- Permanent test suite in `tests/`: 10 SQL assertion files (same-day guards incl.
+- Permanent test suite in `tests/`: 14 SQL assertion files (same-day guards incl.
   all 0027 tables, month lock incl. owner, insert-today + owner exception, agent
   isolation + staff phone privacy, login gateway + lockout, last-owner guard,
   0029 outstanding gate with golden values, `pay_month` goldens 320,000 and
@@ -234,7 +236,7 @@ Honest remainders, neither of which changes the running app:
    released).
 4. Owner-only account hygiene (reminded, pending): make the GitHub repo private,
    enable MFA on Supabase/GitHub/Cloudflare, lengthen the owner PIN to 8–12 digits
-   via the in-app PIN change.
+   from the Users page (`PIN အသစ် သတ်မှတ်ရန်` on the owner's own row).
 
 **Consultation only — do NOT build unless the owner explicitly says go:**
 two AI features were discussed and liked on 2026-11-03: (1) Burmese natural-language
