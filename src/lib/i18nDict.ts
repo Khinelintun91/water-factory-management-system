@@ -1159,4 +1159,25 @@ export const EN: Record<string, string> = {
   "စုစုပေါင်း ကျသင့်ငွေ": "Total amount due",
   "နောက်ဆုံး မှတ်တမ်းများ": "Latest records",
   "ငွေပေးချေမှု": "Payment",
+
+  // friendlyError (src/lib/friendlyError.ts) — full fixed sentences first;
+  // the last three are the stable fragments of the number-composed messages
+  // (deposit top-up, locked month), which cannot be whole-sentence keys.
+  "ဒီ ကိုယ်စားလှယ်ရဲ့ ကြွေးကန့်သတ်ချက် ကျော်သွားပါမယ် — ဒီစာရင်း သွင်းလို့ မရပါ": "This entry would exceed the agent's credit limit — it cannot be saved",
+  "ဒီနေ့ ဖန်တီးတဲ့ စာရင်းကိုပဲ ဒီနေ့ ပြင်/ဖျက် လို့ ရပါတယ်": "Only records created today can be edited or deleted today",
+  "ဒီ ကိုယ်စားလှယ်က စာရင်း ပိတ်ပြီးသား ဖြစ်ပါတယ်": "This agent has already been closed out",
+  "ဗူး ကန့်သတ်ချက် ကျော်သွားပါတယ်": "The bottle limit would be exceeded",
+  "ဒီ username ကို တခြားသူ သုံးပြီးသား ဖြစ်ပါတယ်": "This username is already used by someone else",
+  "username ပုံစံ မမှန်ပါ": "Invalid username format",
+  "ရာထူး ရွေးချယ်မှု မမှန်ပါ": "Invalid role selection",
+  "ဒီ လုပ်ဆောင်ချက်ကို လုပ်ခွင့် မရှိပါ": "You do not have permission to do this",
+  "ရှာမတွေ့ပါ — မှတ်တမ်း မရှိပါ": "Not found — no such record",
+  "ရှိပြီးသား မှတ်တမ်း ဖြစ်နေပါတယ်": "This record already exists",
+  "အင်တာနက် ချိတ်ဆက်မှု ပြဿနာ ဖြစ်နေပါတယ် — ခဏနေ ထပ်မံ ကြိုးစားပါ": "Internet connection problem — please try again shortly",
+  "သိမ်းဆည်းရာတွင် ပြဿနာ တစ်ခု ဖြစ်ပွားခဲ့ပါတယ် — ထပ်မံ ကြိုးစားကြည့်ပါ": "Something went wrong while saving — please try again",
+  "အပေါင် ဗူး မလောက်ပါ — အပေါင် ထပ်တင်ရန် လိုပါတယ်": "Not enough deposit bottles — a deposit top-up is needed",
+  "ဒီလ ပိတ်ထားပြီးသားပါ — စာရင်း သွင်း/ပြင်/ဖျက် လို့ မရပါ": "This month is locked — records cannot be added, edited or deleted",
+  "အပေါင် ဗူး မလောက်ပါ": "Not enough deposit bottles",
+  "ထပ်တင်ရန် လိုပါတယ်": "a top-up is needed",
+  "လ ပိတ်ထားပြီးသားပါ — စာရင်း သွင်း/ပြင်/ဖျက် လို့ မရပါ": "month is locked — records cannot be added, edited or deleted",
 };

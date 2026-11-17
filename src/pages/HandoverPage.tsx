@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { dailySummaryCsv } from '../lib/exports'
 import { formatMMK, personName, todayYangon, type Role } from '../lib/types'
 import {
@@ -145,7 +146,7 @@ export default function HandoverPage() {
       setNoteIn(Object.fromEntries(handoverRows.map((h) => [h.employee_id, h.note ?? ''])))
       setRowMsg({})
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err))
+      setMsg(friendlyError(err))
     }
     setLoading(false)
   }, [date])
@@ -163,7 +164,7 @@ export default function HandoverPage() {
       const filename = await dailySummaryCsv(date)
       setCsvMsg(`${filename} ကို ဒေါင်းလုပ် လုပ်ပြီးပါပြီ`)
     } catch (e) {
-      setCsvMsg(e instanceof Error ? e.message : 'CSV ထုတ်၍ မရပါ')
+      setCsvMsg(e instanceof Error ? friendlyError(e) : 'CSV ထုတ်၍ မရပါ')
     }
     setCsvBusy(false)
   }
@@ -190,7 +191,7 @@ export default function HandoverPage() {
     )
     setSavingId(null)
     if (error) {
-      setRowMsg((m) => ({ ...m, [emp.id]: error.message }))
+      setRowMsg((m) => ({ ...m, [emp.id]: friendlyError(error) }))
       return
     }
     setRowMsg((m) => ({ ...m, [emp.id]: 'သိမ်းပြီးပါပြီ ✓' }))

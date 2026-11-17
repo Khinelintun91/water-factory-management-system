@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { fetchAll } from '../lib/fetchAll'
 import { formatMMK, personName, todayYangon, type Agent } from '../lib/types'
 import {
@@ -234,7 +235,7 @@ function MonthLockSection() {
     const { error } = await supabase
       .from('month_locks')
       .insert({ month: `${month}-01`, locked_by: profile?.id ?? null })
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     await load()
   }
 
@@ -242,7 +243,7 @@ function MonthLockSection() {
     if (!confirm(`${m.slice(0, 7)} ကို lock ပြန်ဖွင့်မှာ သေချာပါသလား?`)) return
     setMsg(null)
     const { error } = await supabase.from('month_locks').delete().eq('month', m)
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     await load()
   }
 
@@ -387,7 +388,7 @@ export default function ReportsPage() {
       setOpenDisputes(dsp.length)
       setBriefEntries(bEn)
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err))
+      setMsg(friendlyError(err))
     }
     setLoading(false)
   }, [applied])
@@ -639,7 +640,7 @@ export default function ReportsPage() {
       created_by: profile.id,
     })
     if (error) {
-      setWoMsg(error.message)
+      setWoMsg(friendlyError(error))
     } else {
       setWoOk('ကြွေးပယ်ဖျက် မှတ်တမ်း သိမ်းပြီးပါပြီ')
       setWoAmount('')
@@ -708,7 +709,7 @@ export default function ReportsPage() {
       XLSX.writeFile(wb, `report-${applied.from}-${applied.to}.xlsx`)
       setOkMsg('Excel ဖိုင် ဒေါင်းလုပ် လုပ်ပြီးပါပြီ')
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err))
+      setMsg(friendlyError(err))
     }
     setExporting(false)
   }

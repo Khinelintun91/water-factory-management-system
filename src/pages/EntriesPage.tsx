@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { fetchAll } from '../lib/fetchAll'
 import {
   count as queueCount,
@@ -322,8 +323,7 @@ export default function EntriesPage() {
         afterQueued()
         return
       }
-      const m = (failure as { message?: unknown }).message
-      setMsg(typeof m === 'string' ? m : String(failure))
+      setMsg(friendlyError(failure))
       setConfirming(false)
       setBusy(false)
       return
@@ -356,8 +356,7 @@ export default function EntriesPage() {
         pFailure = err
       }
       if (pFailure) {
-        const m = (pFailure as { message?: unknown }).message
-        partialMsg = `ရေပို့မှတ်တမ် သိမ်းပြီးပါပြီ၊ ကြွေးကောက်ငွေ သိမ်း၍ မရပါ: ${typeof m === 'string' ? m : String(pFailure)}`
+        partialMsg = `ရေပို့မှတ်တမ် သိမ်းပြီးပါပြီ၊ ကြွေးကောက်ငွေ သိမ်း၍ မရပါ: ${friendlyError(pFailure)}`
       }
     }
     setDelivered('')
@@ -434,7 +433,7 @@ export default function EntriesPage() {
       })
       .eq('id', row.id)
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       setBusy(false)
       return
     }
@@ -457,11 +456,11 @@ export default function EntriesPage() {
       .update({ change_reason: reason })
       .eq('id', row.id)
     if (stampError) {
-      setMsg(stampError.message)
+      setMsg(friendlyError(stampError))
       return
     }
     const { error } = await supabase.from('daily_entries').delete().eq('id', row.id)
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     setConfirmId(null)
     setDeleteReason('')
     await load()
@@ -603,7 +602,7 @@ export default function EntriesPage() {
               disabled={flushing}
               onClick={async () => {
                 const err = await flushQueue()
-                if (err) setMsg(err)
+                if (err) setMsg(friendlyError(err))
               }}
               className="shrink-0"
             >

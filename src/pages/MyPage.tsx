@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { fetchAll } from '../lib/fetchAll'
 import {
   formatMMK,
@@ -252,7 +253,7 @@ export default function MyPage() {
       setDisputeMsg(
         error.code === '23505'
           ? 'ဒီမှတ်တမ်အတွက် အမှားတင်ပြချက် ဖွင့်ထားပြီး ဖြစ်ပါတယ်'
-          : `တင်ပြ၍ မရပါ: ${error.message}`,
+          : `တင်ပြ၍ မရပါ: ${friendlyError(error)}`,
       )
       return
     }

@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { fetchAll } from '../lib/fetchAll'
 import { downloadCsv, toCsv } from '../lib/exports'
 import { formatMMK, isTodayYangon, todayYangon } from '../lib/types'
@@ -160,7 +161,7 @@ export default function ExpensesPage() {
       notes: notes.trim() || null,
     })
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       setBusy(false)
       return
     }
@@ -174,7 +175,7 @@ export default function ExpensesPage() {
 
   async function onDelete(row: ExpenseRow) {
     const { error } = await supabase.from('expenses').delete().eq('id', row.id)
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     setConfirmId(null)
     await load()
   }

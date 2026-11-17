@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { applyStoredTheme, applyTheme, getStoredTheme, type ThemeChoice } from '../lib/theme'
 import { setLang as setAppLang } from '../lib/i18n'
 import {
@@ -197,7 +198,7 @@ export default function SettingsPage() {
       .upsert(rows, { onConflict: 'key' })
     setFactoryBusy(false)
     setFactoryErr(Boolean(error))
-    setFactoryMsg(error ? error.message : 'သိမ်းပြီးပါပြီ')
+    setFactoryMsg(error ? friendlyError(error) : 'သိမ်းပြီးပါပြီ')
   }
 
   async function savePrefs() {
@@ -218,7 +219,7 @@ export default function SettingsPage() {
     )
     setPrefsBusy(false)
     setPrefsErr(Boolean(error))
-    setPrefsMsg(error ? error.message : 'သိမ်းပြီးပါပြီ')
+    setPrefsMsg(error ? friendlyError(error) : 'သိမ်းပြီးပါပြီ')
   }
 
   function chooseTheme(choice: ThemeChoice) {

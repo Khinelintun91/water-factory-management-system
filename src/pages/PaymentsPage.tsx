@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { fetchAll } from '../lib/fetchAll'
 import {
   formatMMK,
@@ -240,7 +241,7 @@ export default function PaymentsPage() {
       received_by: receivedBy || profile?.id || null,
     })
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       setBusy(false)
       return
     }
@@ -289,7 +290,7 @@ export default function PaymentsPage() {
       })
       .eq('id', row.id)
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       setBusy(false)
       return
     }
@@ -312,11 +313,11 @@ export default function PaymentsPage() {
       .update({ change_reason: reason })
       .eq('id', row.id)
     if (stampError) {
-      setMsg(stampError.message)
+      setMsg(friendlyError(stampError))
       return
     }
     const { error } = await supabase.from('agent_payments').delete().eq('id', row.id)
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     setConfirmId(null)
     setDeleteReason('')
     await load()

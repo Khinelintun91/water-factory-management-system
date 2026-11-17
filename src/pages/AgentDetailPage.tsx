@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import {
   formatMMK,
   todayYangon,
@@ -233,7 +234,7 @@ export default function AgentDetailPage() {
       note: depNote.trim() || null,
     })
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       return
     }
     setDepBottles('')
@@ -255,7 +256,7 @@ export default function AgentDetailPage() {
       note: woNote.trim(),
     })
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       return
     }
     setWoAmount('')
@@ -268,7 +269,7 @@ export default function AgentDetailPage() {
     setMsg(null)
     const { error } = await supabase.rpc('hard_delete_agent', { p_agent: id })
     if (error) {
-      setMsg(error.message)
+      setMsg(friendlyError(error))
       setConfirmDelete(false)
       return
     }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { fetchAll } from '../lib/fetchAll'
 import { dataQualityCsv } from '../lib/exports'
 import { fmtDateTime12, fmtTime12, todayYangon } from '../lib/types'
@@ -189,7 +190,7 @@ export default function DataQualityPage() {
       setCounts(scanned)
       setCheckedAt(fmtDateTime12(new Date()))
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err))
+      setMsg(friendlyError(err))
     }
     setLoading(false)
   }, [])

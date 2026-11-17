@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { dailySummaryCsv } from '../lib/exports'
 import { formatMMK, personName, todayYangon, type Agent, type Profile } from '../lib/types'
 import { FACE_TIERS, cardTierForSales } from '../lib/cardFace'
@@ -215,7 +216,7 @@ export default function CollectionsPage() {
       setTotals(m)
       setProfiles((pf ?? []) as Pick<Profile, 'id' | 'username' | 'display_name'>[])
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err))
+      setMsg(friendlyError(err))
     }
     setLoading(false)
   }, [])
@@ -234,7 +235,7 @@ export default function CollectionsPage() {
         const rows = await fetchPaymentsFiltered({ agent: fAgent, from: fFrom, to: fTo, by: fBy })
         if (!cancelled) setPayments(rows)
       } catch (err) {
-        if (!cancelled) setMsg(err instanceof Error ? err.message : String(err))
+        if (!cancelled) setMsg(friendlyError(err))
       }
     })()
     return () => {
@@ -269,7 +270,7 @@ export default function CollectionsPage() {
           setLedger((prev) => ({ ...prev, [expandedId]: { entries: en, payments: pm, writeOffs: wo } }))
         }
       } catch (err) {
-        if (!cancelled) setMsg(err instanceof Error ? err.message : String(err))
+        if (!cancelled) setMsg(friendlyError(err))
       }
     })()
     return () => {
@@ -287,7 +288,7 @@ export default function CollectionsPage() {
       const filename = await dailySummaryCsv(todayYangon())
       setCsvMsg(`${filename} ကို ဒေါင်းလုပ် လုပ်ပြီးပါပြီ`)
     } catch (e) {
-      setCsvMsg(e instanceof Error ? e.message : 'CSV ထုတ်၍ မရပါ')
+      setCsvMsg(e instanceof Error ? friendlyError(e) : 'CSV ထုတ်၍ မရပါ')
     }
     setCsvBusy(false)
   }

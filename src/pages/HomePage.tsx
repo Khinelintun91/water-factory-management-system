@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { friendlyError } from '../lib/friendlyError'
 import { fetchAll } from '../lib/fetchAll'
 import { exportBackup, getLastBackupAt, isBackupOverdue } from '../lib/backup'
 import { monthlyBackupCsv, monthlyBackupXlsx } from '../lib/exports'
@@ -46,7 +47,7 @@ function BackupCard() {
       else await monthlyBackupCsv(bkMonth)
       setMsg(`${bkMonth} အတွက် လစဉ် backup (${kind === 'xlsx' ? 'Excel' : 'CSV'}) ဒေါင်းလုပ် လုပ်ပြီးပါပြီ`)
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Export မအောင်မြင်ပါ')
+      setMsg(e instanceof Error ? friendlyError(e) : 'Export မအောင်မြင်ပါ')
     }
     setBkBusy(false)
   }
@@ -67,7 +68,7 @@ function BackupCard() {
       setMsg(`${filename} ကို ဒေါင်းလုပ် လုပ်ပြီးပါပြီ — ဖုန်း + Google Drive၊ ၂ နေရာ သိမ်းထားပါ`)
       await load()
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Export မအောင်မြင်ပါ')
+      setMsg(e instanceof Error ? friendlyError(e) : 'Export မအောင်မြင်ပါ')
     }
     setBusy(false)
   }
@@ -138,7 +139,7 @@ function MonthLockCard() {
     const { error } = await supabase
       .from('month_locks')
       .insert({ month: `${month}-01`, locked_by: profile?.id ?? null })
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     await load()
   }
 
@@ -146,7 +147,7 @@ function MonthLockCard() {
     if (!confirm(`${m.slice(0, 7)} ကို lock ပြန်ဖွင့်မှာ သေချာပါသလား?`)) return
     setMsg(null)
     const { error } = await supabase.from('month_locks').delete().eq('month', m)
-    if (error) setMsg(error.message)
+    if (error) setMsg(friendlyError(error))
     await load()
   }
 
@@ -335,7 +336,7 @@ function Dashboard() {
       )
       setMsg(null)
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err))
+      setMsg(friendlyError(err))
     }
     setLoading(false)
   }, [])
@@ -708,7 +709,7 @@ function AgentHome() {
       setLatest(merged.slice(0, 5))
       setMsg(null)
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err))
+      setMsg(friendlyError(err))
     }
     setLoading(false)
   }, [agentId])
