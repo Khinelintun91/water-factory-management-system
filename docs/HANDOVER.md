@@ -76,9 +76,8 @@ service_role key anywhere in the repo). The owner has been asked to make it priv
   a co_owner cannot create accounts. A `user_roles` grant of `co_owner` still
   matches the column type and the owner-only insert policy (`app_role() = 'owner'`).
 - Migrations `0001`–`0042` in `supabase/migrations/`, including `0030`
-  (`0031` is a separate open pull request, not in this branch).
-  `supabase/apply_all.sql` is the regenerated concatenation (0001–0042)
-  used for fresh installs and tests.
+  and `0031`. `supabase/apply_all.sql` is the regenerated concatenation
+  (0001–0042) used for fresh installs and tests.
 
 ## 4. Non-negotiable rules (owner's firm decisions — never weaken silently)
 
@@ -102,7 +101,8 @@ conflicts with one of these, stop and flag it to the owner first.
    does not reopen one. `finalize_closeout` writes one settlement and sets
    `agents.closed_at`; a second call is rejected (`already_closed`). The
    optional settlement note is a note on that settlement, not a reopen reason.
-   Mechanism: `docs/ARCHITECTURE.md` (Close-out).
+   `0031` rejects a direct UPDATE that sets, clears, or changes `closed_at`
+   or `closed_by` outside that function. Mechanism: `docs/ARCHITECTURE.md` (Close-out).
 8. **Words** — bottle word is always **ဗူး**, never ပုလင်း. The classifier လုံး was
    replaced by ဗူး in all bottle contexts (deliberate exceptions: device counts
    like "စက်: N လုံး", and unrelated words like အားလုံး).
@@ -182,7 +182,8 @@ conflicts with one of these, stop and flag it to the owner first.
   isolation + staff phone privacy, login gateway + lockout, last-owner guard,
   0029 outstanding gate with golden values, `pay_month` goldens 320,000 and
   290,000, `finalize_closeout` golden, `0030` co_owner create with a 6-digit
-  PIN plus invalid-role and owner-only checks) plus Vitest unit tests.
+  PIN plus invalid-role and owner-only checks, `0031` direct close-column
+  writes rejected and AgentsPage fields still editable) plus Vitest unit tests.
 - **Before pushing, always** (repo `AGENTS.md` rule):
   `tests/run-sql-tests.sh`, `npm test`, `npm run build` — and show the real output.
 - New UI string ⇒ add its `src/lib/i18nDict.ts` entry in the same commit.

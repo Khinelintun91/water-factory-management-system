@@ -39,7 +39,6 @@ it is ACTIVE_HEALTHY. Do **not** restore over the live project.
 In the new project's SQL Editor, paste the whole of
 `supabase/apply_all.sql` once and Run. It applies migrations 0001–0042 in
 order (payroll, notifications, pg_cron job registrations included).
-`0031` is not in this file.
 
 Drill result: applied cleanly, first try, on PostgreSQL 17.
 
