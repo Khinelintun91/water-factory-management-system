@@ -205,6 +205,9 @@ export default function PaymentsPage() {
         notes: 'ရေပို့မှတ်တမ်းနှင့်အတူ ပေးချေသည်',
         created_by: e.created_by,
         received_by: e.received_by,
+        // Display-only row built FROM this entry, so the entry is its
+        // source (0047 field); the row is never written back.
+        source_entry_id: e.id,
         created_at: e.created_at,
         updated_at: e.updated_at,
         kind: null,
