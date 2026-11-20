@@ -25,14 +25,20 @@ select testkit.assert_true(
 rollback;
 reset role;
 
--- Staff: entries visible (their job), contacts INVISIBLE (SPEC rule 2).
+-- Staff: contacts INVISIBLE (SPEC rule 2). Entries: since 0046 a
+-- staff user reads only rows they created or received; every fixture
+-- entry is unattributed (created_by/received_by NULL), so staff sees
+-- 0 of them — the pre-0046 expectation "staff can read entries (>= 2)"
+-- was the read-all policy this suite's 19_staff_own_visibility.sql
+-- now supersedes with planted, attributed rows.
 begin;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"33333333-3333-4333-8333-333333333333"}', true);
 select testkit.assert_true(
   (select count(*) from agent_contacts) = 0, 'staff sees 0 contact rows');
 select testkit.assert_true(
-  (select count(*) from daily_entries) >= 2, 'staff can read entries');
+  (select count(*) from daily_entries) = 0,
+  'staff sees 0 unattributed fixture entries (0046 own-visibility)');
 rollback;
 reset role;
 
