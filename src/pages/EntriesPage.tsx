@@ -893,7 +893,11 @@ export default function EntriesPage() {
                     {formatMMK(r.amount - r.amount_collected)}
                   </span>
                 </div>
-                {isAgent && r.amount_collected > 0 && directory && receiverName(directory, r) && (
+                {/* Receiver name: staff-plus viewers always see who received/
+                    recorded the entry (rows must not look like the viewer's
+                    own work); agents see it once cash was collected, as
+                    before. */}
+                {directory && receiverName(directory, r) && (!isAgent || r.amount_collected > 0) && (
                   <div className="text-sm text-stone-500 dark:text-neutral-400">
                     လက်ခံသူ: {receiverName(directory, r)}
                   </div>
@@ -939,7 +943,10 @@ export default function EntriesPage() {
                         <td className={`${tdCls} text-right font-semibold`}>{formatMMK(r.amount)}</td>
                         <td className={`${tdCls} text-right`}>
                           {formatMMK(r.amount_collected)}
-                          {isAgent && r.amount_collected > 0 && directory && receiverName(directory, r) && (
+                          {/* Same receiver-name rule as the card list:
+                              always for staff-plus, agents only when cash
+                              was collected. */}
+                          {directory && receiverName(directory, r) && (!isAgent || r.amount_collected > 0) && (
                             <div className="text-xs font-normal opacity-60">
                               လက်ခံသူ: {receiverName(directory, r)}
                             </div>
