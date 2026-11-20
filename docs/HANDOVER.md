@@ -75,9 +75,9 @@ service_role key anywhere in the repo). The owner has been asked to make it priv
   caller must still be an active primary owner (`profiles.role = 'owner'`);
   a co_owner cannot create accounts. A `user_roles` grant of `co_owner` still
   matches the column type and the owner-only insert policy (`app_role() = 'owner'`).
-- Migrations `0001`–`0044` in `supabase/migrations/`, including `0030`
+- Migrations `0001`–`0045` in `supabase/migrations/`, including `0030`
   and `0031`. `supabase/apply_all.sql` is the regenerated concatenation
-  (0001–0044) used for fresh installs and tests.
+  (0001–0045) used for fresh installs and tests.
 
 ## 4. Non-negotiable rules (owner's firm decisions — never weaken silently)
 

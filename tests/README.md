@@ -63,6 +63,7 @@ file prints its own PASS/FAIL line.
 | `15_agent_close_columns.sql` | `0031`: direct set, clear, and change of `closed_at` / `closed_by` rejected for owner, manager, a forged GUC, and the session owner; finalize still succeeds once; AgentsPage fields still update |
 | `16_notifications_realtime.sql` | `0043`: `public.notifications` is a member of the `supabase_realtime` publication after apply_all (the migration creates the publication on plain PostgreSQL, where the platform object is missing); re-running the 0043 block leaves exactly one membership row |
 | `17_om_notify_receiver_name.sql` | `0044`: OM delivery/collection notices name the receiver (`လက်ခံသူ: …`, display_name of `coalesce(received_by, created_by)`); `received_by` wins over the typist; NULL falls back to `created_by`; agent receipts byte-identical to 0041 |
+| `18_edit_own_rows_only.sql` | `0045` Rule A: staff B's update/delete on staff A's same-day entry, payment and expense each affect 0 rows; staff edit/delete their OWN entries/payments; expenses keep OM-only SELECT (no read widening), so staff stay fully blocked there while the own-row clause waits in the update/delete policies; manager/owner edit anyone's; the same-day guard still refuses a yesterday row for the owner; agents still write nothing |
 
 ## How it works
 
