@@ -612,6 +612,8 @@ export const EN: Record<string, string> = {
   "အထူးလုပ်ဆောင်စရာ မတွေ့ပါ": "No special actions found",
 
   // ---- ADDITIONS: this app's pages (not in the old dictionary) ----
+  "ပိတ်ထားသော အကောင့်များ": "Deactivated accounts",
+  "ယောက်": "",
   "ဇန်နဝါရီ": "January",
   "ဖေဖော်ဝါရီ": "February",
   "မတ်": "March",

@@ -47,6 +47,9 @@ type LoginLogRow = {
   created_at: string
 }
 
+/** Display order for the account-list role groups (by primary role). */
+const ROLE_GROUP_ORDER: Role[] = ['owner', 'co_owner', 'manager', 'staff', 'agent']
+
 export default function UsersPage() {
   const { profile: me } = useAuth()
   const [rows, setRows] = useState<Profile[]>([])
@@ -201,6 +204,89 @@ export default function UsersPage() {
     else logGroups.push({ key: k, rows: [r] })
   }
 
+  // Display-only grouping for the account list: active accounts are grouped
+  // by primary role in a fixed order and name-sorted inside each group;
+  // deactivated accounts (profiles.active = false, set by the ပိတ် button)
+  // are pulled out of their role groups into one section at the bottom.
+  const byDisplayName = (a: Profile, b: Profile) =>
+    personName(a).localeCompare(personName(b), 'my')
+  const deactivatedRows = rows.filter((p) => !p.active).sort(byDisplayName)
+  const accountSections: { key: string; label: string; members: Profile[] }[] = [
+    ...ROLE_GROUP_ORDER.map((r) => ({
+      key: r as string,
+      label: ROLE_LABELS[r],
+      members: rows.filter((p) => p.active && p.role === r).sort(byDisplayName),
+    })).filter((s) => s.members.length > 0),
+    ...(deactivatedRows.length > 0
+      ? [{ key: 'deactivated', label: 'ပိတ်ထားသော အကောင့်များ', members: deactivatedRows }]
+      : []),
+  ]
+
+  function renderAccountRow(p: Profile) {
+    const held = new Set<Role>([p.role, ...(extras[p.id] ?? [])])
+    const grantable = (Object.keys(ROLE_LABELS) as Role[]).filter((r) => !held.has(r))
+    return (
+      <li key={p.id} className="p-3.5">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="font-medium">
+              {personName(p)}
+              {!p.active && <span className="ml-2 text-xs text-red-500">ပိတ်ထားသည်</span>}
+            </div>
+            {p.display_name?.trim() && (
+              <div className="text-xs text-stone-500 dark:text-neutral-400">{p.username}</div>
+            )}
+            <div className="text-sm text-stone-500 dark:text-neutral-400">
+              {ROLE_LABELS[p.role]} (အဓိက)
+            </div>
+            <div className="text-sm text-stone-500 dark:text-neutral-400">
+              လစာ: {salaries[p.id] != null ? formatMMK(salaries[p.id]) : '—'}
+            </div>
+          </div>
+          <SecondaryButton size="sm" onClick={() => toggleActive(p)} className="shrink-0">
+            {p.active ? 'ပိတ်' : 'ဖွင့်'}
+          </SecondaryButton>
+        </div>
+        <DisplayNameEditor profile={p} onMsg={showMsg} onChanged={load} />
+        <PinResetEditor profile={p} onMsg={showMsg} onOk={showOk} />
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {(extras[p.id] ?? []).map((r) => (
+            <span
+              key={r}
+              className="inline-flex min-h-[32px] items-center gap-1 rounded-full bg-brand-100 px-2.5 py-0.5 text-xs font-medium text-brand-800 dark:bg-brand-950 dark:text-brand-200"
+            >
+              {ROLE_LABELS[r]}
+              <button
+                onClick={() => revokeRole(p, r)}
+                className="flex h-6 w-6 items-center justify-center rounded-full font-bold text-red-600"
+                aria-label={`${ROLE_LABELS[r]} ဖယ်ရန်`}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          {grantable.length > 0 && (
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                if (e.target.value) void grantRole(p, e.target.value as Role)
+                e.target.value = ''
+              }}
+              className="min-h-[36px] rounded-full border border-stone-300 bg-white px-2.5 py-0.5 text-xs shadow-sm outline-none focus:border-brand-500 dark:border-neutral-700 dark:bg-neutral-900"
+            >
+              <option value="">+ အခန်းကဏ္ဍ ထည့်ရန်</option>
+              {grantable.map((r) => (
+                <option key={r} value={r}>
+                  {ROLE_LABELS[r]}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      </li>
+    )
+  }
+
   return (
     <div className="space-y-4 lg:space-y-6">
       <PageHeader
@@ -275,76 +361,23 @@ export default function UsersPage() {
 
       {loading ? (
         <LoadingState />
-      ) : (
+      ) : rows.length === 0 ? (
         <ul className={`${cardCls} divide-y divide-stone-100 overflow-hidden dark:divide-neutral-800/70`}>
-          {rows.map((p) => {
-            const held = new Set<Role>([p.role, ...(extras[p.id] ?? [])])
-            const grantable = (Object.keys(ROLE_LABELS) as Role[]).filter((r) => !held.has(r))
-            return (
-              <li key={p.id} className="p-3.5">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <div className="font-medium">
-                      {personName(p)}
-                      {!p.active && <span className="ml-2 text-xs text-red-500">ပိတ်ထားသည်</span>}
-                    </div>
-                    {p.display_name?.trim() && (
-                      <div className="text-xs text-stone-500 dark:text-neutral-400">{p.username}</div>
-                    )}
-                    <div className="text-sm text-stone-500 dark:text-neutral-400">
-                      {ROLE_LABELS[p.role]} (အဓိက)
-                    </div>
-                    <div className="text-sm text-stone-500 dark:text-neutral-400">
-                      လစာ: {salaries[p.id] != null ? formatMMK(salaries[p.id]) : '—'}
-                    </div>
-                  </div>
-                  <SecondaryButton size="sm" onClick={() => toggleActive(p)} className="shrink-0">
-                    {p.active ? 'ပိတ်' : 'ဖွင့်'}
-                  </SecondaryButton>
-                </div>
-                <DisplayNameEditor profile={p} onMsg={showMsg} onChanged={load} />
-                <PinResetEditor profile={p} onMsg={showMsg} onOk={showOk} />
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  {(extras[p.id] ?? []).map((r) => (
-                    <span
-                      key={r}
-                      className="inline-flex min-h-[32px] items-center gap-1 rounded-full bg-brand-100 px-2.5 py-0.5 text-xs font-medium text-brand-800 dark:bg-brand-950 dark:text-brand-200"
-                    >
-                      {ROLE_LABELS[r]}
-                      <button
-                        onClick={() => revokeRole(p, r)}
-                        className="flex h-6 w-6 items-center justify-center rounded-full font-bold text-red-600"
-                        aria-label={`${ROLE_LABELS[r]} ဖယ်ရန်`}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                  {grantable.length > 0 && (
-                    <select
-                      defaultValue=""
-                      onChange={(e) => {
-                        if (e.target.value) void grantRole(p, e.target.value as Role)
-                        e.target.value = ''
-                      }}
-                      className="min-h-[36px] rounded-full border border-stone-300 bg-white px-2.5 py-0.5 text-xs shadow-sm outline-none focus:border-brand-500 dark:border-neutral-700 dark:bg-neutral-900"
-                    >
-                      <option value="">+ အခန်းကဏ္ဍ ထည့်ရန်</option>
-                      {grantable.map((r) => (
-                        <option key={r} value={r}>
-                          {ROLE_LABELS[r]}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              </li>
-            )
-          })}
-          {rows.length === 0 && (
-            <li className="p-3.5 text-sm text-stone-500 dark:text-neutral-400">မရှိသေးပါ</li>
-          )}
+          <li className="p-3.5 text-sm text-stone-500 dark:text-neutral-400">မရှိသေးပါ</li>
         </ul>
+      ) : (
+        <div className="space-y-4 lg:space-y-6">
+          {accountSections.map((s) => (
+            <section key={s.key}>
+              <h2 className="mb-2 px-0.5 text-base font-bold">
+                {s.label} · {s.members.length} ယောက်
+              </h2>
+              <ul className={`${cardCls} divide-y divide-stone-100 overflow-hidden dark:divide-neutral-800/70`}>
+                {s.members.map((p) => renderAccountRow(p))}
+              </ul>
+            </section>
+          ))}
+        </div>
       )}
 
       {/* Login history — owner only (this page is already behind the
