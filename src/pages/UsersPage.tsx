@@ -55,6 +55,9 @@ export default function UsersPage() {
   const [rows, setRows] = useState<Profile[]>([])
   const [loginLogs, setLoginLogs] = useState<LoginLogRow[]>([])
   const [logsOpen, setLogsOpen] = useState(false)
+  // Account-list accordion: key of the one expanded role group, or null
+  // when all groups are collapsed (the page-load default).
+  const [openSection, setOpenSection] = useState<string | null>(null)
   const [logFilter, setLogFilter] = useState<'all' | 'ok' | 'fail'>('all')
   const [logShown, setLogShown] = useState(20)
   const [agents, setAgents] = useState<Agent[]>([])
@@ -208,6 +211,9 @@ export default function UsersPage() {
   // by primary role in a fixed order and name-sorted inside each group;
   // deactivated accounts (profiles.active = false, set by the ပိတ် button)
   // are pulled out of their role groups into one section at the bottom.
+  // Each section is a collapsible accordion group (owner request — the
+  // always-expanded list was too long): all groups start collapsed and at
+  // most one is open at a time, tracked by openSection.
   const byDisplayName = (a: Profile, b: Profile) =>
     personName(a).localeCompare(personName(b), 'my')
   const deactivatedRows = rows.filter((p) => !p.active).sort(byDisplayName)
@@ -366,17 +372,47 @@ export default function UsersPage() {
           <li className="p-3.5 text-sm text-stone-500 dark:text-neutral-400">မရှိသေးပါ</li>
         </ul>
       ) : (
-        <div className="space-y-4 lg:space-y-6">
-          {accountSections.map((s) => (
-            <section key={s.key}>
-              <h2 className="mb-2 px-0.5 text-base font-bold">
-                {s.label} · {s.members.length} ယောက်
-              </h2>
-              <ul className={`${cardCls} divide-y divide-stone-100 overflow-hidden dark:divide-neutral-800/70`}>
-                {s.members.map((p) => renderAccountRow(p))}
-              </ul>
-            </section>
-          ))}
+        <div className="space-y-3 lg:space-y-4">
+          {accountSections.map((s) => {
+            const open = openSection === s.key
+            return (
+              <section key={s.key}>
+                <button
+                  type="button"
+                  onClick={() => setOpenSection(open ? null : s.key)}
+                  aria-expanded={open}
+                  className={`${cardCls} flex w-full items-center justify-between gap-2 px-3.5 py-3 text-left`}
+                >
+                  <span className="text-base font-bold">
+                    {s.label} · {s.members.length} ယောက်
+                  </span>
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className={`h-5 w-5 shrink-0 opacity-70 transition-transform ${open ? 'rotate-180' : ''}`}
+                    aria-hidden="true"
+                  >
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
+                <div
+                  className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${open ? '[grid-template-rows:1fr]' : '[grid-template-rows:0fr]'}`}
+                >
+                  <div className="min-h-0 overflow-hidden">
+                    <ul
+                      className={`${cardCls} mt-2 divide-y divide-stone-100 overflow-hidden dark:divide-neutral-800/70`}
+                    >
+                      {s.members.map((p) => renderAccountRow(p))}
+                    </ul>
+                  </div>
+                </div>
+              </section>
+            )
+          })}
         </div>
       )}
 
