@@ -61,6 +61,7 @@ file prints its own PASS/FAIL line.
 | `10_api_gap_fixes.sql` | 0032–0038: archive instead of delete, money-setting month lock + audit, settlement insert closed, owner-only PIN reset, login lockout abuse brake, pinned search_path, definer grants |
 | `14_admin_create_co_owner.sql` | `0030`: owner creates `co_owner` with a 6-digit PIN; 5-digit and 13-digit PINs rejected; `employee` and `primary_agent` rejected; owner/manager stay at 6 and staff at 4; co-owner, manager, staff, and anon cannot create accounts |
 | `15_agent_close_columns.sql` | `0031`: direct set, clear, and change of `closed_at` / `closed_by` rejected for owner, manager, a forged GUC, and the session owner; finalize still succeeds once; AgentsPage fields still update |
+| `16_notifications_realtime.sql` | `0043`: `public.notifications` is a member of the `supabase_realtime` publication after apply_all (the migration creates the publication on plain PostgreSQL, where the platform object is missing); re-running the 0043 block leaves exactly one membership row |
 
 ## How it works
 

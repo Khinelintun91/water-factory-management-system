@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
 
 // In-app notification bell. Rows are created by DB triggers (migration
 // 0011); the client only reads them and marks them read (RLS: own rows
-// only). No Realtime setup exists in this codebase, so freshness is a
-// 30-second poll, mirroring the old app's refetchInterval.
+// only). Freshness is instant while the app is open: migration 0043
+// publishes the table to Supabase Realtime, so an INSERT/UPDATE on the
+// signed-in user's own rows triggers a reload the moment it happens.
+// A refetch on visibility/focus covers returning to a backgrounded tab
+// (phone browsers suspend timers and sockets), and the old 30-second
+// poll stays as a fallback, mirroring the old app's refetchInterval.
 
 interface NotificationRow {
   id: string
@@ -63,6 +68,8 @@ function formatWhen(iso: string): string {
 
 export default function NotificationBell() {
   const navigate = useNavigate()
+  const { session } = useAuth()
+  const userId = session?.user.id
   const [open, setOpen] = useState(false)
   const [rows, setRows] = useState<NotificationRow[]>([])
   const [unread, setUnread] = useState(0)
@@ -87,8 +94,54 @@ export default function NotificationBell() {
   useEffect(() => {
     load()
     const t = setInterval(load, 30000)
-    return () => clearInterval(t)
+    // Coming back to the app (tab visible again / window refocused) may
+    // have missed events while the browser suspended us — reload at once
+    // instead of waiting for the next poll tick.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') load()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', load)
+    return () => {
+      clearInterval(t)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', load)
+    }
   }, [load])
+
+  // Instant delivery: Realtime streams changes to this user's own
+  // notification rows (the filter narrows the subscription; RLS is what
+  // enforces it server-side). Any event just runs the same reload as
+  // the poll, so the badge and list can never drift from the table.
+  useEffect(() => {
+    if (!userId) return
+    const channel = supabase
+      .channel(`notifications:${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${userId}`,
+        },
+        () => load(),
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${userId}`,
+        },
+        () => load(),
+      )
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [userId, load])
 
   // Close on outside click / Escape.
   useEffect(() => {
