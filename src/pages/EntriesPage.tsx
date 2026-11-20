@@ -24,6 +24,7 @@ import {
   receiverName,
   type StaffDirectory,
 } from '../lib/staffDirectory'
+import { allocateCash, editBaseOutstanding } from '../lib/cashAllocation'
 import {
   Banner,
   DangerButton,
@@ -115,10 +116,13 @@ export default function EntriesPage() {
   const [delivered, setDelivered] = useState('')
   const [returned, setReturned] = useState('')
   const [cash, setCash] = useState('')
-  // Optional: money the agent pays toward OLD debt during this same visit.
-  // On save it becomes a separate agent_payments row (kind 'old_debt'),
-  // never part of this entry's amount/amount_collected.
-  const [oldDebt, setOldDebt] = useState('')
+  // The selected agent's CURRENT balance (agent_outstanding RPC), shown
+  // in the form and used to preview the cash split. null = not loaded
+  // yet (or the RPC failed); the save path re-reads it fresh, so a
+  // stale preview can never mis-store money. balanceTick forces a
+  // re-read after each save (the agent stays selected across saves).
+  const [agentBalance, setAgentBalance] = useState<number | null>(null)
+  const [balanceTick, setBalanceTick] = useState(0)
   // Who physically received this visit's cash (0041). '' means "me" —
   // the current user is the default receiver and is sent explicitly.
   const [receivedBy, setReceivedBy] = useState('')
@@ -143,6 +147,11 @@ export default function EntriesPage() {
   const [eCash, setECash] = useState('')
   const [eNotes, setENotes] = useState('')
   const [eReason, setEReason] = useState('')
+  // Sum of the payments the entry being edited spawned (0047 link),
+  // fetched when the editor opens. The edit cash field shows the entry's
+  // amount_collected PLUS this sum — all the cash of that visit — and
+  // saving re-runs the allocation and rewrites the linked rows.
+  const [editLinkedSum, setEditLinkedSum] = useState(0)
 
   const agentName = useMemo(() => {
     const m = new Map(agents.map((a) => [a.id, a.name]))
@@ -183,6 +192,23 @@ export default function EntriesPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Keep the selected agent's balance current for the form's info line
+  // and the cash-split preview.
+  useEffect(() => {
+    if (!agentId) {
+      setAgentBalance(null)
+      return
+    }
+    let cancelled = false
+    supabase.rpc('agent_outstanding', { p_agent: agentId }).then(({ data, error }) => {
+      if (cancelled) return
+      setAgentBalance(!error && typeof data === 'number' ? data : null)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [agentId, balanceTick])
 
   // Flush queued entries in order. An entry rejected by the DB same-day
   // insert guard (queued before midnight, flushed after) can NEVER succeed,
@@ -265,8 +291,13 @@ export default function EntriesPage() {
   const qty = Number(delivered) || 0
   const due = qty * price
   const cashNum = Number(cash) || 0
-  const remaining = due - cashNum
-  const oldDebtNum = Number(oldDebt) || 0
+  // How the ONE cash figure will split (lib/cashAllocation): this entry
+  // first, then old debt, then overpayment. Previewed against the
+  // balance loaded for the form; the save re-reads the balance fresh
+  // and re-runs the same split, so the stored split uses live numbers.
+  const outstandingBefore = agentBalance ?? 0
+  const alloc = allocateCash(cashNum, due, outstandingBefore)
+  const totalDue = due + Math.max(outstandingBefore, 0)
 
   // Rows arrive already scoped to the selected month (see load()).
   // visibleRows is the FULL set (summaries/counts use it); displayRows is
@@ -295,6 +326,12 @@ export default function EntriesPage() {
     setBusy(true)
     setMsg(null)
     // unit_price and amount are computed by the server — do not send them.
+    // The payload carries the FULL cash figure: it is what the offline
+    // queue stores, and a queued entry replays with the whole amount on
+    // the entry itself (the queue never spawns payments — see below).
+    // The online insert below overrides amount_collected with the
+    // allocation's toToday part, because the rest of the cash lands as
+    // linked payment rows instead.
     const payload: EntryInsert = {
       entry_date: isOwner ? entryDate || todayYangon() : todayYangon(),
       agent_id: agentId,
@@ -306,24 +343,34 @@ export default function EntriesPage() {
       received_by: receivedBy || profile?.id || null,
     }
     // Offline right now: queue the exact payload instead of losing the form.
-    // The queue stores daily_entries payloads only (lib/offlineQueue), so a
-    // ကြွေးကောက် amount cannot ride along safely — it is excluded from
-    // queued submissions and afterQueued tells the user to record it
-    // separately on the Payments page once reconnected.
     if (!navigator.onLine) {
       enqueue(payload)
       afterQueued()
       return
     }
+    // Read the agent's balance FRESH so the split is computed from live
+    // numbers, not the form's possibly stale preview value. If the read
+    // fails, fall back to the preview value: the agent's resulting
+    // balance is exact either way (only the part labels could shift).
+    let freshBefore = outstandingBefore
+    try {
+      const { data, error } = await supabase.rpc('agent_outstanding', {
+        p_agent: agentId,
+      })
+      if (!error && typeof data === 'number') freshBefore = data
+    } catch {
+      /* keep the preview value */
+    }
+    const split = allocateCash(cashNum, due, freshBefore)
     let failure: unknown = null
     let newEntryId: string | null = null
     try {
       // .select('id') reads the new row's id back (the row is always
       // visible to its creator under the 0046 select policy) so the
-      // old-debt payment below can link to this entry (0047).
+      // spawned payments below can link to this entry (0047).
       const { data, error } = await supabase
         .from('daily_entries')
-        .insert(payload)
+        .insert({ ...payload, amount_collected: split.toToday })
         .select('id')
         .single()
       failure = error
@@ -332,7 +379,8 @@ export default function EntriesPage() {
       failure = err
     }
     if (failure) {
-      // Connection dropped mid-save: queue it, same as the offline path.
+      // Connection dropped mid-save: queue the FULL-cash payload, same
+      // as the offline path — nothing was stored, so nothing is lost.
       if (isNetworkError(failure)) {
         enqueue(payload)
         afterQueued()
@@ -343,33 +391,49 @@ export default function EntriesPage() {
       setBusy(false)
       return
     }
-    // Entry saved. A ကြွေးကောက် amount typed with this visit is money
-    // toward the agent's OLD debt, so it lands as its own payments row
-    // (kind 'old_debt') for the same agent and day — the entry's own
-    // amount/amount_collected are untouched. If this second write fails,
-    // say so plainly (entry kept, collection missing) in the AgentsPage
-    // partial-failure style instead of pretending a full success.
+    // Entry saved. The rest of the visit's cash lands as linked payment
+    // rows for the same agent and day: the old-debt part as kind
+    // 'old_debt', any overpayment as kind 'regular'. Both carry
+    // source_entry_id (0047), so deleting the entry cascades them away
+    // and editing the entry can find and rewrite them. They are real
+    // agent_payments rows, so the usual payment notifications fire for
+    // them exactly as they did for the old flow's spawned row. If one
+    // of these writes fails, say so plainly (entry kept, that part
+    // missing) in the AgentsPage partial-failure style instead of
+    // pretending a full success.
+    const spawns: { amount: number; kind: 'old_debt' | 'regular'; notes: string; label: string }[] = []
+    if (split.toOld > 0) {
+      spawns.push({
+        amount: split.toOld,
+        kind: 'old_debt',
+        notes: 'ရေပို့မှတ်တမ်းနှင့်အတူ ပေးချေသည်',
+        label: 'ကြွေးကောက်ငွေ',
+      })
+    }
+    if (split.advance > 0) {
+      spawns.push({
+        amount: split.advance,
+        kind: 'regular',
+        notes: 'ရေပို့မှတ်တမ်းနှင့်အတူ ပိုပေးငွေ',
+        label: 'ပိုပေးငွေ',
+      })
+    }
     let partialMsg: string | null = null
-    if (oldDebtNum > 0) {
+    for (const s of spawns) {
       let pFailure: unknown = null
       try {
         const { error } = await supabase.from('agent_payments').insert({
           payment_date: payload.entry_date,
           agent_id: agentId,
           agent_name: selectedAgent?.name ?? null,
-          amount: oldDebtNum,
+          amount: s.amount,
           method: 'cash',
-          kind: 'old_debt',
-          notes: 'ရေပို့မှတ်တမ်းနှင့်အတူ ပေးချေသည်',
+          kind: s.kind,
+          notes: s.notes,
           created_by: profile?.id ?? null,
-          // Same visit, same hands: the old-debt cash was received by
-          // the same person as the entry's own cash.
+          // Same visit, same hands: this cash was received by the same
+          // person as the entry's own cash.
           received_by: receivedBy || profile?.id || null,
-          // Link to the spawning entry (0047): the FK cascade deletes
-          // this payment when the entry is deleted, so it can never
-          // outlive its entry as phantom received cash. (The offline
-          // queue never spawns this payment — see doInsert's queue
-          // comment — so the online path is the only one to wire.)
           source_entry_id: newEntryId,
         })
         pFailure = error
@@ -377,54 +441,68 @@ export default function EntriesPage() {
         pFailure = err
       }
       if (pFailure) {
-        partialMsg = `ရေပို့မှတ်တမ် သိမ်းပြီးပါပြီ၊ ကြွေးကောက်ငွေ သိမ်း၍ မရပါ: ${friendlyError(pFailure)}`
+        partialMsg = `ရေပို့မှတ်တမ် သိမ်းပြီးပါပြီ၊ ${s.label} သိမ်း၍ မရပါ: ${friendlyError(pFailure)}`
+        break
       }
     }
     setDelivered('')
     setReturned('')
     setCash('')
-    setOldDebt('')
     setReceivedBy('')
     setNotes('')
     setEntryDate(todayYangon())
     setConfirming(false)
+    setBalanceTick((t) => t + 1)
     await load()
     if (partialMsg) setMsg(partialMsg)
     setBusy(false)
   }
 
   // Shared tail for "saved to the offline queue": clear the form and tell
-  // the user it will upload itself when the connection returns. A
-  // ကြွေးကောက် amount never enters the queue (the queue holds entry
-  // payloads only), so when one was typed the message says it was NOT
-  // saved and must be recorded separately after reconnecting.
+  // the user it will upload itself when the connection returns. The
+  // queued payload carries the visit's FULL cash as the entry's
+  // amount_collected (the queue holds entry payloads only and never
+  // spawns payments), so a replayed entry keeps the whole amount on the
+  // entry itself — the agent's balance stays exact, just unsplit.
   function afterQueued() {
-    const hadOldDebt = oldDebtNum > 0
     setDelivered('')
     setReturned('')
     setCash('')
-    setOldDebt('')
     setReceivedBy('')
     setNotes('')
     setEntryDate(todayYangon())
     setConfirming(false)
     setQueued(queueCount())
-    setMsg(
-      hadOldDebt
-        ? 'အင်တာနက် မရှိသေးလို့ ရေပို့မှတ်တမ်းကို သိမ်းထားပါတယ် — ပြန်ချိတ်ရင် အလိုအလျောက် တင်ပေးပါမယ်။ ကြွေးကောက်ငွေ ကိုတော့ မသိမ်းရသေးပါ — ပြန်ချိတ်ပြီးရင် ငွေကောက်ခံမှုများ စာမျက်နှာမှာ သီးခြား မှတ်ပေးပါ'
-        : 'အင်တာနက် မရှိသေးလို့ သိမ်းထားပါတယ် — ပြန်ချိတ်ရင် အလိုအလျောက် တင်ပေးပါမယ်',
-    )
+    setMsg('အင်တာနက် မရှိသေးလို့ သိမ်းထားပါတယ် — ပြန်ချိတ်ရင် အလိုအလျောက် တင်ပေးပါမယ်')
     setBusy(false)
   }
 
-  function startEdit(row: EntryRow) {
+  async function startEdit(row: EntryRow) {
     setConfirmId(null)
     setDeleteReason('')
     setMsg(null)
+    // The edit cash field must show ALL the cash of the visit: the
+    // entry's own amount_collected plus the payments it spawned (0047
+    // link). Without the linked sum, saving would silently shrink the
+    // visit's cash to the entry part alone — so if the linked rows
+    // cannot be read, the editor does not open at all.
+    let linkedSum = 0
+    if (row.agent_id) {
+      const { data, error } = await supabase
+        .from('agent_payments')
+        .select('amount')
+        .eq('source_entry_id', row.id)
+      if (error) {
+        setMsg(friendlyError(error))
+        return
+      }
+      linkedSum = (data ?? []).reduce((s, p) => s + Number(p.amount), 0)
+    }
+    setEditLinkedSum(linkedSum)
     setEditId(row.id)
     setEDelivered(String(row.delivered_qty))
     setEReturned(String(row.returned_qty))
-    setECash(String(row.amount_collected))
+    setECash(String(row.amount_collected + linkedSum))
     setENotes(row.notes ?? '')
     setEReason('')
   }
@@ -442,13 +520,49 @@ export default function EntriesPage() {
     }
     setBusy(true)
     setMsg(null)
+    const newQty = Number(eDelivered) || 0
+    const newCash = Number(eCash) || 0
+    // Re-run the allocation over the visit's full cash. The base is the
+    // agent's balance as if this entry and its spawned payments did not
+    // exist (editBaseOutstanding), read fresh; the new entry amount
+    // mirrors the server's recompute (qty x the row's snapshot price).
+    // Rows without an agent (deleted agent) cannot hold payments, so
+    // they keep the plain single-row update.
+    let newCollected = newCash
+    let split: ReturnType<typeof allocateCash> | null = null
+    if (row.agent_id) {
+      let outstandingNow: number | null = null
+      try {
+        const { data, error } = await supabase.rpc('agent_outstanding', {
+          p_agent: row.agent_id,
+        })
+        if (!error && typeof data === 'number') outstandingNow = data
+      } catch {
+        /* handled below */
+      }
+      if (outstandingNow === null) {
+        // Without the live balance the split cannot be recomputed
+        // safely; refuse rather than guess with money.
+        setMsg('ကိုယ်စားလှယ်၏ ကြွေးကျန် ဖတ်၍ မရပါ — ခဏနေ ပြန်ကြိုးစားပါ')
+        setBusy(false)
+        return
+      }
+      const base = editBaseOutstanding(
+        outstandingNow,
+        row.amount,
+        row.amount_collected,
+        editLinkedSum,
+      )
+      split = allocateCash(newCash, newQty * row.unit_price, base)
+      newCollected = split.toToday
+    }
     // Server recomputes amount from qty x the row's snapshot price.
     const { error } = await supabase
       .from('daily_entries')
       .update({
-        delivered_qty: Number(eDelivered) || 0,
+        delivered_qty: newQty,
         returned_qty: Number(eReturned) || 0,
-        amount_collected: Number(eCash) || 0,
+        amount_collected: newCollected,
         notes: eNotes.trim() || null,
         change_reason: reason,
       })
@@ -458,7 +572,67 @@ export default function EntriesPage() {
       setBusy(false)
       return
     }
+    // Entry updated. Rewrite its spawned payments to the new split:
+    // delete the linked rows, then insert the new parts. (Deleting the
+    // entry itself would cascade them away — 0047 — but an edit keeps
+    // the entry, so the rewrite is explicit.) A failure here leaves the
+    // entry saved with a stale split; say so plainly.
+    if (split && row.agent_id) {
+      const { error: delError } = await supabase
+        .from('agent_payments')
+        .delete()
+        .eq('source_entry_id', row.id)
+      if (delError) {
+        setMsg(`မှတ်တမ် ပြင်ပြီးပါပြီ၊ တွဲထားသော ငွေသွင်းမှတ်တမ်းများ ပြင်ရ၍ မရပါ: ${friendlyError(delError)}`)
+        setEditId(null)
+        await load()
+        setBusy(false)
+        return
+      }
+      const spawns: { amount: number; kind: 'old_debt' | 'regular'; notes: string; label: string }[] = []
+      if (split.toOld > 0) {
+        spawns.push({
+          amount: split.toOld,
+          kind: 'old_debt',
+          notes: 'ရေပို့မှတ်တမ်းနှင့်အတူ ပေးချေသည်',
+          label: 'ကြွေးကောက်ငွေ',
+        })
+      }
+      if (split.advance > 0) {
+        spawns.push({
+          amount: split.advance,
+          kind: 'regular',
+          notes: 'ရေပို့မှတ်တမ်းနှင့်အတူ ပိုပေးငွေ',
+          label: 'ပိုပေးငွေ',
+        })
+      }
+      for (const s of spawns) {
+        const { error: insError } = await supabase.from('agent_payments').insert({
+          payment_date: row.entry_date,
+          agent_id: row.agent_id,
+          agent_name: row.agent_name,
+          amount: s.amount,
+          method: 'cash',
+          kind: s.kind,
+          notes: s.notes,
+          created_by: profile?.id ?? null,
+          // The cash changed hands with the entry's receiver, not
+          // necessarily with whoever is editing now.
+          received_by: row.received_by ?? row.created_by ?? null,
+          source_entry_id: row.id,
+        })
+        if (insError) {
+          setMsg(`မှတ်တမ် ပြင်ပြီးပါပြီ၊ ${s.label} ပြန်သိမ်း၍ မရပါ: ${friendlyError(insError)}`)
+          setEditId(null)
+          await load()
+          setBusy(false)
+          return
+        }
+      }
+    }
     setEditId(null)
+    setEditLinkedSum(0)
+    setBalanceTick((t) => t + 1)
     await load()
     setBusy(false)
   }
@@ -675,6 +849,16 @@ export default function EntriesPage() {
                 </option>
               ))}
             </select>
+            {agentBalance !== null && agentBalance > 0 && (
+              <span className="mt-1 block text-xs font-medium text-red-600 dark:text-red-400">
+                ကြွေးဟောင်း: {formatMMK(agentBalance)} ရှိပါတယ်
+              </span>
+            )}
+            {agentBalance !== null && agentBalance < 0 && (
+              <span className="mt-1 block text-xs font-medium">
+                ပိုပေးထားငွေ: {formatMMK(-agentBalance)} ရှိပါတယ်
+              </span>
+            )}
           </Field>
           <Field label="လက်ခံသူ">
             <select
@@ -734,21 +918,6 @@ export default function EntriesPage() {
               </div>
             </Field>
           </div>
-          <Field label="ကြွေးကောက်ငွေ (ကျပ်)">
-            <input
-              value={oldDebt}
-              onChange={(e) => {
-                setOldDebt(e.target.value.replace(/\D/g, ''))
-                setConfirming(false)
-              }}
-              inputMode="numeric"
-              placeholder="0"
-              className={inputCls}
-            />
-            <span className="mt-1 block text-xs opacity-60">
-              ကြွေးကောက်ငွေသည် ကြွေးကျန်မှ နုတ်မည်
-            </span>
-          </Field>
           <input
             value={notes}
             onChange={(e) => {
@@ -760,8 +929,17 @@ export default function EntriesPage() {
           />
           {qty > 0 && (
             <p className="rounded-xl bg-brand-50 px-3.5 py-2.5 text-sm dark:bg-brand-950/40">
-              ပေးရန် စုစုပေါင်း: {formatMMK(due)} · လက်ခံရရှိငွေ: {formatMMK(cashNum)} ·
-              ကျန်ကြွေး: {formatMMK(remaining)}
+              ပေးရန် စုစုပေါင်း: {formatMMK(totalDue)} · လက်ခံရရှိငွေ: {formatMMK(cashNum)}
+              {agentBalance !== null && (
+                <>
+                  {' · '}
+                  {alloc.resultingBalance > 0
+                    ? `ကျန်ပေးရန် ${formatMMK(alloc.resultingBalance)} ကျန်ပါမယ်`
+                    : alloc.resultingBalance < 0
+                      ? `ပိုပေးထားငွေ ${formatMMK(-alloc.resultingBalance)} ဖြစ်ပါမယ်`
+                      : 'အားလုံး ရှင်းပြီးပါပြီ'}
+                </>
+              )}
             </p>
           )}
           {msg && (
@@ -807,29 +985,44 @@ export default function EntriesPage() {
                   <dd className="font-medium tabular-nums">{formatMMK(price)}</dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
-                  <dt className="opacity-70">ပေးရန် စုစုပေါင်း</dt>
-                  <dd className="font-bold tabular-nums">{formatMMK(due)}</dd>
+                  <dt className="opacity-70">
+                    {outstandingBefore > 0
+                      ? 'ပေးရန် စုစုပေါင်း (ဒီနေ့ ရေဖိုး + ကြွေးဟောင်း)'
+                      : 'ပေးရန် စုစုပေါင်း'}
+                  </dt>
+                  <dd className="font-bold tabular-nums">{formatMMK(totalDue)}</dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="opacity-70">လက်ခံရရှိငွေ (ကျပ်)</dt>
                   <dd className="font-medium tabular-nums">{formatMMK(cashNum)}</dd>
                 </div>
-                {oldDebtNum > 0 && (
-                  <div className="flex items-baseline justify-between gap-3">
-                    <dt className="opacity-70">ကြွေးကောက်ငွေ (ကျပ်)</dt>
-                    <dd className="font-medium tabular-nums">{formatMMK(oldDebtNum)}</dd>
-                  </div>
-                )}
-                <div className="flex items-baseline justify-between gap-3">
-                  <dt className="opacity-70">ကျန်ကြွေး</dt>
-                  <dd className={`font-bold tabular-nums ${remaining > 0 ? 'text-red-600 dark:text-red-400' : ''}`}>
-                    {formatMMK(remaining)}
-                  </dd>
-                </div>
               </dl>
-              {cashNum === 0 && due > 0 && (
+              {/* The split, in plain sentences: how the one cash figure
+                  settles today / old debt / overpayment, and the balance
+                  the agent is left with. Only parts that occur are shown. */}
+              {alloc.toToday > 0 && (
+                <p>ဒီနေ့ ရေဖိုး {formatMMK(alloc.toToday)} ရှင်းပါမယ်</p>
+              )}
+              {alloc.toOld > 0 && (
+                <p>ကြွေးဟောင်း {formatMMK(alloc.toOld)} ရှင်းပါမယ်</p>
+              )}
+              {alloc.advance > 0 && (
+                <p>ပိုပေးငွေ {formatMMK(alloc.advance)} ကျန်ပါမယ်</p>
+              )}
+              <p
+                className={`font-bold ${
+                  alloc.resultingBalance > 0 ? 'text-red-600 dark:text-red-400' : ''
+                }`}
+              >
+                {alloc.resultingBalance > 0
+                  ? `ကျန်ပေးရန် ${formatMMK(alloc.resultingBalance)} ကျန်ပါမယ်`
+                  : alloc.resultingBalance < 0
+                    ? `ပိုပေးထားငွေ ${formatMMK(-alloc.resultingBalance)} ဖြစ်ပါမယ်`
+                    : 'အားလုံး ရှင်းပြီးပါပြီ'}
+              </p>
+              {cashNum === 0 && totalDue > 0 && (
                 <p className="font-semibold text-red-600">
-                  သတိ: ငွေ လုံးဝ မကောက်ရသေးပါ — {formatMMK(due)} အပြည့် ကြွေး အဖြစ်
+                  သတိ: ငွေ လုံးဝ မကောက်ရသေးပါ — {formatMMK(totalDue)} အပြည့် ကြွေး အဖြစ်
                   ကျန်ပါမည်
                 </p>
               )}
