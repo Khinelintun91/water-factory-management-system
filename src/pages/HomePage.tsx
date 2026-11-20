@@ -501,7 +501,11 @@ function Dashboard() {
             </p>
           ) : (
             <>
-          {/* Phone: one card per employee. */}
+          {/* Phone: one card per employee — stat grid in the Agent
+              Detail StatCard arrangement (small label above, large value
+              below) so a label never shares a line with its value: the
+              old label-left/value-right rows wrapped Burmese labels
+              mid-word and dropped units onto their own lines. */}
           <div className="mt-3 space-y-2.5 md:hidden">
             {empRows.map((r) => (
               <div
@@ -509,32 +513,32 @@ function Dashboard() {
                 className="rounded-xl border border-stone-200/80 p-3 dark:border-neutral-800"
               >
                 <div className="font-semibold">{r.name}</div>
-                <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <dt className="text-stone-500 dark:text-neutral-400">ပို့အရေအတွက်</dt>
-                    <dd className="tabular-nums">{r.trips}</dd>
+                <dl className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-3">
+                  <div>
+                    <dt className="text-xs font-medium text-stone-500 dark:text-neutral-400">ပို့အရေအတွက်</dt>
+                    <dd className="mt-0.5 text-lg font-semibold tabular-nums">{r.trips}</dd>
                   </div>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <dt className="text-stone-500 dark:text-neutral-400">ပို့</dt>
-                    <dd className="tabular-nums">{r.out}</dd>
+                  <div>
+                    <dt className="text-xs font-medium text-stone-500 dark:text-neutral-400">ပို့</dt>
+                    <dd className="mt-0.5 text-lg font-semibold tabular-nums">{r.out}</dd>
                   </div>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <dt className="text-stone-500 dark:text-neutral-400">ပြန်</dt>
-                    <dd className="tabular-nums">{r.in}</dd>
+                  <div>
+                    <dt className="text-xs font-medium text-stone-500 dark:text-neutral-400">ပြန်</dt>
+                    <dd className="mt-0.5 text-lg font-semibold tabular-nums">{r.in}</dd>
                   </div>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <dt className="text-stone-500 dark:text-neutral-400">လက်ခံငွေ</dt>
-                    <dd className="tabular-nums">{formatMMK(r.cash)}</dd>
+                  <div>
+                    <dt className="text-xs font-medium text-stone-500 dark:text-neutral-400">လက်ခံငွေ</dt>
+                    <dd className="mt-0.5 text-lg font-semibold tabular-nums">{formatMMK(r.cash)}</dd>
                   </div>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <dt className="text-stone-500 dark:text-neutral-400">ကျန်ကြွေး</dt>
-                    <dd className={`tabular-nums ${r.debt > 0 ? 'font-semibold text-red-600 dark:text-red-400' : ''}`}>
+                  <div>
+                    <dt className="text-xs font-medium text-stone-500 dark:text-neutral-400">ကျန်ကြွေး</dt>
+                    <dd className={`mt-0.5 text-lg font-semibold tabular-nums ${r.debt > 0 ? 'text-red-600 dark:text-red-400' : ''}`}>
                       {formatMMK(r.debt)}
                     </dd>
                   </div>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <dt className="text-stone-500 dark:text-neutral-400">ကောက်ခံငွေ</dt>
-                    <dd className="tabular-nums">{formatMMK(r.payments)}</dd>
+                  <div>
+                    <dt className="text-xs font-medium text-stone-500 dark:text-neutral-400">ကောက်ခံငွေ</dt>
+                    <dd className="mt-0.5 text-lg font-semibold tabular-nums">{formatMMK(r.payments)}</dd>
                   </div>
                 </dl>
               </div>
