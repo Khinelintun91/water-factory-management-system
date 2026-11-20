@@ -1220,5 +1220,8 @@ export const EN: Record<string, string> = {
   "အားလုံး ရှင်းပြီးပါပြီ": "Everything is settled",
   "ကျန်ပေးရန်": "Still to pay",
   "ရှိပါတယ်": "outstanding",
+  "သိမ်းပြီးရင်": "After saving",
+  "ကြွေးဟောင်း အကုန် ရှင်းပါမယ်": "the old debt will be fully settled",
+  "ကြွေးဟောင်း ရှင်းပြီး": "the old debt settled,",
   "ကိုယ်စားလှယ်၏ ကြွေးကျန် ဖတ်၍ မရပါ — ခဏနေ ပြန်ကြိုးစားပါ": "Could not read the agent's balance — please try again shortly",
 };

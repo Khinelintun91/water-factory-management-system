@@ -42,6 +42,36 @@ export function allocateCash(
   }
 }
 
+export interface StandalonePaymentSplit {
+  /** Part covering pre-existing debt; stored as an 'old_debt' payment. */
+  debtPart: number
+  /** The remainder; stored as a 'regular' payment (advance/overpayment). */
+  restPart: number
+  /** Agent balance after this save: > 0 still owed, < 0 overpaid. */
+  resultingBalance: number
+}
+
+/**
+ * Split for the Payments page's standalone collection (no delivery in
+ * the same visit, so there is no "today" part): the staff member types
+ * ONE amount and the app labels it — debt first, the rest is a regular
+ * payment. Mirrors allocateCash's debt → overpayment order; as there,
+ * the split only LABELS parts of the cash: the resulting balance is
+ * always outstandingBefore − amount, whatever the split.
+ */
+export function splitStandalonePayment(
+  amount: number,
+  outstandingBefore: number,
+): StandalonePaymentSplit {
+  const a = Math.max(0, amount)
+  const debtPart = Math.min(a, Math.max(outstandingBefore, 0))
+  return {
+    debtPart,
+    restPart: a - debtPart,
+    resultingBalance: outstandingBefore - a,
+  }
+}
+
 /**
  * The base an EDIT allocates against: the agent's outstanding as if the
  * entry being edited and the payments it spawned did not exist.

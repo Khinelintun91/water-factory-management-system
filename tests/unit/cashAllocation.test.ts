@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { allocateCash, editBaseOutstanding } from '../../src/lib/cashAllocation'
+import {
+  allocateCash,
+  editBaseOutstanding,
+  splitStandalonePayment,
+} from '../../src/lib/cashAllocation'
 
 // The entry form takes ONE cash figure; allocateCash labels its parts
 // (today → old debt → overpayment). The split never moves the balance:
@@ -92,6 +96,65 @@ describe('allocateCash', () => {
       toOld: 0,
       advance: 15000,
       resultingBalance: -65000,
+    })
+  })
+})
+
+// The Payments form takes ONE amount for a standalone collection (no
+// delivery in the same visit); splitStandalonePayment labels its parts
+// (old debt → regular). The split never moves the balance:
+// resultingBalance is always outstandingBefore − amount.
+describe('splitStandalonePayment', () => {
+  it('amount < debt: everything is old-debt collection, the rest stays owed', () => {
+    expect(splitStandalonePayment(50000, 200000)).toEqual({
+      debtPart: 50000,
+      restPart: 0,
+      resultingBalance: 150000,
+    })
+  })
+
+  it('amount = debt exactly: all old debt, balance exactly zero', () => {
+    expect(splitStandalonePayment(200000, 200000)).toEqual({
+      debtPart: 200000,
+      restPart: 0,
+      resultingBalance: 0,
+    })
+  })
+
+  it('amount > debt: debt part capped at the debt, the excess is regular', () => {
+    expect(splitStandalonePayment(320000, 200000)).toEqual({
+      debtPart: 200000,
+      restPart: 120000,
+      resultingBalance: -120000,
+    })
+  })
+
+  it('no debt: the whole amount is a regular payment (pure overpayment)', () => {
+    expect(splitStandalonePayment(100000, 0)).toEqual({
+      debtPart: 0,
+      restPart: 100000,
+      resultingBalance: -100000,
+    })
+  })
+
+  it('prior credit (outstandingBefore < 0): no debt part, credit grows by the amount', () => {
+    expect(splitStandalonePayment(30000, -50000)).toEqual({
+      debtPart: 0,
+      restPart: 30000,
+      resultingBalance: -80000,
+    })
+  })
+
+  it('amount = 0: no parts, balance unchanged', () => {
+    expect(splitStandalonePayment(0, 200000)).toEqual({
+      debtPart: 0,
+      restPart: 0,
+      resultingBalance: 200000,
+    })
+    expect(splitStandalonePayment(0, 0)).toEqual({
+      debtPart: 0,
+      restPart: 0,
+      resultingBalance: 0,
     })
   })
 })
