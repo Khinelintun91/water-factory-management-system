@@ -92,9 +92,15 @@ function monthOptions(): { value: string; label: string }[] {
 }
 
 export default function PaymentsPage() {
-  const { profile } = useAuth()
+  const { profile, roles } = useAuth()
   const canWrite = profile?.role === 'owner' || profile?.role === 'manager' || profile?.role === 'staff'
   const isAgent = profile?.role === 'agent'
+  // Rule A (migration 0045, enforced in RLS): owner/manager (effective
+  // roles; co_owner counts as manager) may edit/delete any row, staff
+  // only rows they created. The buttons mirror the DB rule so staff
+  // never see ပြင်/ဖျက် on another staff member's record.
+  const isOM = roles.includes('owner') || roles.includes('manager')
+  const canEditRow = (r: PaymentRow) => isOM || r.created_by === profile?.id
   const myAgentId = profile?.agent_id ?? null
   const [agents, setAgents] = useState<Agent[]>([])
   const [directory, setDirectory] = useState<StaffDirectory | null>(null)
@@ -327,7 +333,7 @@ export default function PaymentsPage() {
   // (desktop), following EntriesPage's pattern. ------------------------------
 
   function rowButtons(r: PaymentRow) {
-    if (!canWrite || !isTodayYangon(r.created_at) || editId === r.id || confirmId === r.id) {
+    if (!canWrite || !canEditRow(r) || !isTodayYangon(r.created_at) || editId === r.id || confirmId === r.id) {
       return null
     }
     return (
@@ -352,7 +358,7 @@ export default function PaymentsPage() {
   }
 
   function rowPanel(r: PaymentRow) {
-    if (!canWrite || !isTodayYangon(r.created_at)) return null
+    if (!canWrite || !canEditRow(r) || !isTodayYangon(r.created_at)) return null
     if (confirmId === r.id) {
       return (
         <div className="space-y-2 rounded-xl border border-red-200 bg-red-50/60 p-3 dark:border-red-900 dark:bg-red-950/20">

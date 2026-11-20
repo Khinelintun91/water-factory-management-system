@@ -24,6 +24,7 @@ interface ExpenseRow {
   title: string
   amount: number
   notes: string | null
+  created_by: string | null
   created_at: string
 }
 
@@ -69,10 +70,17 @@ function monthOptions(): { value: string; label: string }[] {
 }
 
 export default function ExpensesPage() {
-  const { profile } = useAuth()
+  const { profile, roles } = useAuth()
   // Owner-only backdating: only the owner sees a date field; every other
   // role's expenses are dated today, exactly as before.
   const isOwner = profile?.role === 'owner'
+  // Rule A (migration 0045, enforced in RLS): owner/manager (effective
+  // roles; co_owner counts as manager) may delete any row, staff only
+  // rows they created. The button mirrors the DB rule. (Today the page
+  // itself is OM-only, so this is the same rule stated the same way as
+  // Entries/Payments rather than a behaviour change.)
+  const isOM = roles.includes('owner') || roles.includes('manager')
+  const canEditRow = (r: ExpenseRow) => isOM || r.created_by === profile?.id
   const [rows, setRows] = useState<ExpenseRow[]>([])
   const [monthFilter, setMonthFilter] = useState(() => todayYangon().slice(0, 7))
   const [shown, setShown] = useState(200)
@@ -184,7 +192,7 @@ export default function ExpensesPage() {
   // (desktop), following EntriesPage's pattern. ------------------------------
 
   function rowButtons(r: ExpenseRow) {
-    if (!isTodayYangon(r.created_at) || confirmId === r.id) {
+    if (!canEditRow(r) || !isTodayYangon(r.created_at) || confirmId === r.id) {
       return null
     }
     return (
@@ -198,7 +206,7 @@ export default function ExpensesPage() {
   }
 
   function rowPanel(r: ExpenseRow) {
-    if (!isTodayYangon(r.created_at) || confirmId !== r.id) {
+    if (!canEditRow(r) || !isTodayYangon(r.created_at) || confirmId !== r.id) {
       return null
     }
     return (
