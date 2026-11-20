@@ -150,6 +150,10 @@ export interface AgentPayment {
   created_by: string | null
   /** Who physically received the cash (0041); NULL reads as created_by. */
   received_by: string | null
+  /** Entry that spawned this payment (0047): set only on the old-debt
+   * payment EntriesPage creates alongside a delivery entry; deleting
+   * that entry cascades to this payment. NULL = standalone payment. */
+  source_entry_id: string | null
   created_at: string
   updated_at: string
 }

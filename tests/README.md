@@ -65,6 +65,7 @@ file prints its own PASS/FAIL line.
 | `17_om_notify_receiver_name.sql` | `0044`: OM delivery/collection notices name the receiver (`လက်ခံသူ: …`, display_name of `coalesce(received_by, created_by)`); `received_by` wins over the typist; NULL falls back to `created_by`; agent receipts byte-identical to 0041 |
 | `18_edit_own_rows_only.sql` | `0045` Rule A: staff B's update/delete on staff A's same-day entry, payment and expense each affect 0 rows; staff edit/delete their OWN entries/payments; expenses keep OM-only SELECT (no read widening), so staff stay fully blocked there while the own-row clause waits in the update/delete policies; manager/owner edit anyone's; the same-day guard still refuses a yesterday row for the owner; agents still write nothing |
 | `19_staff_own_visibility.sql` | `0046` staff own-visibility (variant 2): staff B sees 0 of staff A's plain entries/payments but DOES see the rows naming B as `received_by`, plus their own; staff A sees their created rows, not B's; unattributed fixture rows are invisible to staff; manager sees everything; agent A's and agent B's visible sets are exactly the old-policy sets (`agent_id = app_agent_id()`), unchanged |
+| `20_entry_payment_link.sql` | `0047` entry↔payment link: a payment planted with `source_entry_id` = its entry is deleted by the FK cascade when the entry is deleted (audit before-images exist for BOTH rows); a standalone payment (NULL link) survives both entry deletes; `agent_outstanding` tracks each step (2950 → 1150 → 850 against the 1350 fixture baseline) |
 
 ## How it works
 

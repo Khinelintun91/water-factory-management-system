@@ -316,9 +316,18 @@ export default function EntriesPage() {
       return
     }
     let failure: unknown = null
+    let newEntryId: string | null = null
     try {
-      const { error } = await supabase.from('daily_entries').insert(payload)
+      // .select('id') reads the new row's id back (the row is always
+      // visible to its creator under the 0046 select policy) so the
+      // old-debt payment below can link to this entry (0047).
+      const { data, error } = await supabase
+        .from('daily_entries')
+        .insert(payload)
+        .select('id')
+        .single()
       failure = error
+      if (!error) newEntryId = (data as { id: string } | null)?.id ?? null
     } catch (err) {
       failure = err
     }
@@ -356,6 +365,12 @@ export default function EntriesPage() {
           // Same visit, same hands: the old-debt cash was received by
           // the same person as the entry's own cash.
           received_by: receivedBy || profile?.id || null,
+          // Link to the spawning entry (0047): the FK cascade deletes
+          // this payment when the entry is deleted, so it can never
+          // outlive its entry as phantom received cash. (The offline
+          // queue never spawns this payment — see doInsert's queue
+          // comment — so the online path is the only one to wire.)
+          source_entry_id: newEntryId,
         })
         pFailure = error
       } catch (err) {
