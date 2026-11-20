@@ -17,6 +17,7 @@ import {
   receiverName,
   type StaffDirectory,
 } from '../lib/staffDirectory'
+import { splitStandalonePayment } from '../lib/cashAllocation'
 import {
   DangerButton,
   EmptyState,
@@ -114,6 +115,11 @@ export default function PaymentsPage() {
   const [deleteReason, setDeleteReason] = useState('')
 
   // Same-day edit form (one row at a time), mirroring EntriesPage.
+  // eKind is NOT editable (no selector in the edit form): a row keeps
+  // the kind the auto-split gave it at creation, and saveEdit sends it
+  // back unchanged. Kind never affects the balance, and re-splitting on
+  // edit would fight the paired-row structure the add form creates —
+  // corrections change amounts only.
   const [editId, setEditId] = useState<string | null>(null)
   const [eAmount, setEAmount] = useState('')
   const [eMethod, setEMethod] = useState('cash')
@@ -124,7 +130,16 @@ export default function PaymentsPage() {
   const [agentId, setAgentId] = useState('')
   const [amount, setAmount] = useState('')
   const [method, setMethod] = useState('cash')
-  const [kind, setKind] = useState<PaymentKind>('regular')
+  // The selected agent's CURRENT balance (agent_outstanding RPC), shown
+  // in the form and used to preview the auto-split. There is deliberately
+  // NO kind field any more (owner-approved, 2026-11-20): the app labels
+  // the money itself — debt part 'old_debt', the rest 'regular' — so the
+  // form is just agent → amount → save. null = not loaded yet (or the RPC
+  // failed); the save path re-reads the balance fresh, so a stale preview
+  // can never mislabel money. balanceTick forces a re-read after each
+  // save (the agent stays selected across saves).
+  const [agentBalance, setAgentBalance] = useState<number | null>(null)
+  const [balanceTick, setBalanceTick] = useState(0)
   // Who physically received the cash (0041). '' means "me" — the
   // current user is the default receiver and is sent explicitly.
   const [receivedBy, setReceivedBy] = useState('')
@@ -229,6 +244,29 @@ export default function PaymentsPage() {
     load()
   }, [load])
 
+  // Keep the selected agent's balance current for the form's info line
+  // and the auto-split preview (same pattern as EntriesPage).
+  useEffect(() => {
+    if (!agentId) {
+      setAgentBalance(null)
+      return
+    }
+    let cancelled = false
+    supabase.rpc('agent_outstanding', { p_agent: agentId }).then(({ data, error }) => {
+      if (cancelled) return
+      setAgentBalance(!error && typeof data === 'number' ? data : null)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [agentId, balanceTick])
+
+  const amountNum = Number(amount) || 0
+  // Live preview of the auto-split against the balance loaded for the
+  // form; the save re-reads the balance fresh and re-runs the same
+  // split, so the stored labels use live numbers.
+  const paySplit = splitStandalonePayment(amountNum, agentBalance ?? 0)
+
   async function onAdd(e: FormEvent) {
     e.preventDefault()
     if (busy) return
@@ -239,26 +277,70 @@ export default function PaymentsPage() {
       setBusy(false)
       return
     }
-    const { error } = await supabase.from('agent_payments').insert({
-      payment_date: isOwner ? payDate || todayYangon() : todayYangon(),
-      agent_id: agentId,
-      amount: Number(amount) || 0,
-      method,
-      kind,
-      notes: notes.trim() || null,
-      created_by: profile?.id ?? null,
-      received_by: receivedBy || profile?.id || null,
-    })
-    if (error) {
-      setMsg(friendlyError(error))
+    if (amountNum <= 0) {
+      setMsg('ပမာဏ ထည့်ပါ')
       setBusy(false)
       return
     }
+    // Read the agent's balance FRESH so the split is computed from live
+    // numbers, not the form's possibly stale preview value. If the read
+    // fails, fall back to the preview value: the agent's resulting
+    // balance is exact either way (only the part labels could shift).
+    let freshBefore = agentBalance ?? 0
+    try {
+      const { data, error } = await supabase.rpc('agent_outstanding', {
+        p_agent: agentId,
+      })
+      if (!error && typeof data === 'number') freshBefore = data
+    } catch {
+      /* keep the preview value */
+    }
+    const split = splitStandalonePayment(amountNum, freshBefore)
+    // One typed amount, up to two rows: the debt part labelled
+    // 'old_debt', the rest 'regular' — same date, method, receiver and
+    // notes on each, exactly as the entry form's spawned rows behave.
+    const parts: { amount: number; kind: PaymentKind; label: string }[] = []
+    if (split.debtPart > 0) {
+      parts.push({ amount: split.debtPart, kind: 'old_debt', label: 'ကြွေးဟောင်း' })
+    }
+    if (split.restPart > 0) {
+      parts.push({ amount: split.restPart, kind: 'regular', label: 'ပုံမှန် ကောက်ငွေ' })
+    }
+    const date = isOwner ? payDate || todayYangon() : todayYangon()
+    let savedLabel: string | null = null
+    for (const p of parts) {
+      const { error } = await supabase.from('agent_payments').insert({
+        payment_date: date,
+        agent_id: agentId,
+        amount: p.amount,
+        method,
+        kind: p.kind,
+        notes: notes.trim() || null,
+        created_by: profile?.id ?? null,
+        received_by: receivedBy || profile?.id || null,
+      })
+      if (error) {
+        // If one part already landed, say so plainly (EntriesPage
+        // partial-failure style) instead of pretending a full success.
+        setMsg(
+          savedLabel
+            ? `${savedLabel} သိမ်းပြီးပါပြီ၊ ${p.label} သိမ်း၍ မရပါ: ${friendlyError(error)}`
+            : friendlyError(error),
+        )
+        if (savedLabel) {
+          setBalanceTick((t) => t + 1)
+          await load()
+        }
+        setBusy(false)
+        return
+      }
+      savedLabel = p.label
+    }
     setAmount('')
-    setKind('regular')
     setReceivedBy('')
     setNotes('')
     setPayDate(todayYangon())
+    setBalanceTick((t) => t + 1)
     await load()
     setBusy(false)
   }
@@ -391,7 +473,10 @@ export default function PaymentsPage() {
     if (editId === r.id) {
       return (
         <div className="space-y-2.5 rounded-xl border border-stone-200 bg-stone-50/70 p-3.5 dark:border-neutral-800 dark:bg-neutral-800/40">
-          <div className="font-semibold">မှတ်တမ် ပြင်ရန်</div>
+          <div className="font-semibold">
+            မှတ်တမ် ပြင်ရန်
+            {kindChip(r)}
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <Field label="ပမာဏ (ကျပ်)">
               <input
@@ -411,16 +496,6 @@ export default function PaymentsPage() {
                 <option value="kbzpay">KBZPay</option>
                 <option value="wavepay">WavePay</option>
                 <option value="bank">ဘဏ်</option>
-              </select>
-            </Field>
-            <Field label="အမျိုးအစား">
-              <select
-                value={eKind}
-                onChange={(e) => setEKind(e.target.value as PaymentKind)}
-                className={inputCls}
-              >
-                <option value="regular">ပုံမှန် ကောက်ငွေ</option>
-                <option value="old_debt">ကြွေးဟောင်း</option>
               </select>
             </Field>
           </div>
@@ -494,6 +569,16 @@ export default function PaymentsPage() {
                 </option>
               ))}
             </select>
+            {agentBalance !== null && agentBalance > 0 && (
+              <span className="mt-1 block text-xs font-medium text-red-600 dark:text-red-400">
+                ကြွေးဟောင်း: {formatMMK(agentBalance)} ရှိပါတယ်
+              </span>
+            )}
+            {agentBalance !== null && agentBalance < 0 && (
+              <span className="mt-1 block text-xs font-medium">
+                ပိုပေးထားငွေ: {formatMMK(-agentBalance)} ရှိပါတယ်
+              </span>
+            )}
           </Field>
           <Field label="လက်ခံသူ">
             <select
@@ -530,17 +615,25 @@ export default function PaymentsPage() {
                 <option value="bank">ဘဏ်</option>
               </select>
             </Field>
-            <Field label="အမျိုးအစား">
-              <select
-                value={kind}
-                onChange={(e) => setKind(e.target.value as PaymentKind)}
-                className={inputCls}
-              >
-                <option value="regular">ပုံမှန် ကောက်ငွေ</option>
-                <option value="old_debt">ကြွေးဟောင်း</option>
-              </select>
-            </Field>
           </div>
+          {/* Live result, in one plain sentence: what this amount will
+              leave behind once saved. Computed from the balance shown
+              in the form; the save re-reads it fresh before splitting. */}
+          {agentId !== '' && amountNum > 0 && agentBalance !== null && (
+            <p
+              className={`text-sm font-medium ${
+                paySplit.resultingBalance > 0 ? 'text-red-600 dark:text-red-400' : ''
+              }`}
+            >
+              {paySplit.resultingBalance > 0
+                ? `သိမ်းပြီးရင်: ကျန်ပေးရန် ${formatMMK(paySplit.resultingBalance)} ကျန်ပါမယ်`
+                : paySplit.resultingBalance < 0
+                  ? agentBalance > 0
+                    ? `သိမ်းပြီးရင်: ကြွေးဟောင်း ရှင်းပြီး ပိုပေးထားငွေ ${formatMMK(-paySplit.resultingBalance)} ဖြစ်ပါမယ်`
+                    : `သိမ်းပြီးရင်: ပိုပေးထားငွေ ${formatMMK(-paySplit.resultingBalance)} ဖြစ်ပါမယ်`
+                  : 'သိမ်းပြီးရင်: ကြွေးဟောင်း အကုန် ရှင်းပါမယ်'}
+            </p>
+          )}
           <input
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
