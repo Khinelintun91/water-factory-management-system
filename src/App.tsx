@@ -91,7 +91,7 @@ function Guard({ roles: allowed, children }: { roles: string[]; children: ReactN
 }
 
 export default function App() {
-  const { loading, configured, session, profile, roles, signOut } = useAuth()
+  const { loading, configured, session, profile, profileStatus, roles, signOut, refreshProfile } = useAuth()
   const factoryName = useFactoryName()
   const location = useLocation()
   const [moreOpen, setMoreOpen] = useState(false)
@@ -133,20 +133,50 @@ export default function App() {
   }
 
   if (!profile) {
-    // Signed in, but the account has no profile row — falling back to the
-    // login form would dead-end (submitting it changes nothing), so show a
-    // plain notice with a working sign-out instead.
+    if (profileStatus === 'error') {
+      // Signed in, but the profile load failed on every attempt — a
+      // connection problem, NOT a missing account. Offer a retry that
+      // re-runs the load (plus sign-out).
+      return (
+        <div className="grid min-h-dvh place-items-center p-6">
+          <Card className="w-full max-w-md text-center">
+            <h1 className="text-lg font-bold">ချိတ်ဆက်မှု ပြဿနာ ရှိပါတယ်</h1>
+            <p className="mt-2 text-sm text-stone-600 dark:text-neutral-300">
+              အင်တာနက် ချိတ်ဆက်မှုကို စစ်ဆေးပြီး ပြန်ကြိုးစား ကြည့်ပါ
+            </p>
+            <PrimaryButton onClick={refreshProfile} className="mt-4 w-full">
+              ပြန်ကြိုးစားရန်
+            </PrimaryButton>
+            <SecondaryButton onClick={signOut} className="mt-3 w-full">
+              ထွက်ရန်
+            </SecondaryButton>
+          </Card>
+        </div>
+      )
+    }
+    if (profileStatus === 'missing') {
+      // Signed in, and the profile load SUCCEEDED with no row — the
+      // account genuinely has no profile. Falling back to the login form
+      // would dead-end (submitting it changes nothing), so show a plain
+      // notice with a working sign-out instead.
+      return (
+        <div className="grid min-h-dvh place-items-center p-6">
+          <Card className="w-full max-w-md text-center">
+            <h1 className="text-lg font-bold">အကောင့် မှတ်တမ်း မတွေ့ပါ</h1>
+            <p className="mt-2 text-sm text-stone-600 dark:text-neutral-300">
+              ဒီအကောင့်အတွက် အသုံးပြုသူ မှတ်တမ်း မရှိသေးပါ — ပိုင်ရှင်ကို ဆက်သွယ်ပါ
+            </p>
+            <PrimaryButton onClick={signOut} className="mt-4 w-full">
+              ထွက်ရန်
+            </PrimaryButton>
+          </Card>
+        </div>
+      )
+    }
+    // Profile still loading — spinner, same as the initial app load.
     return (
       <div className="grid min-h-dvh place-items-center p-6">
-        <Card className="w-full max-w-md text-center">
-          <h1 className="text-lg font-bold">အကောင့် မှတ်တမ်း မတွေ့ပါ</h1>
-          <p className="mt-2 text-sm text-stone-600 dark:text-neutral-300">
-            ဒီအကောင့်အတွက် အသုံးပြုသူ မှတ်တမ်း မရှိသေးပါ — ပိုင်ရှင်ကို ဆက်သွယ်ပါ
-          </p>
-          <PrimaryButton onClick={signOut} className="mt-4 w-full">
-            ထွက်ရန်
-          </PrimaryButton>
-        </Card>
+        <LoadingState />
       </div>
     )
   }
