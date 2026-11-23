@@ -144,6 +144,27 @@ const PATHS: Record<string, ReactNode> = {
   ),
 }
 
+/** Sun icon — shown on the header theme toggle while dark mode is on
+ *  (the icon pictures what a tap switches TO: light). */
+export function SunIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5 5l1.6 1.6M17.4 17.4 19 19M19 5l-1.6 1.6M6.6 17.4 5 19" />
+    </Svg>
+  )
+}
+
+/** Moon icon — shown on the header theme toggle while light mode is on
+ *  (the icon pictures what a tap switches TO: dark). */
+export function MoonIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+    </Svg>
+  )
+}
+
 /** "More" icon for the phone tab bar (3x3 dots). */
 export function MoreIcon({ className }: { className?: string }) {
   return (

@@ -24,6 +24,7 @@ import DataQualityPage from './pages/DataQualityPage'
 import DamageItemsPage from './pages/DamageItemsPage'
 import SettingsPage from './pages/SettingsPage'
 import NotificationBell from './components/NotificationBell'
+import ThemeToggle from './components/ThemeToggle'
 import ScrollNav from './components/ScrollNav'
 import { DropIcon, MoreIcon, NavIcon } from './components/icons'
 import { Card, LoadingState, PrimaryButton, SecondaryButton } from './components/ui'
@@ -255,6 +256,7 @@ export default function App() {
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <NotificationBell />
+              <ThemeToggle />
               <SecondaryButton size="sm" onClick={signOut}>
                 ထွက်ရန်
               </SecondaryButton>
