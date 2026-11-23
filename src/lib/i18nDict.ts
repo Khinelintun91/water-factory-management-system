@@ -584,6 +584,7 @@ export const EN: Record<string, string> = {
   // Settings
   "အလင်း/အမှောင် ပုံစံ၊ စက်ရုံအမည်နှင့် မူလတန်ဖိုးများ သတ်မှတ်ရန်": "Set light/dark mode, factory name and defaults",
   "အလင်း/အမှောင်": "Light/Dark",
+  "အလင်း/အမှောင် ပြောင်းရန်": "Switch light/dark",
   "အရောင်ပုံစံ": "Appearance",
   "အလင်း": "Light",
   "အမှောင်": "Dark",

@@ -22,11 +22,24 @@ const media = () =>
     ? window.matchMedia('(prefers-color-scheme: dark)')
     : null
 
+/** Whether a stored choice currently renders dark, given the OS
+ *  preference (only consulted for the 'system' choice). */
+export function resolvedDark(choice: ThemeChoice, systemDark: boolean): boolean {
+  return choice === 'dark' || (choice === 'system' && systemDark)
+}
+
+/** The explicit choice a 2-way light/dark toggle (header button) picks:
+ *  the opposite of what is currently shown. A stored 'system' therefore
+ *  becomes the explicit opposite of the currently resolved appearance. */
+export function nextToggleChoice(choice: ThemeChoice, systemDark: boolean): ThemeChoice {
+  return resolvedDark(choice, systemDark) ? 'light' : 'dark'
+}
+
 let onSystemChange: (() => void) | null = null
 
 function render(choice: ThemeChoice) {
   const m = media()
-  const dark = choice === 'dark' || (choice === 'system' && (m?.matches ?? false))
+  const dark = resolvedDark(choice, m?.matches ?? false)
   document.documentElement.classList.toggle('dark', dark)
   document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
 }
