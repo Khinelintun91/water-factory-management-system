@@ -1229,4 +1229,15 @@ export const EN: Record<string, string> = {
   "ကြွေးဟောင်း အကုန် ရှင်းပါမယ်": "the old debt will be fully settled",
   "ကြွေးဟောင်း ရှင်းပြီး": "the old debt settled,",
   "ကိုယ်စားလှယ်၏ ကြွေးကျန် ဖတ်၍ မရပါ — ခဏနေ ပြန်ကြိုးစားပါ": "Could not read the agent's balance — please try again shortly",
+
+  // Same-day edit forms (entries / payments / expenses, migration 0048)
+  "မှတ်တမ်း ပြင်ရန်": "Edit record",
+  "အသုံးစရိတ် ပြင်ရန်": "Edit expense",
+  "အကြောင်းအရာ ထည့်ပါ": "Enter a description",
+  "(ပြောင်း၍ မရပါ)": "(cannot be changed)",
+  "ပြင်ရသည့် အကြောင်းရင်း": "Reason for edit",
+  "ရေပို့မှတ်တမ်းနှင့် တွဲထားသည် — ပို့ဆောင်မှု မှတ်တမ်းမှ ပြင်/ဖျက်ပါ": "Linked to a delivery entry — edit or delete it from Delivery Entries",
+  "မှတ်တမ်း ပြင်ဆင်ရာတွင် ကိုယ်စားလှယ်ကို ပြောင်းလဲ၍ မရပါ": "Agent cannot be changed when editing a record",
+  "ပြန်အပ်သည့် ဗူး အရေအတွက် မှန်ကန်စွာ ထည့်ပါ": "Enter a valid number of returned bottles",
+  "လက်ခံရရှိငွေ ပမာဏ မှန်ကန်စွာ ထည့်ပါ": "Enter a valid cash amount",
 };

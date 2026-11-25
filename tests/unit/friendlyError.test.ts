@@ -139,6 +139,25 @@ describe('friendlyError', () => {
     expect(friendlyError({ message: 'damage_item_not_found' })).toBe(NOT_FOUND)
   })
 
+  it('maps the edit-entry RPC and agent-immutable errors (migration 0048)', () => {
+    expect(
+      friendlyError({ message: 'agent_immutable: agent cannot be changed when editing an entry' }),
+    ).toBe('မှတ်တမ်း ပြင်ဆင်ရာတွင် ကိုယ်စားလှယ်ကို ပြောင်းလဲ၍ မရပါ')
+    expect(
+      friendlyError({ message: 'change_reason_required: change reason must be at least 2 characters' }),
+    ).toBe('ပြင်ရသည့် အကြောင်းအရင်း (အနည်းဆုံး ၂ လုံး) ရေးပါ')
+    expect(friendlyError({ message: 'invalid_delivered_qty: delivered_qty must be positive' })).toBe(
+      'ပို့သည့် ဗူး အရေအတွက် ထည့်ပါ',
+    )
+    expect(
+      friendlyError({ message: 'invalid_returned_qty: returned_qty cannot be negative' }),
+    ).toBe('ပြန်အပ်သည့် ဗူး အရေအတွက် မှန်ကန်စွာ ထည့်ပါ')
+    expect(friendlyError({ message: 'invalid_cash: total cash cannot be negative' })).toBe(
+      'လက်ခံရရှိငွေ ပမာဏ မှန်ကန်စွာ ထည့်ပါ',
+    )
+    expect(friendlyError({ message: 'entry_not_found' })).toBe(NOT_FOUND)
+  })
+
   it('passes through a message that is already Burmese', () => {
     expect(friendlyError({ message: 'တစ်ခုခု မှားနေပါတယ်' })).toBe('တစ်ခုခု မှားနေပါတယ်')
   })

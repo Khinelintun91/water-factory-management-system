@@ -109,7 +109,23 @@ export function friendlyError(err: unknown): string {
   const pin = msg.match(/pin_must_be_(\d+)_to_12_digits/)
   if (pin) return `PIN က ${pin[1]} လုံးကနေ 12 လုံး အတွင်း ဖြစ်ရပါမယ်`
 
-  if (msg.includes('agent_not_found') || msg.includes('user_not_found')) return NOT_FOUND
+  if (msg.includes('agent_immutable'))
+    return 'မှတ်တမ်း ပြင်ဆင်ရာတွင် ကိုယ်စားလှယ်ကို ပြောင်းလဲ၍ မရပါ'
+  if (msg.includes('change_reason_required'))
+    return 'ပြင်ရသည့် အကြောင်းအရင်း (အနည်းဆုံး ၂ လုံး) ရေးပါ'
+  if (msg.includes('invalid_delivered_qty'))
+    return 'ပို့သည့် ဗူး အရေအတွက် ထည့်ပါ'
+  if (msg.includes('invalid_returned_qty'))
+    return 'ပြန်အပ်သည့် ဗူး အရေအတွက် မှန်ကန်စွာ ထည့်ပါ'
+  if (msg.includes('invalid_cash'))
+    return 'လက်ခံရရှိငွေ ပမာဏ မှန်ကန်စွာ ထည့်ပါ'
+
+  if (
+    msg.includes('agent_not_found') ||
+    msg.includes('user_not_found') ||
+    msg.includes('entry_not_found')
+  )
+    return NOT_FOUND
 
   // Permission family: explicit owner/role guards, RPC 'not allowed'
   // rejections, and PostgREST row-level-security violations.
