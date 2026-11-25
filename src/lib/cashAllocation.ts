@@ -88,3 +88,23 @@ export function editBaseOutstanding(
 ): number {
   return outstandingNow - (oldEntryAmount - oldCollected) + oldLinkedPaymentsSum
 }
+
+/**
+ * Auto-fill value for the new delivery-entry form's cash input.
+ *
+ * While the staff member has not manually edited the cash field
+ * (`touched === false`), the field follows THIS visit's delivery charge
+ * (`delivered_qty × unit_price`) — never including old debt — and stays
+ * empty when the charge is 0. Once manually edited (`touched === true`),
+ * the current cash string is preserved across later quantity or price
+ * changes until auto-fill is reset (different agent selected, post-save
+ * form reset, or remount).
+ */
+export function syncAutoCash(
+  currentCash: string,
+  deliveryCharge: number,
+  touched: boolean,
+): string {
+  if (touched) return currentCash
+  return deliveryCharge > 0 ? String(deliveryCharge) : ''
+}

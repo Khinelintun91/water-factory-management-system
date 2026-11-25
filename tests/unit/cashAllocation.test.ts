@@ -3,6 +3,7 @@ import {
   allocateCash,
   editBaseOutstanding,
   splitStandalonePayment,
+  syncAutoCash,
 } from '../../src/lib/cashAllocation'
 
 // The entry form takes ONE cash figure; allocateCash labels its parts
@@ -176,5 +177,35 @@ describe('editBaseOutstanding', () => {
   it('reallocating the same cash over the base reproduces the live balance', () => {
     const base = editBaseOutstanding(-100000, 20000, 20000, 300000)
     expect(allocateCash(320000, 20000, base).resultingBalance).toBe(-100000)
+  })
+})
+
+describe('syncAutoCash', () => {
+  it('untouched: follows qty × price (delivery charge only)', () => {
+    expect(syncAutoCash('', 100 * 1000, false)).toBe('100000')
+    expect(syncAutoCash('100000', 50 * 1000, false)).toBe('50000')
+  })
+
+  it('touched: quantity or price change does not overwrite manual input', () => {
+    // Staff typed 0 (agent not home), then fixes bottle count -> cash stays 0.
+    expect(syncAutoCash('0', 80 * 1000, true)).toBe('0')
+    // Staff typed a partial amount -> stays unchanged on qty edit.
+    expect(syncAutoCash('25000', 80 * 1000, true)).toBe('25000')
+    // Staff cleared the cash input -> stays empty on qty edit.
+    expect(syncAutoCash('', 80 * 1000, true)).toBe('')
+  })
+
+  it('agent change / form reset (touched reset to false): auto-fill resumes', () => {
+    // Switching from agent A (cash manually set to 0) to agent B (price 1,500)
+    // resets touched=false so cash follows the new agent's qty × price.
+    expect(syncAutoCash('0', 80 * 1500, false)).toBe('120000')
+    // After a post-save reset (cash='', touched=false), next qty auto-fills.
+    expect(syncAutoCash('', 30 * 1000, false)).toBe('30000')
+  })
+
+  it('charge 0 (or non-positive): shows empty string when untouched', () => {
+    expect(syncAutoCash('', 0, false)).toBe('')
+    expect(syncAutoCash('100000', 0, false)).toBe('')
+    expect(syncAutoCash('100000', -1000, false)).toBe('')
   })
 })
