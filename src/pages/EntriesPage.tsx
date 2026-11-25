@@ -24,7 +24,7 @@ import {
   receiverName,
   type StaffDirectory,
 } from '../lib/staffDirectory'
-import { allocateCash, editBaseOutstanding } from '../lib/cashAllocation'
+import { allocateCash, editBaseOutstanding, syncAutoCash } from '../lib/cashAllocation'
 import {
   Banner,
   DangerButton,
@@ -118,6 +118,9 @@ export default function EntriesPage() {
   const [delivered, setDelivered] = useState('')
   const [returned, setReturned] = useState('')
   const [cash, setCash] = useState('')
+  // Whether the user manually edited the new-entry cash field in this
+  // form session; while false, cash auto-fills from qty × price.
+  const [cashTouched, setCashTouched] = useState(false)
   // The selected agent's CURRENT balance (agent_outstanding RPC), shown
   // in the form and used to preview the cash split. null = not loaded
   // yet (or the RPC failed); the save path re-reads it fresh, so a
@@ -295,6 +298,11 @@ export default function EntriesPage() {
   const price = selectedAgent?.default_unit_price ?? 0
   const qty = Number(delivered) || 0
   const due = qty * price
+  // Auto-fill the new-entry cash input from this visit's delivery charge
+  // (qty × price, never old debt) until the user edits cash manually.
+  useEffect(() => {
+    setCash((prev) => syncAutoCash(prev, due, cashTouched))
+  }, [due, cashTouched])
   const cashNum = Number(cash) || 0
   // How the ONE cash figure will split (lib/cashAllocation): this entry
   // first, then old debt, then overpayment. Previewed against the
@@ -453,6 +461,7 @@ export default function EntriesPage() {
     setDelivered('')
     setReturned('')
     setCash('')
+    setCashTouched(false)
     setReceivedBy('')
     setNotes('')
     setEntryDate(todayYangon())
@@ -473,6 +482,7 @@ export default function EntriesPage() {
     setDelivered('')
     setReturned('')
     setCash('')
+    setCashTouched(false)
     setReceivedBy('')
     setNotes('')
     setEntryDate(todayYangon())
@@ -872,7 +882,14 @@ export default function EntriesPage() {
             <select
               value={agentId}
               onChange={(e) => {
-                setAgentId(e.target.value)
+                const nextAgentId = e.target.value
+                setAgentId(nextAgentId)
+                if (nextAgentId !== agentId) {
+                  const nextPrice =
+                    agents.find((a) => a.id === nextAgentId)?.default_unit_price ?? 0
+                  setCashTouched(false)
+                  setCash((prev) => syncAutoCash(prev, qty * nextPrice, false))
+                }
                 setConfirming(false)
               }}
               required
@@ -917,7 +934,10 @@ export default function EntriesPage() {
               <input
                 value={delivered}
                 onChange={(e) => {
-                  setDelivered(e.target.value.replace(/\D/g, ''))
+                  const nextDelivered = e.target.value.replace(/\D/g, '')
+                  const nextQty = Number(nextDelivered) || 0
+                  setDelivered(nextDelivered)
+                  setCash((prev) => syncAutoCash(prev, nextQty * price, cashTouched))
                   setConfirming(false)
                 }}
                 inputMode="numeric"
@@ -941,6 +961,7 @@ export default function EntriesPage() {
                 value={cash}
                 onChange={(e) => {
                   setCash(e.target.value.replace(/\D/g, ''))
+                  setCashTouched(true)
                   setConfirming(false)
                 }}
                 inputMode="numeric"
