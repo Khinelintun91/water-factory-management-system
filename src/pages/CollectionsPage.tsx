@@ -309,11 +309,14 @@ export default function CollectionsPage() {
     const raw: (LedgerLine & { sortKey: string; ord: number })[] = []
     for (const e of src.entries) {
       if (e.agent_id !== agentId) continue
+      const bottleOnly = e.delivered_qty === 0
       raw.push({
         key: `due-${e.id}`,
         date: e.entry_date,
-        label: 'ရေပို့',
-        detail: `ပို့ ${e.delivered_qty} · ပြန် ${e.returned_qty}`,
+        label: bottleOnly ? 'ဗူးခွံသီးသန့် ပြန်ယူ' : 'ရေပို့',
+        detail: bottleOnly
+          ? `ပြန်အပ် ${e.returned_qty} ဗူး`
+          : `ပို့ ${e.delivered_qty} · ပြန် ${e.returned_qty}`,
         delta: e.amount,
         sortKey: e.created_at,
         ord: 0,

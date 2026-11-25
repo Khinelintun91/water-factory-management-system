@@ -113,6 +113,18 @@ describe('friendlyError', () => {
     )
   })
 
+  it('translates bottle-only collection DB error codes (migration 0049)', () => {
+    expect(friendlyError({ message: 'entry_type_immutable: bottle-only entry cannot be changed to a delivery' })).toBe(
+      'ရေပို့ မှတ်တမ်းနှင့် ဗူးခွံသီးသန့် မှတ်တမ်း အမျိုးအစား ပြောင်းလဲ၍ မရပါ — ဖျက်ပြီး အသစ်ထည့်ပါ',
+    )
+    expect(friendlyError({ message: 'bottle_only_no_cash: bottle-only entries cannot carry cash' })).toBe(
+      'ဗူးခွံသီးသန့် ပြန်ယူ မှတ်တမ်းတွင် ငွေပမာဏ ထည့်၍ မရပါ',
+    )
+    expect(friendlyError({ message: 'invalid_entry_qty: delivered_qty or returned_qty must be positive' })).toBe(
+      'ပို့သည့် ဗူး သို့မဟုတ် ပြန်အပ်သည့် ဗူး အရေအတွက် ထည့်ပါ',
+    )
+  })
+
   it('translates uniqueness violations by message and by SQLSTATE', () => {
     expect(
       friendlyError({

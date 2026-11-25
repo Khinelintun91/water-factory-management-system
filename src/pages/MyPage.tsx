@@ -476,6 +476,36 @@ export default function MyPage() {
             <h2 className="mb-2 px-0.5 text-base font-bold">ပို့ဆောင်မှုများ</h2>
             <ul className={`${cardCls} divide-y divide-stone-100 overflow-hidden dark:divide-neutral-800/70`}>
               {visibleEntries.map((r) => {
+                const bottleOnly = r.delivered_qty === 0
+                const rec = directory ? receiverName(directory, r) : null
+                if (bottleOnly) {
+                  return (
+                    <li key={r.id} className="p-3.5 text-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span>
+                          {r.entry_date} · ပြန်အပ် {r.returned_qty} ဗူး
+                        </span>
+                        <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">
+                          ဗူးခွံသီးသန့် ပြန်ယူ
+                        </span>
+                      </div>
+                      {rec && (
+                        <div className="mt-0.5 text-stone-500 dark:text-neutral-400">
+                          လက်ခံသူ: {rec}
+                        </div>
+                      )}
+                      {renderDispute({
+                        key: `entry:${r.id}`,
+                        kind: 'entry',
+                        recordId: r.id,
+                        recordDate: r.entry_date,
+                        summary:
+                          `${r.entry_date} · ဗူးခွံသီးသန့် ပြန်ယူ · ပြန်အပ် ${r.returned_qty} ဗူး` +
+                          (rec ? ` · လက်ခံသူ ${rec}` : ''),
+                      })}
+                    </li>
+                  )
+                }
                 const due = r.amount - r.amount_collected
                 return (
                   <li key={r.id} className="p-3.5 text-sm">
@@ -494,9 +524,7 @@ export default function MyPage() {
                       >
                         {formatMMK(due)}
                       </span>
-                      {r.amount_collected > 0 && directory && receiverName(directory, r)
-                        ? ` · လက်ခံသူ: ${receiverName(directory, r)}`
-                        : ''}
+                      {r.amount_collected > 0 && rec ? ` · လက်ခံသူ: ${rec}` : ''}
                     </div>
                     {renderDispute({
                       key: `entry:${r.id}`,
@@ -505,9 +533,7 @@ export default function MyPage() {
                       recordDate: r.entry_date,
                       summary:
                         `${r.entry_date} · ပို့ ${r.delivered_qty} · ပြန် ${r.returned_qty} · ${formatMMK(r.amount)} · ပေးချေပြီး ${formatMMK(r.amount_collected)}` +
-                        (r.amount_collected > 0 && directory && receiverName(directory, r)
-                          ? ` · လက်ခံသူ ${receiverName(directory, r)}`
-                          : ''),
+                        (r.amount_collected > 0 && rec ? ` · လက်ခံသူ ${rec}` : ''),
                     })}
                   </li>
                 )

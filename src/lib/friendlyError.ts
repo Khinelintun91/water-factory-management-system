@@ -111,6 +111,12 @@ export function friendlyError(err: unknown): string {
 
   if (msg.includes('agent_immutable'))
     return 'မှတ်တမ်း ပြင်ဆင်ရာတွင် ကိုယ်စားလှယ်ကို ပြောင်းလဲ၍ မရပါ'
+  if (msg.includes('entry_type_immutable'))
+    return 'ရေပို့ မှတ်တမ်းနှင့် ဗူးခွံသီးသန့် မှတ်တမ်း အမျိုးအစား ပြောင်းလဲ၍ မရပါ — ဖျက်ပြီး အသစ်ထည့်ပါ'
+  if (msg.includes('bottle_only_no_cash'))
+    return 'ဗူးခွံသီးသန့် ပြန်ယူ မှတ်တမ်းတွင် ငွေပမာဏ ထည့်၍ မရပါ'
+  if (msg.includes('invalid_entry_qty'))
+    return 'ပို့သည့် ဗူး သို့မဟုတ် ပြန်အပ်သည့် ဗူး အရေအတွက် ထည့်ပါ'
   if (msg.includes('change_reason_required'))
     return 'ပြင်ရသည့် အကြောင်းအရင်း (အနည်းဆုံး ၂ လုံး) ရေးပါ'
   if (msg.includes('invalid_delivered_qty'))
