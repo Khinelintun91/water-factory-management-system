@@ -90,8 +90,9 @@ const compactSelectCls =
 
 export default function EntriesPage() {
   const { profile, roles } = useAuth()
-  const canWrite = profile?.role === 'owner' || profile?.role === 'manager' || profile?.role === 'staff'
-  const isAgent = profile?.role === 'agent'
+  const canWrite =
+    roles.includes('owner') || roles.includes('manager') || roles.includes('staff')
+  const isAgent = !canWrite && (profile?.role === 'agent' || roles.includes('agent'))
   // Rule A (migration 0045, enforced in RLS): owner/manager (effective
   // roles; co_owner counts as manager) may edit/delete any row, staff
   // only rows they created. The buttons mirror the DB rule so staff
@@ -103,6 +104,7 @@ export default function EntriesPage() {
   const [rows, setRows] = useState<EntryRow[]>([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
+  const [rowMsg, setRowMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [deleteReason, setDeleteReason] = useState('')
@@ -140,18 +142,21 @@ export default function EntriesPage() {
   const [flushing, setFlushing] = useState(false)
   const flushingRef = useRef(false)
 
-  // Same-day edit form (one row at a time).
+  // Same-day edit form (one row at a time). Agent is never editable
+  // (enforced in UI and by entries_agent_immutable trigger in 0048).
   const [editId, setEditId] = useState<string | null>(null)
   const [eDelivered, setEDelivered] = useState('')
   const [eReturned, setEReturned] = useState('')
   const [eCash, setECash] = useState('')
+  const [eReceivedBy, setEReceivedBy] = useState('')
   const [eNotes, setENotes] = useState('')
   const [eReason, setEReason] = useState('')
-  // Sum of the payments the entry being edited spawned (0047 link),
-  // fetched when the editor opens. The edit cash field shows the entry's
-  // amount_collected PLUS this sum — all the cash of that visit — and
-  // saving re-runs the allocation and rewrites the linked rows.
+  // Sum of the payments the entry being edited spawned (0047 link) and the
+  // agent's live balance when the editor opens, used to populate eCash with
+  // the visit's full cash and show a live split preview. Saving runs
+  // edit_daily_entry() atomically in Postgres, which recomputes live numbers.
   const [editLinkedSum, setEditLinkedSum] = useState(0)
+  const [editAgentBalance, setEditAgentBalance] = useState<number | null>(null)
 
   const agentName = useMemo(() => {
     const m = new Map(agents.map((a) => [a.id, a.name]))
@@ -481,28 +486,36 @@ export default function EntriesPage() {
     setConfirmId(null)
     setDeleteReason('')
     setMsg(null)
+    setRowMsg(null)
     // The edit cash field must show ALL the cash of the visit: the
     // entry's own amount_collected plus the payments it spawned (0047
     // link). Without the linked sum, saving would silently shrink the
     // visit's cash to the entry part alone — so if the linked rows
     // cannot be read, the editor does not open at all.
     let linkedSum = 0
+    let liveBalance: number | null = null
     if (row.agent_id) {
-      const { data, error } = await supabase
-        .from('agent_payments')
-        .select('amount')
-        .eq('source_entry_id', row.id)
+      const [{ data, error }, { data: bal, error: balErr }] = await Promise.all([
+        supabase
+          .from('agent_payments')
+          .select('amount')
+          .eq('source_entry_id', row.id),
+        supabase.rpc('agent_outstanding', { p_agent: row.agent_id }),
+      ])
       if (error) {
         setMsg(friendlyError(error))
         return
       }
       linkedSum = (data ?? []).reduce((s, p) => s + Number(p.amount), 0)
+      if (!balErr && typeof bal === 'number') liveBalance = bal
     }
     setEditLinkedSum(linkedSum)
+    setEditAgentBalance(liveBalance)
     setEditId(row.id)
     setEDelivered(String(row.delivered_qty))
     setEReturned(String(row.returned_qty))
     setECash(String(row.amount_collected + linkedSum))
+    setEReceivedBy(row.received_by ?? row.created_by ?? profile?.id ?? '')
     setENotes(row.notes ?? '')
     setEReason('')
   }
@@ -511,139 +524,54 @@ export default function EntriesPage() {
     if (busy) return
     const reason = eReason.trim()
     if (reason.length < 2) {
-      setMsg('ပြင်ရသည့် အကြောင်းအရင်း (အနည်းဆုံး ၂ လုံး) ရေးပါ')
+      setRowMsg('ပြင်ရသည့် အကြောင်းအရင်း (အနည်းဆုံး ၂ လုံး) ရေးပါ')
       return
     }
-    if ((Number(eDelivered) || 0) <= 0) {
-      setMsg('ပို့သည့် ဗူး အရေအတွက် ထည့်ပါ')
-      return
-    }
-    setBusy(true)
-    setMsg(null)
     const newQty = Number(eDelivered) || 0
-    const newCash = Number(eCash) || 0
-    // Re-run the allocation over the visit's full cash. The base is the
-    // agent's balance as if this entry and its spawned payments did not
-    // exist (editBaseOutstanding), read fresh; the new entry amount
-    // mirrors the server's recompute (qty x the row's snapshot price).
-    // Rows without an agent (deleted agent) cannot hold payments, so
-    // they keep the plain single-row update.
-    let newCollected = newCash
-    let split: ReturnType<typeof allocateCash> | null = null
-    if (row.agent_id) {
-      let outstandingNow: number | null = null
-      try {
-        const { data, error } = await supabase.rpc('agent_outstanding', {
-          p_agent: row.agent_id,
-        })
-        if (!error && typeof data === 'number') outstandingNow = data
-      } catch {
-        /* handled below */
-      }
-      if (outstandingNow === null) {
-        // Without the live balance the split cannot be recomputed
-        // safely; refuse rather than guess with money.
-        setMsg('ကိုယ်စားလှယ်၏ ကြွေးကျန် ဖတ်၍ မရပါ — ခဏနေ ပြန်ကြိုးစားပါ')
-        setBusy(false)
-        return
-      }
-      const base = editBaseOutstanding(
-        outstandingNow,
-        row.amount,
-        row.amount_collected,
-        editLinkedSum,
-      )
-      split = allocateCash(newCash, newQty * row.unit_price, base)
-      newCollected = split.toToday
+    if (newQty <= 0) {
+      setRowMsg('ပို့သည့် ဗူး အရေအတွက် ထည့်ပါ')
+      return
     }
-    // Server recomputes amount from qty x the row's snapshot price.
-    const { error } = await supabase
-      .from('daily_entries')
-      .update({
-        delivered_qty: newQty,
-        returned_qty: Number(eReturned) || 0,
-        amount_collected: newCollected,
-        notes: eNotes.trim() || null,
-        change_reason: reason,
-      })
-      .eq('id', row.id)
+    const newReturned = Number(eReturned) || 0
+    const newCash = Number(eCash) || 0
+    setBusy(true)
+    setRowMsg(null)
+    // Atomic server-side update (migration 0048): enforces Rule A,
+    // same-day guard, month lock, immutable agent_id, unit_price
+    // snapshot, deposit/credit limits, and linked-payment reallocation
+    // in a single Postgres transaction.
+    const { error } = await supabase.rpc('edit_daily_entry', {
+      p_entry_id: row.id,
+      p_delivered_qty: newQty,
+      p_returned_qty: newReturned,
+      p_total_cash: newCash,
+      p_received_by: eReceivedBy || null,
+      p_notes: eNotes.trim() || null,
+      p_change_reason: reason,
+    })
     if (error) {
-      setMsg(friendlyError(error))
+      setRowMsg(friendlyError(error))
       setBusy(false)
       return
     }
-    // Entry updated. Rewrite its spawned payments to the new split:
-    // delete the linked rows, then insert the new parts. (Deleting the
-    // entry itself would cascade them away — 0047 — but an edit keeps
-    // the entry, so the rewrite is explicit.) A failure here leaves the
-    // entry saved with a stale split; say so plainly.
-    if (split && row.agent_id) {
-      const { error: delError } = await supabase
-        .from('agent_payments')
-        .delete()
-        .eq('source_entry_id', row.id)
-      if (delError) {
-        setMsg(`မှတ်တမ် ပြင်ပြီးပါပြီ၊ တွဲထားသော ငွေသွင်းမှတ်တမ်းများ ပြင်ရ၍ မရပါ: ${friendlyError(delError)}`)
-        setEditId(null)
-        await load()
-        setBusy(false)
-        return
-      }
-      const spawns: { amount: number; kind: 'old_debt' | 'regular'; notes: string; label: string }[] = []
-      if (split.toOld > 0) {
-        spawns.push({
-          amount: split.toOld,
-          kind: 'old_debt',
-          notes: 'ရေပို့မှတ်တမ်းနှင့်အတူ ပေးချေသည်',
-          label: 'ကြွေးကောက်ငွေ',
-        })
-      }
-      if (split.advance > 0) {
-        spawns.push({
-          amount: split.advance,
-          kind: 'regular',
-          notes: 'ရေပို့မှတ်တမ်းနှင့်အတူ ပိုပေးငွေ',
-          label: 'ပိုပေးငွေ',
-        })
-      }
-      for (const s of spawns) {
-        const { error: insError } = await supabase.from('agent_payments').insert({
-          payment_date: row.entry_date,
-          agent_id: row.agent_id,
-          agent_name: row.agent_name,
-          amount: s.amount,
-          method: 'cash',
-          kind: s.kind,
-          notes: s.notes,
-          created_by: profile?.id ?? null,
-          // The cash changed hands with the entry's receiver, not
-          // necessarily with whoever is editing now.
-          received_by: row.received_by ?? row.created_by ?? null,
-          source_entry_id: row.id,
-        })
-        if (insError) {
-          setMsg(`မှတ်တမ် ပြင်ပြီးပါပြီ၊ ${s.label} ပြန်သိမ်း၍ မရပါ: ${friendlyError(insError)}`)
-          setEditId(null)
-          await load()
-          setBusy(false)
-          return
-        }
-      }
-    }
     setEditId(null)
     setEditLinkedSum(0)
+    setEditAgentBalance(null)
+    setRowMsg(null)
     setBalanceTick((t) => t + 1)
     await load()
     setBusy(false)
   }
 
   async function onDelete(row: EntryRow) {
+    if (busy) return
     const reason = deleteReason.trim()
     if (reason.length < 2) {
-      setMsg('ဖျက်ရသည့် အကြောင်းအရင်း (အနည်းဆုံး ၂ လုံး) ရေးပါ')
+      setRowMsg('ဖျက်ရသည့် အကြောင်းအရင်း (အနည်းဆုံး ၂ လုံး) ရေးပါ')
       return
     }
-    setMsg(null)
+    setBusy(true)
+    setRowMsg(null)
     // Stamp the reason first so the audit before-image of the delete
     // carries why the row was removed.
     const { error: stampError } = await supabase
@@ -651,14 +579,22 @@ export default function EntriesPage() {
       .update({ change_reason: reason })
       .eq('id', row.id)
     if (stampError) {
-      setMsg(friendlyError(stampError))
+      setRowMsg(friendlyError(stampError))
+      setBusy(false)
       return
     }
     const { error } = await supabase.from('daily_entries').delete().eq('id', row.id)
-    if (error) setMsg(friendlyError(error))
+    if (error) {
+      setRowMsg(friendlyError(error))
+      setBusy(false)
+      return
+    }
     setConfirmId(null)
     setDeleteReason('')
+    setRowMsg(null)
+    setBalanceTick((t) => t + 1)
     await load()
+    setBusy(false)
   }
 
   // --- Row pieces shared by the card list (phone/tablet) and the table
@@ -672,15 +608,19 @@ export default function EntriesPage() {
     return (
       <div className="flex gap-2">
         <button
+          type="button"
           onClick={() => startEdit(r)}
           className="inline-flex min-h-[40px] items-center rounded-lg bg-brand-50 px-3.5 font-medium text-brand-700 transition active:scale-[0.98] dark:bg-brand-950/50 dark:text-brand-300"
         >
           ပြင်ရန်
         </button>
         <button
+          type="button"
           onClick={() => {
+            setEditId(null)
             setConfirmId(r.id)
             setDeleteReason('')
+            setRowMsg(null)
           }}
           className="inline-flex min-h-[40px] items-center rounded-lg bg-red-50 px-3.5 font-medium text-red-600 transition active:scale-[0.98] dark:bg-red-950/40 dark:text-red-400"
         >
@@ -701,8 +641,13 @@ export default function EntriesPage() {
             placeholder="ဖျက်ရသည့် အကြောင်းအရင်း (လိုအပ်)"
             className={inputCls}
           />
+          {rowMsg && (
+            <p className="text-sm text-red-600" role="alert">
+              {rowMsg}
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
-            <DangerButton size="sm" onClick={() => onDelete(r)}>
+            <DangerButton size="sm" onClick={() => onDelete(r)} disabled={busy}>
               သေချာပါတယ်, ဖျက်မည်
             </DangerButton>
             <SecondaryButton
@@ -710,6 +655,7 @@ export default function EntriesPage() {
               onClick={() => {
                 setConfirmId(null)
                 setDeleteReason('')
+                setRowMsg(null)
               }}
             >
               မဖျက်တော့ပါ
@@ -719,9 +665,55 @@ export default function EntriesPage() {
       )
     }
     if (editId === r.id) {
+      // Preserve the row's current receiver in the dropdown even if that
+      // staff member was deactivated after recording this entry.
+      const editReceiverOptions =
+        eReceivedBy && !receiverOptions.some((o) => o.id === eReceivedBy)
+          ? [
+              ...receiverOptions,
+              {
+                id: eReceivedBy,
+                name: directory?.nameOf.get(eReceivedBy) ?? '—',
+                active: false,
+              },
+            ]
+          : receiverOptions
+      const eQtyNum = Number(eDelivered) || 0
+      const eCashNum = Number(eCash) || 0
+      const eNewAmount = eQtyNum * r.unit_price
+      const editBase =
+        editAgentBalance !== null
+          ? editBaseOutstanding(
+              editAgentBalance,
+              r.amount,
+              r.amount_collected,
+              editLinkedSum,
+            )
+          : null
+      const editAlloc =
+        editBase !== null ? allocateCash(eCashNum, eNewAmount, editBase) : null
+
       return (
         <div className="space-y-2.5 rounded-xl border border-stone-200 bg-stone-50/70 p-3.5 dark:border-neutral-800 dark:bg-neutral-800/40">
-          <div className="font-semibold">မှတ်တမ် ပြင်ရန်</div>
+          <div className="flex flex-wrap items-baseline justify-between gap-1">
+            <div className="font-semibold">မှတ်တမ်း ပြင်ရန်</div>
+            <div className="text-xs text-stone-500 dark:text-neutral-400">
+              ကိုယ်စားလှယ်: {r.agent_name ?? agentName(r.agent_id)} (ပြောင်း၍ မရပါ)
+            </div>
+          </div>
+          <Field label="လက်ခံသူ">
+            <select
+              value={eReceivedBy}
+              onChange={(e) => setEReceivedBy(e.target.value)}
+              className={inputCls}
+            >
+              {editReceiverOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </Field>
           <div className="grid grid-cols-2 gap-2">
             <Field label="ပို့သည့် ဗူး">
               <input
@@ -747,24 +739,68 @@ export default function EntriesPage() {
                 className={inputCls}
               />
             </Field>
+            <Field label="ဈေးနှုန်း (၁ ဗူး)">
+              <div className="flex min-h-[48px] items-center rounded-xl border border-stone-200 bg-white px-3.5 font-medium tabular-nums dark:border-neutral-700 dark:bg-neutral-900/60">
+                {formatMMK(r.unit_price)}
+              </div>
+            </Field>
           </div>
+          {eQtyNum > 0 && editAlloc && (
+            <div className="space-y-0.5 rounded-xl bg-brand-50 px-3 py-2 text-xs dark:bg-brand-950/40">
+              <div>
+                ဒီနေ့ ရေဖိုး: {formatMMK(eNewAmount)} · လက်ခံရရှိငွေ: {formatMMK(eCashNum)}
+              </div>
+              {editAlloc.toOld > 0 && (
+                <div>ကြွေးဟောင်း {formatMMK(editAlloc.toOld)} ရှင်းပါမယ်</div>
+              )}
+              {editAlloc.advance > 0 && (
+                <div>ပိုပေးငွေ {formatMMK(editAlloc.advance)} ကျန်ပါမယ်</div>
+              )}
+              <div
+                className={`font-semibold ${
+                  editAlloc.resultingBalance > 0 ? 'text-red-600 dark:text-red-400' : ''
+                }`}
+              >
+                {editAlloc.resultingBalance > 0
+                  ? `သိမ်းပြီးရင်: ကျန်ပေးရန် ${formatMMK(editAlloc.resultingBalance)} ကျန်ပါမယ်`
+                  : editAlloc.resultingBalance < 0
+                    ? `သိမ်းပြီးရင်: ပိုပေးထားငွေ ${formatMMK(-editAlloc.resultingBalance)} ဖြစ်ပါမယ်`
+                    : 'သိမ်းပြီးရင်: အားလုံး ရှင်းပြီးပါပြီ'}
+              </div>
+            </div>
+          )}
           <input
             value={eNotes}
             onChange={(e) => setENotes(e.target.value)}
             placeholder="မှတ်ချက် (ရှိလျှင်)"
             className={inputCls}
           />
-          <input
-            value={eReason}
-            onChange={(e) => setEReason(e.target.value)}
-            placeholder="ပြင်ရသည့် အကြောင်းအရင်း (လိုအပ်)"
-            className={inputCls}
-          />
+          <Field label="ပြင်ရသည့် အကြောင်းရင်း">
+            <input
+              value={eReason}
+              onChange={(e) => setEReason(e.target.value)}
+              placeholder="ပြင်ရသည့် အကြောင်းအရင်း (လိုအပ်)"
+              className={inputCls}
+            />
+          </Field>
+          {rowMsg && (
+            <p className="text-sm text-red-600" role="alert">
+              {rowMsg}
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             <PrimaryButton size="sm" onClick={() => saveEdit(r)} disabled={busy}>
               သိမ်းမည်
             </PrimaryButton>
-            <SecondaryButton size="sm" onClick={() => setEditId(null)}>
+            <SecondaryButton
+              size="sm"
+              onClick={() => {
+                setEditId(null)
+                setEditLinkedSum(0)
+                setEditAgentBalance(null)
+                setRowMsg(null)
+              }}
+            >
               မလုပ်တော့ပါ
             </SecondaryButton>
           </div>

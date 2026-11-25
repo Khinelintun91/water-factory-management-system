@@ -94,8 +94,9 @@ function monthOptions(): { value: string; label: string }[] {
 
 export default function PaymentsPage() {
   const { profile, roles } = useAuth()
-  const canWrite = profile?.role === 'owner' || profile?.role === 'manager' || profile?.role === 'staff'
-  const isAgent = profile?.role === 'agent'
+  const canWrite =
+    roles.includes('owner') || roles.includes('manager') || roles.includes('staff')
+  const isAgent = !canWrite && (profile?.role === 'agent' || roles.includes('agent'))
   // Rule A (migration 0045, enforced in RLS): owner/manager (effective
   // roles; co_owner counts as manager) may edit/delete any row, staff
   // only rows they created. The buttons mirror the DB rule so staff
@@ -110,6 +111,7 @@ export default function PaymentsPage() {
   const [shown, setShown] = useState(200)
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
+  const [rowMsg, setRowMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [deleteReason, setDeleteReason] = useState('')
@@ -119,11 +121,12 @@ export default function PaymentsPage() {
   // the kind the auto-split gave it at creation, and saveEdit sends it
   // back unchanged. Kind never affects the balance, and re-splitting on
   // edit would fight the paired-row structure the add form creates —
-  // corrections change amounts only.
+  // corrections change amounts/method/receiver/notes only.
   const [editId, setEditId] = useState<string | null>(null)
   const [eAmount, setEAmount] = useState('')
   const [eMethod, setEMethod] = useState('cash')
   const [eKind, setEKind] = useState<PaymentKind>('regular')
+  const [eReceivedBy, setEReceivedBy] = useState('')
   const [eNotes, setENotes] = useState('')
   const [eReason, setEReason] = useState('')
 
@@ -349,10 +352,12 @@ export default function PaymentsPage() {
     setConfirmId(null)
     setDeleteReason('')
     setMsg(null)
+    setRowMsg(null)
     setEditId(row.id)
     setEAmount(String(row.amount))
     setEMethod(row.method)
     setEKind(row.kind === 'old_debt' ? 'old_debt' : 'regular')
+    setEReceivedBy(row.received_by ?? row.created_by ?? profile?.id ?? '')
     setENotes(row.notes ?? '')
     setEReason('')
   }
@@ -361,42 +366,47 @@ export default function PaymentsPage() {
     if (busy) return
     const reason = eReason.trim()
     if (reason.length < 2) {
-      setMsg('ပြင်ရသည့် အကြောင်းအရင်း (အနည်းဆုံး ၂ လုံး) ရေးပါ')
+      setRowMsg('ပြင်ရသည့် အကြောင်းအရင်း (အနည်းဆုံး ၂ လုံး) ရေးပါ')
       return
     }
     if ((Number(eAmount) || 0) <= 0) {
-      setMsg('ပမာဏ ထည့်ပါ')
+      setRowMsg('ပမာဏ ထည့်ပါ')
       return
     }
     setBusy(true)
-    setMsg(null)
+    setRowMsg(null)
     const { error } = await supabase
       .from('agent_payments')
       .update({
         amount: Number(eAmount) || 0,
         method: eMethod,
         kind: eKind,
+        received_by: eReceivedBy || null,
         notes: eNotes.trim() || null,
         change_reason: reason,
       })
       .eq('id', row.id)
     if (error) {
-      setMsg(friendlyError(error))
+      setRowMsg(friendlyError(error))
       setBusy(false)
       return
     }
     setEditId(null)
+    setRowMsg(null)
+    setBalanceTick((t) => t + 1)
     await load()
     setBusy(false)
   }
 
   async function onDelete(row: PaymentRow) {
+    if (busy) return
     const reason = deleteReason.trim()
     if (reason.length < 2) {
-      setMsg('ဖျက်ရသည့် အကြောင်းအရင်း (အနည်းဆုံး ၂ လုံး) ရေးပါ')
+      setRowMsg('ဖျက်ရသည့် အကြောင်းအရင်း (အနည်းဆုံး ၂ လုံး) ရေးပါ')
       return
     }
-    setMsg(null)
+    setBusy(true)
+    setRowMsg(null)
     // Stamp the reason first so the audit before-image of the delete
     // carries why the row was removed.
     const { error: stampError } = await supabase
@@ -404,35 +414,63 @@ export default function PaymentsPage() {
       .update({ change_reason: reason })
       .eq('id', row.id)
     if (stampError) {
-      setMsg(friendlyError(stampError))
+      setRowMsg(friendlyError(stampError))
+      setBusy(false)
       return
     }
     const { error } = await supabase.from('agent_payments').delete().eq('id', row.id)
-    if (error) setMsg(friendlyError(error))
+    if (error) {
+      setRowMsg(friendlyError(error))
+      setBusy(false)
+      return
+    }
     setConfirmId(null)
     setDeleteReason('')
+    setRowMsg(null)
+    setBalanceTick((t) => t + 1)
     await load()
+    setBusy(false)
   }
 
   // --- Row pieces shared by the card list (phone/tablet) and the table
   // (desktop), following EntriesPage's pattern. ------------------------------
 
   function rowButtons(r: PaymentRow) {
-    if (!canWrite || !canEditRow(r) || !isTodayYangon(r.created_at) || editId === r.id || confirmId === r.id) {
+    if (
+      !canWrite ||
+      r.id.startsWith('entry:') ||
+      !canEditRow(r) ||
+      !isTodayYangon(r.created_at) ||
+      editId === r.id ||
+      confirmId === r.id
+    ) {
       return null
+    }
+    // Entry-spawned payments (0047 link) are managed atomically via the
+    // delivery entry on EntriesPage so the pair can never drift out of sync.
+    if (r.source_entry_id) {
+      return (
+        <span className="text-xs text-stone-500 dark:text-neutral-400">
+          ရေပို့မှတ်တမ်းနှင့် တွဲထားသည် — ပို့ဆောင်မှု မှတ်တမ်းမှ ပြင်/ဖျက်ပါ
+        </span>
+      )
     }
     return (
       <div className="flex gap-2">
         <button
+          type="button"
           onClick={() => startEdit(r)}
           className="inline-flex min-h-[40px] items-center rounded-lg bg-brand-50 px-3.5 font-medium text-brand-700 transition active:scale-[0.98] dark:bg-brand-950/50 dark:text-brand-300"
         >
           ပြင်ရန်
         </button>
         <button
+          type="button"
           onClick={() => {
+            setEditId(null)
             setConfirmId(r.id)
             setDeleteReason('')
+            setRowMsg(null)
           }}
           className="inline-flex min-h-[40px] items-center rounded-lg bg-red-50 px-3.5 font-medium text-red-600 transition active:scale-[0.98] dark:bg-red-950/40 dark:text-red-400"
         >
@@ -443,7 +481,15 @@ export default function PaymentsPage() {
   }
 
   function rowPanel(r: PaymentRow) {
-    if (!canWrite || !canEditRow(r) || !isTodayYangon(r.created_at)) return null
+    if (
+      !canWrite ||
+      r.id.startsWith('entry:') ||
+      r.source_entry_id ||
+      !canEditRow(r) ||
+      !isTodayYangon(r.created_at)
+    ) {
+      return null
+    }
     if (confirmId === r.id) {
       return (
         <div className="space-y-2 rounded-xl border border-red-200 bg-red-50/60 p-3 dark:border-red-900 dark:bg-red-950/20">
@@ -453,8 +499,13 @@ export default function PaymentsPage() {
             placeholder="ဖျက်ရသည့် အကြောင်းအရင်း (လိုအပ်)"
             className={inputCls}
           />
+          {rowMsg && (
+            <p className="text-sm text-red-600" role="alert">
+              {rowMsg}
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
-            <DangerButton size="sm" onClick={() => onDelete(r)}>
+            <DangerButton size="sm" onClick={() => onDelete(r)} disabled={busy}>
               သေချာပါတယ်, ဖျက်မည်
             </DangerButton>
             <SecondaryButton
@@ -462,6 +513,7 @@ export default function PaymentsPage() {
               onClick={() => {
                 setConfirmId(null)
                 setDeleteReason('')
+                setRowMsg(null)
               }}
             >
               မဖျက်တော့ပါ
@@ -471,12 +523,41 @@ export default function PaymentsPage() {
       )
     }
     if (editId === r.id) {
+      const editReceiverOptions =
+        eReceivedBy && !receiverOptions.some((o) => o.id === eReceivedBy)
+          ? [
+              ...receiverOptions,
+              {
+                id: eReceivedBy,
+                name: directory?.nameOf.get(eReceivedBy) ?? '—',
+                active: false,
+              },
+            ]
+          : receiverOptions
       return (
         <div className="space-y-2.5 rounded-xl border border-stone-200 bg-stone-50/70 p-3.5 dark:border-neutral-800 dark:bg-neutral-800/40">
-          <div className="font-semibold">
-            မှတ်တမ် ပြင်ရန်
-            {kindChip(r)}
+          <div className="flex flex-wrap items-baseline justify-between gap-1">
+            <div className="font-semibold">
+              မှတ်တမ်း ပြင်ရန်
+              {kindChip(r)}
+            </div>
+            <div className="text-xs text-stone-500 dark:text-neutral-400">
+              ကိုယ်စားလှယ်: {agentName(r.agent_id)} (ပြောင်း၍ မရပါ)
+            </div>
           </div>
+          <Field label="လက်ခံသူ">
+            <select
+              value={eReceivedBy}
+              onChange={(e) => setEReceivedBy(e.target.value)}
+              className={inputCls}
+            >
+              {editReceiverOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </Field>
           <div className="grid grid-cols-2 gap-2">
             <Field label="ပမာဏ (ကျပ်)">
               <input
@@ -513,11 +594,22 @@ export default function PaymentsPage() {
               className={inputCls}
             />
           </Field>
+          {rowMsg && (
+            <p className="text-sm text-red-600" role="alert">
+              {rowMsg}
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             <PrimaryButton size="sm" onClick={() => saveEdit(r)} disabled={busy}>
               သိမ်းမည်
             </PrimaryButton>
-            <SecondaryButton size="sm" onClick={() => setEditId(null)}>
+            <SecondaryButton
+              size="sm"
+              onClick={() => {
+                setEditId(null)
+                setRowMsg(null)
+              }}
+            >
               မလုပ်တော့ပါ
             </SecondaryButton>
           </div>
@@ -698,7 +790,7 @@ export default function PaymentsPage() {
                 </div>
                 <div className="mt-0.5 text-sm text-stone-500 dark:text-neutral-400">
                   {r.payment_date} · {METHOD_LABELS[r.method] ?? r.method}
-                  {isAgent && directory && receiverName(directory, r)
+                  {directory && receiverName(directory, r)
                     ? ` · လက်ခံသူ: ${receiverName(directory, r)}`
                     : ''}
                   {r.notes ? ` · ${r.notes}` : ''}
@@ -734,7 +826,7 @@ export default function PaymentsPage() {
                             {agentName(r.agent_id)}
                             {kindChip(r)}
                           </div>
-                          {isAgent && directory && receiverName(directory, r) && (
+                          {directory && receiverName(directory, r) && (
                             <div className="text-xs opacity-60">
                               လက်ခံသူ: {receiverName(directory, r)}
                             </div>
