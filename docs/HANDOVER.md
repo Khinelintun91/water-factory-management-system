@@ -1,6 +1,6 @@
 # HANDOVER — Water Factory Management System (for the next AI / developer)
 
-_Written 2026-11-07 for the project owner, ခိုင်လင်းထွန်း (Khine Lin Tun), to hand this
+_Written 2026-11-07, refreshed 2026-11-25, for the project owner, ခိုင်လင်းထွန်း (Khine Lin Tun), to hand this
 project to another AI (e.g. Grok) or developer **without starting over**.
 Everything needed lives in the owner's own accounts — nothing is locked inside any AI._
 
@@ -36,7 +36,7 @@ never ပုလင်း (glass bottles). Currency is MMK, integers only. Timezo
 | Old app (reference only) | `aqua-crate-ledger.lovable.app` + GitHub repo `Khinelintun91/aqua-crate-ledger` — **READ-ONLY, never edit, never merge its open PR #1** |
 | Design reference for features | The old Lovable app is the parity reference ("everything it has, nothing left behind") |
 
-⚠️ As of 2026-11-07 the GitHub repo is still **PUBLIC** (no secrets are in it — the
+⚠️ As of 2026-11-25 the GitHub repo is still **PUBLIC** (no secrets are in it — the
 Supabase publishable key is public-by-design, `.env` was never committed, there is no
 service_role key anywhere in the repo). The owner has been asked to make it private
 (GitHub → repo → Settings → Danger Zone → Change repository visibility).
@@ -114,25 +114,59 @@ conflicts with one of these, stop and flag it to the owner first.
     name comes from `app_settings.factory_name`.
 11. **Design the owner loves — do not redesign away**: the Collections/Agents lists
     are a **wallet card stack** (full-colour card faces overlapping so only the
-    name strip shows; tap a face to open its details). Face colour = sales tier:
-    top third by lifetime sales GOLD, middle WHITE/silver, bottom BLACK; zero-sales
-    agents black; **closed/settled agents are always black**. Reuse this style when
+    name strip shows; tap a face to open its details). Face colour = the agent's OWN
+    lifetime ကျသင့်ငွေ total against FIXED thresholds (migration 0040, PR #16):
+    under MMK 10,000,000 (သိန်း ၁၀၀) BLACK, MMK 10,000,000+ WHITE, MMK 20,000,000+
+    (သိန်း ၂၀၀) GOLD; **closed/settled agents are always black**. Reuse this style when
     the owner asks for "this style". **Glassmorphism was tried and rejected twice —
     never propose glass/frosted designs for this app.**
 12. **Login UX** — username + PIN/password only; no email-based login screens.
+13. **Receiver (လက်ခံသူ)** — every delivery and payment names the staff member who
+    actually received the money (`received_by`, migration 0041). The name shows on
+    every Entries row for staff-plus viewers and at the end of owner/manager
+    notifications (0044). Responsibility follows the receiver, not whoever typed
+    the entry.
+14. **Edit-Permission Rule A** (0045) — staff may edit/delete ONLY their own rows;
+    owner/manager/co_owner may edit/delete anyone's. Scope: `daily_entries`,
+    `agent_payments`, `expenses`. Rule 3's same-day and month-lock limits still
+    bind everyone. (Expenses stay owner/manager-visible only for now.)
+15. **Staff visibility** (0046) — staff SELECT on `daily_entries`/`agent_payments`
+    covers only rows they created OR received (`created_by = me OR received_by =
+    me`). Owner/manager/co_owner see all rows; the agent branch is unchanged.
+16. **ONE cash field** — the entry form (PR #28) and the Payments form (PR #29)
+    take a single total-received amount; the app auto-allocates it today → old
+    debt → overpayment (an advance spawns a linked `regular` payment) and shows
+    the split as a plain sentence before saving. Never reintroduce two money
+    fields. The Payments page is only for money received WITHOUT a delivery —
+    delivery money goes in the entry form only, never both.
+17. **Entry-delete cascade** (0047) — deleting an entry also removes the payment
+    it spawned (`agent_payments.source_entry_id` ON DELETE CASCADE).
+18. **Realtime notifications** (0043) — notifications arrive live via Supabase
+    Realtime (the 30-second poll remains as backup). **Login resilience**
+    (PR #30): a failed profile fetch retries automatically and shows a
+    connection-problem card with a retry button; "အကောင့် မှတ်တမ်း မတွေ့ပါ" appears
+    only for a genuinely missing profile. **Header theme toggle** (PR #31): a
+    light/dark icon button sits in the shared header on every page, all roles.
+19. **Damage charges** (0042, PR #17) — owner-only recording against ONE shared
+    price list on the ပျက်စီးမှု ဈေးနှုန်းများ page; agents see the prices read-only;
+    each charge snapshots the item name + price at charge time and adds into
+    `agent_outstanding()`.
 
-## 5. Current state (verified 2026-11-06/07)
+## 5. Current state (verified 2026-11-06/07; updated 2026-11-25)
 
 - **Feature parity with the old Lovable app is achieved**, and the UI was iterated
   with the owner on his phone (wallet stacks, scroll-jump buttons, owner backdating,
   disputes ordering, overpayment wording ပိုပေးထားငွေ, login history, etc.).
   `docs/GAP-ANALYSIS.md` is the 2026-11-03 document and is **historical only** — it
   is badly stale; do not treat its "missing" list as current.
-- Migrations **0001–0029 are ALL applied to the live database** and verified.
-- The live database is **CLEAN AND EMPTY**: all test/seed data was purged on
-  2026-11-07 (with a verified backup taken first). Only the owner's account exists.
-  **No real staff/agent accounts and no real business data yet** — creating the real
-  accounts needs the owner's list of names/usernames; ask him when you start the pilot.
+- Migrations **0001–0047 are ALL applied to the live database** (PRs #16–#31,
+  merged Nov 17–23, 2026; migrations 0043–0047 applied 2026-11-20).
+- The live database is **NO LONGER EMPTY** — the 2026-11-07 purge state is
+  history. Real staff and agent accounts exist, and the owner ran a real-data
+  test day on **2026-11-20**; real business entries have been recorded since
+  then. **Never wipe or re-seed live data.** Creating the remaining pilot
+  accounts still needs the owner's name/username list for the rest of the
+  staff/agents.
 - The **old Lovable app is still the business's live system**. The rebuild replaces
   it only after a real-data pilot (parallel run + reconciliation) earns the switch.
   Do not press the owner to switch early, and never modify the old app.
@@ -207,8 +241,9 @@ The Item-4 batch (migration `0029`, the whole `tests/` suite, `vitest.config.ts`
 and package.json test wiring, regenerated `apply_all.sql` to 0001–0029, SETUP.md
 ranges, the `AGENTS.md` "Before pushing" section, RESTORE-RUNBOOK range fixes,
 and this HANDOVER.md) **was pushed on 2026-11-07** at commit **`3c0f1b7`**.
-`main` later moved to **`adeb7e7`** (docs accuracy). Live migrations remain
-0001–0029.
+`main` later moved through the PR #16–#31 merges (Nov 17–23, 2026) and
+`supabase/apply_all.sql` was regenerated to 0001–0047 (§3). Live migrations are
+0001–0047, all applied and verified.
 
 Honest remainders, neither of which changes the running app:
 
@@ -224,18 +259,21 @@ Honest remainders, neither of which changes the running app:
 
 ## 10. Open work, in the owner's priority order
 
-1. **Pilot preparation** (the next real phase): create the real staff/agent
-   accounts (needs the owner's name/username list), write a pilot plan — 1–2 weeks
+1. **Pilot** (underway): real staff/agent accounts were created and the owner
+   tested the app with real data on 2026-11-20. Still needed: the owner's
+   name/username list for the remaining pilot accounts, a pilot plan — 1–2 weeks
    parallel-running with the Lovable app and daily reconciliation — plus a short
-   Burmese quickstart for staff/agents. Do not start entering real data before the
-   owner agrees the pilot start date.
+   Burmese quickstart for staff/agents. The Lovable app stays the live system
+   until the pilot earns the switch (§5).
 2. **FCM push notifications**: blocked on the owner providing the Firebase
    service-account JSON (Firebase project `water-delivery-noti`). It must go into
    a Supabase Edge Function secret — **never commit it to the repo**.
 3. P1 hardening from the 2026-11-06 professional audit: error tracking / React
-   Error Boundary, incident runbook, PWA service worker (offline is currently an
-   entries-only queue), replacing the `xlsx` dependency (known advisories, no fix
-   released).
+   Error Boundary, incident runbook, replacing the `xlsx` dependency (known
+   advisories, no fix released). The **offline shell** (a service worker that
+   lets the app open with no connection) was built and passed 7/7 offline tests
+   on 2026-11-18, but is **not yet pushed to GitHub** — it waits for the owner's
+   go. The offline entries queue is separate and unchanged by it.
 4. Owner-only account hygiene (reminded, pending): make the GitHub repo private,
    enable MFA on Supabase/GitHub/Cloudflare, lengthen the owner PIN to 8–12 digits
    from the Users page (`PIN အသစ် သတ်မှတ်ရန်` on the owner's own row).
