@@ -63,8 +63,9 @@ service_role key anywhere in the repo). The owner has been asked to make it priv
   is a `user_roles` row. `admin_create_user()` (0014, revised by 0030) accepts
   the four core roles and `co_owner` as the primary role, and it sets
   `profiles.agent_id` only when that primary role is `agent`. Holding `staff`
-  (primary or `user_roles`) makes `is_staff_plus()` true, so the account sees
-  every agent's rows.
+  (primary or `user_roles`) makes `is_staff_plus()` true. That no longer means
+  seeing every row: since 0046 a staff account's reads on `daily_entries` /
+  `agent_payments` cover only rows it created OR received (rule 15).
 - `co_owner` is an extra `user_role` value, not a fifth core role. `has_role()`
   treats it as manager (SPEC "Roles" says the same). The Users page dropdown
   lists `co_owner` with the four core roles, including on the create-account
@@ -84,8 +85,10 @@ service_role key anywhere in the repo). The owner has been asked to make it priv
 From `SPEC.md` §3 plus decisions the owner made during the build. If a request
 conflicts with one of these, stop and flag it to the owner first.
 
-1. **Data isolation** — an agent sees ONLY their own data; staff-plus see all.
-   Enforced in RLS/RPCs, never only in the UI.
+1. **Data isolation** — an agent sees ONLY their own data; owner/manager/
+   co_owner see all rows; staff see only the `daily_entries`/`agent_payments`
+   rows they created OR received (0046, rule 15). Enforced in RLS/RPCs, never
+   only in the UI.
 2. **Privacy** — staff must NOT be able to read agent phone numbers
    (`agent_contacts` is owner/manager only).
 3. **Same-day edit/delete** — entries, payments and expenses can be edited/deleted
@@ -211,13 +214,17 @@ conflicts with one of these, stop and flag it to the owner first.
 
 ## 8. Testing & how changes ship
 
-- Permanent test suite in `tests/`: 14 SQL assertion files (same-day guards incl.
+- Permanent test suite in `tests/`: 20 SQL assertion files (same-day guards incl.
   all 0027 tables, month lock incl. owner, insert-today + owner exception, agent
   isolation + staff phone privacy, login gateway + lockout, last-owner guard,
   0029 outstanding gate with golden values, `pay_month` goldens 320,000 and
   290,000, `finalize_closeout` golden, `0030` co_owner create with a 6-digit
   PIN plus invalid-role and owner-only checks, `0031` direct close-column
-  writes rejected and AgentsPage fields still editable) plus Vitest unit tests.
+  writes rejected and AgentsPage fields still editable, 0040 card-tier
+  thresholds, 0041 `received_by`, 0042 damage charges, 0043 realtime
+  notifications, 0044 receiver name in OM notifications, 0045 Rule A
+  (staff edit/delete own rows only), 0046 staff own-row visibility, 0047
+  entry-payment link) plus Vitest unit tests.
 - **Before pushing, always** (repo `AGENTS.md` rule):
   `tests/run-sql-tests.sh`, `npm test`, `npm run build` — and show the real output.
 - New UI string ⇒ add its `src/lib/i18nDict.ts` entry in the same commit.
