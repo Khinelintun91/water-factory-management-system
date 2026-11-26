@@ -80,6 +80,7 @@ interface LedgerLine {
   label: string
   detail: string
   delta: number
+  bottleOnly?: boolean
 }
 
 const PAGE_SIZE = 1000
@@ -318,6 +319,7 @@ export default function CollectionsPage() {
           ? `ပြန်အပ် ${e.returned_qty} ဗူး`
           : `ပို့ ${e.delivered_qty} · ပြန် ${e.returned_qty}`,
         delta: e.amount,
+        bottleOnly,
         sortKey: e.created_at,
         ord: 0,
       })
@@ -593,10 +595,12 @@ export default function CollectionsPage() {
                                     </span>
                                   </div>
                                   <div className="text-right">
-                                    <div className="font-medium tabular-nums">
-                                      {line.delta >= 0 ? '+' : ''}
-                                      {formatMMK(line.delta)}
-                                    </div>
+                                    {!line.bottleOnly && (
+                                      <div className="font-medium tabular-nums">
+                                        {line.delta >= 0 ? '+' : ''}
+                                        {formatMMK(line.delta)}
+                                      </div>
+                                    )}
                                     <div className="text-xs text-stone-500 tabular-nums dark:text-neutral-400">
                                       ကျန် {formatMMK(balance)}
                                     </div>

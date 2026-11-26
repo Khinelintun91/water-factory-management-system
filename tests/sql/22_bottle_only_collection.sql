@@ -241,4 +241,68 @@ select testkit.assert_true(
 rollback;
 reset role;
 
+-- 5) Held-bottles math via agent_held_totals() (and unchanged agent_outstanding()):
+--    Agent A starts at fixture baseline held = 5 -> +245 delivery => held = 250
+--    -> bottle-only return 100 => held = 150 (outstanding unchanged)
+--    -> same-day edit returned 100 -> 85 => held = 165 (outstanding unchanged).
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"33333333-3333-4333-8333-333333333333"}', true);
+
+select testkit.assert_true(
+  (select held from agent_held_totals()
+    where agent_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') = 5,
+  'baseline: agent A held bottles = 5');
+
+insert into daily_entries (id, agent_id, delivered_qty, returned_qty, amount_collected)
+values ('e5000000-0000-4000-8000-000000000029',
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 245, 0, 0);
+
+select testkit.assert_true(
+  (select held from agent_held_totals()
+    where agent_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') = 250,
+  'after +245 delivery: agent A held bottles = 250');
+
+-- Record agent_outstanding() before bottle-only return (1350 + 245 * 300 = 74850).
+select set_config(
+  'test.pre_return_outstanding',
+  agent_outstanding('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')::text,
+  true
+);
+
+insert into daily_entries (id, agent_id, delivered_qty, returned_qty, amount_collected)
+values ('e5000000-0000-4000-8000-000000000030',
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 0, 100, 0);
+
+select testkit.assert_true(
+  (select held from agent_held_totals()
+    where agent_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') = 150,
+  'after bottle-only return of 100: agent A held bottles = 150');
+
+select testkit.assert_true(
+  agent_outstanding('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+    = current_setting('test.pre_return_outstanding')::bigint,
+  'after bottle-only return: agent A outstanding balance is unchanged');
+
+select testkit.assert_true(
+  (select (r->>'amount')::bigint = 0
+     from edit_daily_entry(
+       'e5000000-0000-4000-8000-000000000030',
+       0, 85, 0, null, null, 'recount held check'
+     ) as r),
+  'same-day edit of bottle-only row 100 -> 85 succeeds');
+
+select testkit.assert_true(
+  (select held from agent_held_totals()
+    where agent_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') = 165,
+  'after editing bottle-only return 100 -> 85: agent A held bottles = 165');
+
+select testkit.assert_true(
+  agent_outstanding('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+    = current_setting('test.pre_return_outstanding')::bigint,
+  'after editing bottle-only return: agent A outstanding balance stays unchanged');
+
+rollback;
+reset role;
+
 select '22_bottle_only_collection: all assertions passed';
