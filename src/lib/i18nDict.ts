@@ -1240,4 +1240,20 @@ export const EN: Record<string, string> = {
   "မှတ်တမ်း ပြင်ဆင်ရာတွင် ကိုယ်စားလှယ်ကို ပြောင်းလဲ၍ မရပါ": "Agent cannot be changed when editing a record",
   "ပြန်အပ်သည့် ဗူး အရေအတွက် မှန်ကန်စွာ ထည့်ပါ": "Enter a valid number of returned bottles",
   "လက်ခံရရှိငွေ ပမာဏ မှန်ကန်စွာ ထည့်ပါ": "Enter a valid cash amount",
+
+  // Bottle-only collection mode (migration 0049)
+  "ရေပို့ + ဗူးခွံယူ": "Delivery + empties",
+  "ဗူးခွံသီးသန့် ပြန်ယူ": "Empty bottles only",
+  "ပြန်အပ်သည့် ဗူး အရေအတွက် ထည့်ပါ": "Enter returned bottles quantity",
+  "ပို့သည့် ဗူး သို့မဟုတ် ပြန်အပ်သည့် ဗူး အရေအတွက် ထည့်ပါ": "Enter delivered or returned bottles quantity",
+  "ဗူးခွံသီးသန့် ပြန်ယူ မှတ်တမ်းတွင် ငွေပမာဏ ထည့်၍ မရပါ": "Cash cannot be recorded on a bottle-only collection entry",
+  "ရေပို့ မှတ်တမ်းနှင့် ဗူးခွံသီးသန့် မှတ်တမ်း အမျိုးအစား ပြောင်းလဲ၍ မရပါ — ဖျက်ပြီး အသစ်ထည့်ပါ": "Cannot switch between delivery and bottle-only entry types — delete and re-enter",
+  "သတိ: လက်ရှိ ကိုင်ထားဗူး": "Warning: exceeds currently held bottles",
+  "လက်ရှိ ကိုင်ထားဗူး": "Currently held bottles",
+  "ထက် ပိုနေပါတယ် — ဆက်သိမ်းနိုင်ပါတယ်": "— you can still save",
+  "ဗူးခွံပြန်ယူ မှတ်တမ်း": "Empty bottle collection",
+  "ဗူးခွံပြန်အပ် မှတ်တမ်း": "Empty bottle return",
+  "ဗူး ပြန်ယူ": "bottles collected",
+  "ဗူး ပြန်အပ်ပြီး": "bottles returned",
+  "ပြန်အပ်": "Returned",
 };

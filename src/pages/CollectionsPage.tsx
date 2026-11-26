@@ -80,6 +80,7 @@ interface LedgerLine {
   label: string
   detail: string
   delta: number
+  bottleOnly?: boolean
 }
 
 const PAGE_SIZE = 1000
@@ -309,12 +310,16 @@ export default function CollectionsPage() {
     const raw: (LedgerLine & { sortKey: string; ord: number })[] = []
     for (const e of src.entries) {
       if (e.agent_id !== agentId) continue
+      const bottleOnly = e.delivered_qty === 0
       raw.push({
         key: `due-${e.id}`,
         date: e.entry_date,
-        label: 'ရေပို့',
-        detail: `ပို့ ${e.delivered_qty} · ပြန် ${e.returned_qty}`,
+        label: bottleOnly ? 'ဗူးခွံသီးသန့် ပြန်ယူ' : 'ရေပို့',
+        detail: bottleOnly
+          ? `ပြန်အပ် ${e.returned_qty} ဗူး`
+          : `ပို့ ${e.delivered_qty} · ပြန် ${e.returned_qty}`,
         delta: e.amount,
+        bottleOnly,
         sortKey: e.created_at,
         ord: 0,
       })
@@ -590,10 +595,12 @@ export default function CollectionsPage() {
                                     </span>
                                   </div>
                                   <div className="text-right">
-                                    <div className="font-medium tabular-nums">
-                                      {line.delta >= 0 ? '+' : ''}
-                                      {formatMMK(line.delta)}
-                                    </div>
+                                    {!line.bottleOnly && (
+                                      <div className="font-medium tabular-nums">
+                                        {line.delta >= 0 ? '+' : ''}
+                                        {formatMMK(line.delta)}
+                                      </div>
+                                    )}
                                     <div className="text-xs text-stone-500 tabular-nums dark:text-neutral-400">
                                       ကျန် {formatMMK(balance)}
                                     </div>

@@ -716,8 +716,12 @@ function AgentHome() {
           delivered: e.delivered_qty,
           returned: e.returned_qty,
           amount: Number(e.amount),
-          // Cash moved on an entry only when something was collected.
-          receiver: Number(e.amount_collected) > 0 ? receiverName(dir, e) : null,
+          // Cash moved on an entry when collected; bottle-only entries
+          // name who collected the returned empties.
+          receiver:
+            Number(e.amount_collected) > 0 || e.delivered_qty === 0
+              ? receiverName(dir, e)
+              : null,
         })),
         ...pm.map((p) => ({
           kind: 'payment' as const,
@@ -918,30 +922,40 @@ function AgentHome() {
           <p className="mt-3 text-sm text-stone-500 dark:text-neutral-400">မရှိသေးပါ</p>
         ) : (
           <ul className="mt-1 divide-y divide-stone-100 dark:divide-neutral-800/70">
-            {latest.map((r) => (
-              <li
-                key={`${r.kind}:${r.id}`}
-                className="flex items-baseline justify-between gap-2 py-2.5 text-sm"
-              >
-                <span className="min-w-0">
-                  {r.kind === 'entry' ? (
-                    <>
-                      ပို့ဆောင်မှု — {r.delivered.toLocaleString('en-US')} ဗူး ပို့ ·{' '}
-                      {r.returned.toLocaleString('en-US')} ဗူး ပြန်
-                    </>
-                  ) : (
-                    <>ငွေပေးချေမှု</>
-                  )}
-                  <span className="block text-xs text-stone-500 dark:text-neutral-400">
-                    {r.date}
-                    {r.receiver ? ` · လက်ခံသူ ${r.receiver}` : ''}
+            {latest.map((r) => {
+              const bottleOnly = r.kind === 'entry' && r.delivered === 0
+              return (
+                <li
+                  key={`${r.kind}:${r.id}`}
+                  className="flex items-baseline justify-between gap-2 py-2.5 text-sm"
+                >
+                  <span className="min-w-0">
+                    {bottleOnly ? (
+                      <>
+                        ဗူးခွံသီးသန့် ပြန်ယူ — ပြန်အပ်{' '}
+                        {r.returned.toLocaleString('en-US')} ဗူး
+                      </>
+                    ) : r.kind === 'entry' ? (
+                      <>
+                        ပို့ဆောင်မှု — {r.delivered.toLocaleString('en-US')} ဗူး ပို့ ·{' '}
+                        {r.returned.toLocaleString('en-US')} ဗူး ပြန်
+                      </>
+                    ) : (
+                      <>ငွေပေးချေမှု</>
+                    )}
+                    <span className="block text-xs text-stone-500 dark:text-neutral-400">
+                      {r.date}
+                      {r.receiver ? ` · လက်ခံသူ ${r.receiver}` : ''}
+                    </span>
                   </span>
-                </span>
-                <span className="shrink-0 font-semibold tabular-nums">
-                  {formatMMK(r.amount)}
-                </span>
-              </li>
-            ))}
+                  {!bottleOnly && (
+                    <span className="shrink-0 font-semibold tabular-nums">
+                      {formatMMK(r.amount)}
+                    </span>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         )}
       </Card>

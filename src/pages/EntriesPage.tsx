@@ -26,6 +26,14 @@ import {
 } from '../lib/staffDirectory'
 import { allocateCash, editBaseOutstanding, syncAutoCash } from '../lib/cashAllocation'
 import {
+  buildEntryPayload,
+  isBottleOnlyEntry,
+  isOverReturn,
+  validateEditEntry,
+  validateNewEntry,
+  type EntryMode,
+} from '../lib/entryMode'
+import {
   Banner,
   DangerButton,
   EmptyState,
@@ -114,6 +122,7 @@ export default function EntriesPage() {
   const [renderLimit, setRenderLimit] = useState(RENDER_PAGE_SIZE)
 
   // New-entry form.
+  const [mode, setMode] = useState<EntryMode>('delivery')
   const [agentId, setAgentId] = useState('')
   const [delivered, setDelivered] = useState('')
   const [returned, setReturned] = useState('')
@@ -121,6 +130,9 @@ export default function EntriesPage() {
   // Whether the user manually edited the new-entry cash field in this
   // form session; while false, cash auto-fills from qty × price.
   const [cashTouched, setCashTouched] = useState(false)
+  // Per-agent held bottles (agent_held_totals RPC), shown as an info line
+  // and used for the non-blocking over-return warning in bottle-only mode.
+  const [heldByAgent, setHeldByAgent] = useState<Map<string, number>>(new Map())
   // The selected agent's CURRENT balance (agent_outstanding RPC), shown
   // in the form and used to preview the cash split. null = not loaded
   // yet (or the RPC failed); the save path re-reads it fresh, so a
@@ -168,7 +180,7 @@ export default function EntriesPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: ag }, en, dir] = await Promise.all([
+    const [{ data: ag }, en, dir, heldRes] = await Promise.all([
       supabase.from('agents').select('*').order('created_at'),
       // The selected month is filtered server-side by entry_date range and
       // every page is fetched — the old client-side filter over a capped
@@ -190,12 +202,22 @@ export default function EntriesPage() {
           .range(from, to)
       }),
       fetchStaffDirectory(),
+      canWrite
+        ? supabase.rpc('agent_held_totals')
+        : Promise.resolve({ data: null, error: null }),
     ])
     setAgents((ag ?? []) as Agent[])
     setDirectory(dir)
     setRows(en)
+    if (heldRes && !heldRes.error && Array.isArray(heldRes.data)) {
+      const m = new Map<string, number>()
+      for (const r of heldRes.data as { agent_id: string; held: number }[]) {
+        m.set(r.agent_id, Number(r.held) || 0)
+      }
+      setHeldByAgent(m)
+    }
     setLoading(false)
-  }, [monthFilter])
+  }, [monthFilter, canWrite])
 
   useEffect(() => {
     load()
@@ -294,9 +316,13 @@ export default function EntriesPage() {
 
   // Live preview from the selected agent's price (server snapshots the same
   // price and computes the amount; this is display-only).
+  const isBottleOnly = mode === 'bottle_only'
   const selectedAgent = agents.find((a) => a.id === agentId) ?? null
   const price = selectedAgent?.default_unit_price ?? 0
   const qty = Number(delivered) || 0
+  const returnedQty = Number(returned) || 0
+  const selectedHeld = agentId ? (heldByAgent.get(agentId) ?? null) : null
+  const overReturn = isBottleOnly && isOverReturn(returnedQty, selectedHeld)
   const due = qty * price
   // Auto-fill the new-entry cash input from this visit's delivery charge
   // (qty × price, never old debt) until the user edits cash manually.
@@ -322,12 +348,14 @@ export default function EntriesPage() {
     e.preventDefault()
     if (busy) return
     setMsg(null)
-    if (!agentId) {
-      setMsg('ကိုယ်စားလှယ် ရွေးပါ')
-      return
-    }
-    if (qty <= 0) {
-      setMsg('ပို့သည့် ဗူး အရေအတွက် ထည့်ပါ')
+    const err = validateNewEntry({
+      mode,
+      agentId,
+      deliveredQty: qty,
+      returnedQty,
+    })
+    if (err) {
+      setMsg(err)
       return
     }
     // Step 1: show the in-app confirmation panel; insert happens on confirm.
@@ -339,28 +367,62 @@ export default function EntriesPage() {
     setBusy(true)
     setMsg(null)
     // unit_price and amount are computed by the server — do not send them.
-    // The payload carries the FULL cash figure: it is what the offline
-    // queue stores, and a queued entry replays with the whole amount on
-    // the entry itself (the queue never spawns payments — see below).
-    // The online insert below overrides amount_collected with the
-    // allocation's toToday part, because the rest of the cash lands as
-    // linked payment rows instead.
-    const payload: EntryInsert = {
-      entry_date: isOwner ? entryDate || todayYangon() : todayYangon(),
-      agent_id: agentId,
-      delivered_qty: qty,
-      returned_qty: Number(returned) || 0,
-      amount_collected: cashNum,
-      notes: notes.trim() || null,
-      created_by: profile?.id ?? null,
-      received_by: receivedBy || profile?.id || null,
-    }
+    // In bottle-only mode delivered_qty and amount_collected are forced to 0
+    // and no payments are spawned; in delivery mode the payload carries the
+    // FULL cash figure for the offline queue while the online insert writes
+    // toToday on the entry and spawns linked payments for the remainder.
+    const payload: EntryInsert = buildEntryPayload({
+      mode,
+      entryDate: isOwner ? entryDate || todayYangon() : todayYangon(),
+      agentId,
+      deliveredQty: qty,
+      returnedQty,
+      cashAmount: cashNum,
+      notes,
+      createdBy: profile?.id ?? null,
+      receivedBy: receivedBy || profile?.id || null,
+    })
     // Offline right now: queue the exact payload instead of losing the form.
     if (!navigator.onLine) {
       enqueue(payload)
       afterQueued()
       return
     }
+
+    if (isBottleOnly) {
+      let failure: unknown = null
+      try {
+        const { error } = await supabase.from('daily_entries').insert(payload)
+        failure = error
+      } catch (err) {
+        failure = err
+      }
+      if (failure) {
+        if (isNetworkError(failure)) {
+          enqueue(payload)
+          afterQueued()
+          return
+        }
+        setMsg(friendlyError(failure))
+        setConfirming(false)
+        setBusy(false)
+        return
+      }
+      setMode('delivery')
+      setDelivered('')
+      setReturned('')
+      setCash('')
+      setCashTouched(false)
+      setReceivedBy('')
+      setNotes('')
+      setEntryDate(todayYangon())
+      setConfirming(false)
+      setBalanceTick((t) => t + 1)
+      await load()
+      setBusy(false)
+      return
+    }
+
     // Read the agent's balance FRESH so the split is computed from live
     // numbers, not the form's possibly stale preview value. If the read
     // fails, fall back to the preview value: the agent's resulting
@@ -458,6 +520,7 @@ export default function EntriesPage() {
         break
       }
     }
+    setMode('delivery')
     setDelivered('')
     setReturned('')
     setCash('')
@@ -479,6 +542,7 @@ export default function EntriesPage() {
   // spawns payments), so a replayed entry keeps the whole amount on the
   // entry itself — the agent's balance stays exact, just unsplit.
   function afterQueued() {
+    setMode('delivery')
     setDelivered('')
     setReturned('')
     setCash('')
@@ -497,6 +561,20 @@ export default function EntriesPage() {
     setDeleteReason('')
     setMsg(null)
     setRowMsg(null)
+    // Bottle-only rows carry zero money and never have linked payments;
+    // edit returned_qty / received_by / notes only.
+    if (isBottleOnlyEntry(row)) {
+      setEditLinkedSum(0)
+      setEditAgentBalance(null)
+      setEditId(row.id)
+      setEDelivered('0')
+      setEReturned(String(row.returned_qty))
+      setECash('0')
+      setEReceivedBy(row.received_by ?? row.created_by ?? profile?.id ?? '')
+      setENotes(row.notes ?? '')
+      setEReason('')
+      return
+    }
     // The edit cash field must show ALL the cash of the visit: the
     // entry's own amount_collected plus the payments it spawned (0047
     // link). Without the linked sum, saving would silently shrink the
@@ -532,24 +610,27 @@ export default function EntriesPage() {
 
   async function saveEdit(row: EntryRow) {
     if (busy) return
+    const bottleOnly = isBottleOnlyEntry(row)
     const reason = eReason.trim()
-    if (reason.length < 2) {
-      setRowMsg('ပြင်ရသည့် အကြောင်းအရင်း (အနည်းဆုံး ၂ လုံး) ရေးပါ')
-      return
-    }
-    const newQty = Number(eDelivered) || 0
-    if (newQty <= 0) {
-      setRowMsg('ပို့သည့် ဗူး အရေအတွက် ထည့်ပါ')
-      return
-    }
+    const newQty = bottleOnly ? 0 : Number(eDelivered) || 0
     const newReturned = Number(eReturned) || 0
-    const newCash = Number(eCash) || 0
+    const newCash = bottleOnly ? 0 : Number(eCash) || 0
+    const err = validateEditEntry({
+      isBottleOnly: bottleOnly,
+      deliveredQty: newQty,
+      returnedQty: newReturned,
+      reason,
+    })
+    if (err) {
+      setRowMsg(err)
+      return
+    }
     setBusy(true)
     setRowMsg(null)
-    // Atomic server-side update (migration 0048): enforces Rule A,
-    // same-day guard, month lock, immutable agent_id, unit_price
-    // snapshot, deposit/credit limits, and linked-payment reallocation
-    // in a single Postgres transaction.
+    // Atomic server-side update (migration 0048 / 0049): enforces Rule A,
+    // same-day guard, month lock, immutable agent_id and entry type,
+    // unit_price snapshot, deposit/credit limits, and linked-payment
+    // reallocation in a single Postgres transaction.
     const { error } = await supabase.rpc('edit_daily_entry', {
       p_entry_id: row.id,
       p_delivered_qty: newQty,
@@ -675,6 +756,7 @@ export default function EntriesPage() {
       )
     }
     if (editId === r.id) {
+      const bottleOnlyEdit = isBottleOnlyEntry(r)
       // Preserve the row's current receiver in the dropdown even if that
       // staff member was deactivated after recording this entry.
       const editReceiverOptions =
@@ -692,7 +774,7 @@ export default function EntriesPage() {
       const eCashNum = Number(eCash) || 0
       const eNewAmount = eQtyNum * r.unit_price
       const editBase =
-        editAgentBalance !== null
+        !bottleOnlyEdit && editAgentBalance !== null
           ? editBaseOutstanding(
               editAgentBalance,
               r.amount,
@@ -706,7 +788,14 @@ export default function EntriesPage() {
       return (
         <div className="space-y-2.5 rounded-xl border border-stone-200 bg-stone-50/70 p-3.5 dark:border-neutral-800 dark:bg-neutral-800/40">
           <div className="flex flex-wrap items-baseline justify-between gap-1">
-            <div className="font-semibold">မှတ်တမ်း ပြင်ရန်</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold">မှတ်တမ်း ပြင်ရန်</span>
+              {bottleOnlyEdit && (
+                <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">
+                  ဗူးခွံသီးသန့် ပြန်ယူ
+                </span>
+              )}
+            </div>
             <div className="text-xs text-stone-500 dark:text-neutral-400">
               ကိုယ်စားလှယ်: {r.agent_name ?? agentName(r.agent_id)} (ပြောင်း၍ မရပါ)
             </div>
@@ -724,15 +813,7 @@ export default function EntriesPage() {
               ))}
             </select>
           </Field>
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="ပို့သည့် ဗူး">
-              <input
-                value={eDelivered}
-                onChange={(e) => setEDelivered(e.target.value.replace(/\D/g, ''))}
-                inputMode="numeric"
-                className={inputCls}
-              />
-            </Field>
+          {bottleOnlyEdit ? (
             <Field label="ပြန်အပ်သည့် ဗူး">
               <input
                 value={eReturned}
@@ -741,21 +822,40 @@ export default function EntriesPage() {
                 className={inputCls}
               />
             </Field>
-            <Field label="လက်ခံရရှိငွေ (ကျပ်)">
-              <input
-                value={eCash}
-                onChange={(e) => setECash(e.target.value.replace(/\D/g, ''))}
-                inputMode="numeric"
-                className={inputCls}
-              />
-            </Field>
-            <Field label="ဈေးနှုန်း (၁ ဗူး)">
-              <div className="flex min-h-[48px] items-center rounded-xl border border-stone-200 bg-white px-3.5 font-medium tabular-nums dark:border-neutral-700 dark:bg-neutral-900/60">
-                {formatMMK(r.unit_price)}
-              </div>
-            </Field>
-          </div>
-          {eQtyNum > 0 && editAlloc && (
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="ပို့သည့် ဗူး">
+                <input
+                  value={eDelivered}
+                  onChange={(e) => setEDelivered(e.target.value.replace(/\D/g, ''))}
+                  inputMode="numeric"
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="ပြန်အပ်သည့် ဗူး">
+                <input
+                  value={eReturned}
+                  onChange={(e) => setEReturned(e.target.value.replace(/\D/g, ''))}
+                  inputMode="numeric"
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="လက်ခံရရှိငွေ (ကျပ်)">
+                <input
+                  value={eCash}
+                  onChange={(e) => setECash(e.target.value.replace(/\D/g, ''))}
+                  inputMode="numeric"
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="ဈေးနှုန်း (၁ ဗူး)">
+                <div className="flex min-h-[48px] items-center rounded-xl border border-stone-200 bg-white px-3.5 font-medium tabular-nums dark:border-neutral-700 dark:bg-neutral-900/60">
+                  {formatMMK(r.unit_price)}
+                </div>
+              </Field>
+            </div>
+          )}
+          {!bottleOnlyEdit && eQtyNum > 0 && editAlloc && (
             <div className="space-y-0.5 rounded-xl bg-brand-50 px-3 py-2 text-xs dark:bg-brand-950/40">
               <div>
                 ဒီနေ့ ရေဖိုး: {formatMMK(eNewAmount)} · လက်ခံရရှိငွေ: {formatMMK(eCashNum)}
@@ -864,6 +964,44 @@ export default function EntriesPage() {
       {canWrite && (
         <form onSubmit={onAdd} className={`${cardCls} space-y-3 p-4 lg:p-5`}>
           <div className="text-base font-semibold">{isOwner ? 'မှတ်တမ်အသစ်' : 'ယနေ့ မှတ်တမ်အသစ်'}</div>
+          <div
+            role="group"
+            aria-label="အမျိုးအစား"
+            className="grid grid-cols-2 gap-1.5 rounded-xl bg-stone-100 p-1 dark:bg-neutral-800/80"
+          >
+            <button
+              type="button"
+              aria-pressed={!isBottleOnly}
+              onClick={() => {
+                setMode('delivery')
+                setConfirming(false)
+                setMsg(null)
+              }}
+              className={`min-h-[44px] rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                !isBottleOnly
+                  ? 'bg-white text-brand-700 shadow-sm dark:bg-neutral-900 dark:text-brand-300'
+                  : 'text-stone-600 hover:text-stone-900 dark:text-neutral-300 dark:hover:text-white'
+              }`}
+            >
+              ရေပို့ + ဗူးခွံယူ
+            </button>
+            <button
+              type="button"
+              aria-pressed={isBottleOnly}
+              onClick={() => {
+                setMode('bottle_only')
+                setConfirming(false)
+                setMsg(null)
+              }}
+              className={`min-h-[44px] rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                isBottleOnly
+                  ? 'bg-white text-brand-700 shadow-sm dark:bg-neutral-900 dark:text-brand-300'
+                  : 'text-stone-600 hover:text-stone-900 dark:text-neutral-300 dark:hover:text-white'
+              }`}
+            >
+              ဗူးခွံသီးသန့် ပြန်ယူ
+            </button>
+          </div>
           {isOwner && (
             <Field label="ရက်စွဲ">
               <input
@@ -902,12 +1040,17 @@ export default function EntriesPage() {
                 </option>
               ))}
             </select>
-            {agentBalance !== null && agentBalance > 0 && (
+            {isBottleOnly && selectedHeld !== null && (
+              <span className="mt-1 block text-xs font-medium text-stone-600 dark:text-neutral-300">
+                လက်ရှိ ကိုင်ထားဗူး: {selectedHeld.toLocaleString('en-US')} ဗူး
+              </span>
+            )}
+            {!isBottleOnly && agentBalance !== null && agentBalance > 0 && (
               <span className="mt-1 block text-xs font-medium text-red-600 dark:text-red-400">
                 ကြွေးဟောင်း: {formatMMK(agentBalance)} ရှိပါတယ်
               </span>
             )}
-            {agentBalance !== null && agentBalance < 0 && (
+            {!isBottleOnly && agentBalance !== null && agentBalance < 0 && (
               <span className="mt-1 block text-xs font-medium">
                 ပိုပေးထားငွေ: {formatMMK(-agentBalance)} ရှိပါတယ်
               </span>
@@ -929,52 +1072,78 @@ export default function EntriesPage() {
               ))}
             </select>
           </Field>
-          <div className="grid grid-cols-2 gap-2.5">
-            <Field label="ပို့သည့် ဗူး">
-              <input
-                value={delivered}
-                onChange={(e) => {
-                  const nextDelivered = e.target.value.replace(/\D/g, '')
-                  const nextQty = Number(nextDelivered) || 0
-                  setDelivered(nextDelivered)
-                  setCash((prev) => syncAutoCash(prev, nextQty * price, cashTouched))
-                  setConfirming(false)
-                }}
-                inputMode="numeric"
-                required
-                className={inputCls}
-              />
-            </Field>
-            <Field label="ပြန်အပ်သည့် ဗူး">
-              <input
-                value={returned}
-                onChange={(e) => {
-                  setReturned(e.target.value.replace(/\D/g, ''))
-                  setConfirming(false)
-                }}
-                inputMode="numeric"
-                className={inputCls}
-              />
-            </Field>
-            <Field label="လက်ခံရရှိငွေ (ကျပ်)">
-              <input
-                value={cash}
-                onChange={(e) => {
-                  setCash(e.target.value.replace(/\D/g, ''))
-                  setCashTouched(true)
-                  setConfirming(false)
-                }}
-                inputMode="numeric"
-                placeholder="0"
-                className={inputCls}
-              />
-            </Field>
-            <Field label="ဈေးနှုန်း (၁ ဗူး)">
-              <div className="flex min-h-[48px] items-center rounded-xl border border-stone-200 bg-stone-50 px-3.5 font-medium tabular-nums dark:border-neutral-800 dark:bg-neutral-800/60">
-                {selectedAgent ? formatMMK(price) : '—'}
-              </div>
-            </Field>
-          </div>
+          {isBottleOnly ? (
+            <>
+              <Field label="ပြန်အပ်သည့် ဗူး">
+                <input
+                  value={returned}
+                  onChange={(e) => {
+                    setReturned(e.target.value.replace(/\D/g, ''))
+                    setConfirming(false)
+                  }}
+                  inputMode="numeric"
+                  required
+                  className={inputCls}
+                />
+              </Field>
+              {overReturn && selectedHeld !== null && (
+                <p
+                  className="rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+                  role="status"
+                >
+                  သတိ: လက်ရှိ ကိုင်ထားဗူး ({selectedHeld.toLocaleString('en-US')} ဗူး) ထက်
+                  ပိုနေပါတယ် — ဆက်သိမ်းနိုင်ပါတယ်
+                </p>
+              )}
+            </>
+          ) : (
+            <div className="grid grid-cols-2 gap-2.5">
+              <Field label="ပို့သည့် ဗူး">
+                <input
+                  value={delivered}
+                  onChange={(e) => {
+                    const nextDelivered = e.target.value.replace(/\D/g, '')
+                    const nextQty = Number(nextDelivered) || 0
+                    setDelivered(nextDelivered)
+                    setCash((prev) => syncAutoCash(prev, nextQty * price, cashTouched))
+                    setConfirming(false)
+                  }}
+                  inputMode="numeric"
+                  required
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="ပြန်အပ်သည့် ဗူး">
+                <input
+                  value={returned}
+                  onChange={(e) => {
+                    setReturned(e.target.value.replace(/\D/g, ''))
+                    setConfirming(false)
+                  }}
+                  inputMode="numeric"
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="လက်ခံရရှိငွေ (ကျပ်)">
+                <input
+                  value={cash}
+                  onChange={(e) => {
+                    setCash(e.target.value.replace(/\D/g, ''))
+                    setCashTouched(true)
+                    setConfirming(false)
+                  }}
+                  inputMode="numeric"
+                  placeholder="0"
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="ဈေးနှုန်း (၁ ဗူး)">
+                <div className="flex min-h-[48px] items-center rounded-xl border border-stone-200 bg-stone-50 px-3.5 font-medium tabular-nums dark:border-neutral-800 dark:bg-neutral-800/60">
+                  {selectedAgent ? formatMMK(price) : '—'}
+                </div>
+              </Field>
+            </div>
+          )}
           <input
             value={notes}
             onChange={(e) => {
@@ -984,7 +1153,7 @@ export default function EntriesPage() {
             placeholder="မှတ်ချက် (ရှိလျှင်)"
             className={inputCls}
           />
-          {qty > 0 && (
+          {!isBottleOnly && qty > 0 && (
             <p className="rounded-xl bg-brand-50 px-3.5 py-2.5 text-sm dark:bg-brand-950/40">
               ပေးရန် စုစုပေါင်း: {formatMMK(totalDue)} · လက်ခံရရှိငွေ: {formatMMK(cashNum)}
               {agentBalance !== null && (
@@ -1014,74 +1183,111 @@ export default function EntriesPage() {
           {confirming && selectedAgent && (
             <div className="space-y-1.5 rounded-2xl border-2 border-accent-400 bg-accent-50 p-4 text-sm dark:border-accent-700 dark:bg-amber-950/30">
               <div className="text-base font-bold">သိမ်းမည့် အချက်အလက် စစ်ဆေးပါ</div>
-              <dl className="space-y-1">
-                {isOwner && (
-                  <div className="flex items-baseline justify-between gap-3">
-                    <dt className="opacity-70">ရက်စွဲ</dt>
-                    <dd className="font-medium tabular-nums">{entryDate}</dd>
-                  </div>
-                )}
-                <div className="flex items-baseline justify-between gap-3">
-                  <dt className="opacity-70">ကိုယ်စားလှယ်</dt>
-                  <dd className="font-semibold">{selectedAgent.name}</dd>
-                </div>
-                <div className="flex items-baseline justify-between gap-3">
-                  <dt className="opacity-70">လက်ခံသူ</dt>
-                  <dd className="font-medium">{chosenReceiverName}</dd>
-                </div>
-                <div className="flex items-baseline justify-between gap-3">
-                  <dt className="opacity-70">ပို့သည့် ဗူး</dt>
-                  <dd className="font-medium tabular-nums">{qty} ဗူး</dd>
-                </div>
-                <div className="flex items-baseline justify-between gap-3">
-                  <dt className="opacity-70">ပြန်အပ်သည့် ဗူး</dt>
-                  <dd className="font-medium tabular-nums">{Number(returned) || 0} ဗူး</dd>
-                </div>
-                <div className="flex items-baseline justify-between gap-3">
-                  <dt className="opacity-70">ဈေးနှုန်း (၁ ဗူး)</dt>
-                  <dd className="font-medium tabular-nums">{formatMMK(price)}</dd>
-                </div>
-                <div className="flex items-baseline justify-between gap-3">
-                  <dt className="opacity-70">
-                    {outstandingBefore > 0
-                      ? 'ပေးရန် စုစုပေါင်း (ဒီနေ့ ရေဖိုး + ကြွေးဟောင်း)'
-                      : 'ပေးရန် စုစုပေါင်း'}
-                  </dt>
-                  <dd className="font-bold tabular-nums">{formatMMK(totalDue)}</dd>
-                </div>
-                <div className="flex items-baseline justify-between gap-3">
-                  <dt className="opacity-70">လက်ခံရရှိငွေ (ကျပ်)</dt>
-                  <dd className="font-medium tabular-nums">{formatMMK(cashNum)}</dd>
-                </div>
-              </dl>
-              {/* The split, in plain sentences: how the one cash figure
-                  settles today / old debt / overpayment, and the balance
-                  the agent is left with. Only parts that occur are shown. */}
-              {alloc.toToday > 0 && (
-                <p>ဒီနေ့ ရေဖိုး {formatMMK(alloc.toToday)} ရှင်းပါမယ်</p>
-              )}
-              {alloc.toOld > 0 && (
-                <p>ကြွေးဟောင်း {formatMMK(alloc.toOld)} ရှင်းပါမယ်</p>
-              )}
-              {alloc.advance > 0 && (
-                <p>ပိုပေးငွေ {formatMMK(alloc.advance)} ကျန်ပါမယ်</p>
-              )}
-              <p
-                className={`font-bold ${
-                  alloc.resultingBalance > 0 ? 'text-red-600 dark:text-red-400' : ''
-                }`}
-              >
-                {alloc.resultingBalance > 0
-                  ? `ကျန်ပေးရန် ${formatMMK(alloc.resultingBalance)} ကျန်ပါမယ်`
-                  : alloc.resultingBalance < 0
-                    ? `ပိုပေးထားငွေ ${formatMMK(-alloc.resultingBalance)} ဖြစ်ပါမယ်`
-                    : 'အားလုံး ရှင်းပြီးပါပြီ'}
-              </p>
-              {cashNum === 0 && totalDue > 0 && (
-                <p className="font-semibold text-red-600">
-                  သတိ: ငွေ လုံးဝ မကောက်ရသေးပါ — {formatMMK(totalDue)} အပြည့် ကြွေး အဖြစ်
-                  ကျန်ပါမည်
-                </p>
+              {isBottleOnly ? (
+                <>
+                  <dl className="space-y-1">
+                    {isOwner && (
+                      <div className="flex items-baseline justify-between gap-3">
+                        <dt className="opacity-70">ရက်စွဲ</dt>
+                        <dd className="font-medium tabular-nums">{entryDate}</dd>
+                      </div>
+                    )}
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="opacity-70">အမျိုးအစား</dt>
+                      <dd className="font-semibold">ဗူးခွံသီးသန့် ပြန်ယူ</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="opacity-70">ကိုယ်စားလှယ်</dt>
+                      <dd className="font-semibold">{selectedAgent.name}</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="opacity-70">ပြန်အပ်သည့် ဗူး</dt>
+                      <dd className="font-bold tabular-nums">ပြန်အပ် {returnedQty} ဗူး</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="opacity-70">လက်ခံသူ</dt>
+                      <dd className="font-medium">{chosenReceiverName}</dd>
+                    </div>
+                  </dl>
+                  {overReturn && selectedHeld !== null && (
+                    <p className="font-medium text-amber-800 dark:text-amber-200">
+                      သတိ: လက်ရှိ ကိုင်ထားဗူး ({selectedHeld.toLocaleString('en-US')} ဗူး) ထက်
+                      ပိုနေပါတယ် — ဆက်သိမ်းနိုင်ပါတယ်
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <dl className="space-y-1">
+                    {isOwner && (
+                      <div className="flex items-baseline justify-between gap-3">
+                        <dt className="opacity-70">ရက်စွဲ</dt>
+                        <dd className="font-medium tabular-nums">{entryDate}</dd>
+                      </div>
+                    )}
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="opacity-70">ကိုယ်စားလှယ်</dt>
+                      <dd className="font-semibold">{selectedAgent.name}</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="opacity-70">လက်ခံသူ</dt>
+                      <dd className="font-medium">{chosenReceiverName}</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="opacity-70">ပို့သည့် ဗူး</dt>
+                      <dd className="font-medium tabular-nums">{qty} ဗူး</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="opacity-70">ပြန်အပ်သည့် ဗူး</dt>
+                      <dd className="font-medium tabular-nums">{returnedQty} ဗူး</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="opacity-70">ဈေးနှုန်း (၁ ဗူး)</dt>
+                      <dd className="font-medium tabular-nums">{formatMMK(price)}</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="opacity-70">
+                        {outstandingBefore > 0
+                          ? 'ပေးရန် စုစုပေါင်း (ဒီနေ့ ရေဖိုး + ကြွေးဟောင်း)'
+                          : 'ပေးရန် စုစုပေါင်း'}
+                      </dt>
+                      <dd className="font-bold tabular-nums">{formatMMK(totalDue)}</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="opacity-70">လက်ခံရရှိငွေ (ကျပ်)</dt>
+                      <dd className="font-medium tabular-nums">{formatMMK(cashNum)}</dd>
+                    </div>
+                  </dl>
+                  {/* The split, in plain sentences: how the one cash figure
+                      settles today / old debt / overpayment, and the balance
+                      the agent is left with. Only parts that occur are shown. */}
+                  {alloc.toToday > 0 && (
+                    <p>ဒီနေ့ ရေဖိုး {formatMMK(alloc.toToday)} ရှင်းပါမယ်</p>
+                  )}
+                  {alloc.toOld > 0 && (
+                    <p>ကြွေးဟောင်း {formatMMK(alloc.toOld)} ရှင်းပါမယ်</p>
+                  )}
+                  {alloc.advance > 0 && (
+                    <p>ပိုပေးငွေ {formatMMK(alloc.advance)} ကျန်ပါမယ်</p>
+                  )}
+                  <p
+                    className={`font-bold ${
+                      alloc.resultingBalance > 0 ? 'text-red-600 dark:text-red-400' : ''
+                    }`}
+                  >
+                    {alloc.resultingBalance > 0
+                      ? `ကျန်ပေးရန် ${formatMMK(alloc.resultingBalance)} ကျန်ပါမယ်`
+                      : alloc.resultingBalance < 0
+                        ? `ပိုပေးထားငွေ ${formatMMK(-alloc.resultingBalance)} ဖြစ်ပါမယ်`
+                        : 'အားလုံး ရှင်းပြီးပါပြီ'}
+                  </p>
+                  {cashNum === 0 && totalDue > 0 && (
+                    <p className="font-semibold text-red-600">
+                      သတိ: ငွေ လုံးဝ မကောက်ရသေးပါ — {formatMMK(totalDue)} အပြည့် ကြွေး အဖြစ်
+                      ကျန်ပါမည်
+                    </p>
+                  )}
+                </>
               )}
               <div className="flex gap-2 pt-1.5">
                 <PrimaryButton disabled={busy} onClick={doInsert} className="flex-1">
@@ -1141,42 +1347,60 @@ export default function EntriesPage() {
         <>
           {/* Phone / tablet: one card per record. */}
           <ul className="space-y-3 lg:hidden">
-            {displayRows.map((r) => (
-              <li key={r.id} className={`${cardCls} p-3.5`}>
-                <div className="flex items-center justify-between gap-2">
-                  <div className="font-semibold">{r.agent_name ?? agentName(r.agent_id)}</div>
-                  <div className="font-bold tabular-nums">{formatMMK(r.amount)}</div>
-                </div>
-                <div className="mt-0.5 text-sm text-stone-500 dark:text-neutral-400">
-                  {r.entry_date} · ပို့ {r.delivered_qty} · ပြန် {r.returned_qty} ·{' '}
-                  {formatMMK(r.unit_price)}/ဗူး
-                  {r.notes ? ` · ${r.notes}` : ''}
-                </div>
-                <div className="text-sm text-stone-500 dark:text-neutral-400">
-                  {isAgent ? 'ပေးချေပြီး' : 'လက်ခံရရှိငွေ'} {formatMMK(r.amount_collected)} · ကျန်ပေးရန်{' '}
-                  <span
-                    className={
-                      r.amount - r.amount_collected > 0
-                        ? 'font-semibold text-red-600 dark:text-red-400'
-                        : 'font-medium'
-                    }
-                  >
-                    {formatMMK(r.amount - r.amount_collected)}
-                  </span>
-                </div>
-                {/* Receiver name: staff-plus viewers always see who received/
-                    recorded the entry (rows must not look like the viewer's
-                    own work); agents see it once cash was collected, as
-                    before. */}
-                {directory && receiverName(directory, r) && (!isAgent || r.amount_collected > 0) && (
-                  <div className="text-sm text-stone-500 dark:text-neutral-400">
-                    လက်ခံသူ: {receiverName(directory, r)}
+            {displayRows.map((r) => {
+              const bottleOnlyRow = isBottleOnlyEntry(r)
+              const rec = directory ? receiverName(directory, r) : null
+              return (
+                <li key={r.id} className={`${cardCls} p-3.5`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-semibold">{r.agent_name ?? agentName(r.agent_id)}</div>
+                    {bottleOnlyRow ? (
+                      <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">
+                        ဗူးခွံသီးသန့် ပြန်ယူ
+                      </span>
+                    ) : (
+                      <div className="font-bold tabular-nums">{formatMMK(r.amount)}</div>
+                    )}
                   </div>
-                )}
-                <div className="mt-2.5 empty:hidden">{rowButtons(r)}</div>
-                <div className="mt-2.5 empty:hidden">{rowPanel(r)}</div>
-              </li>
-            ))}
+                  {bottleOnlyRow ? (
+                    <div className="mt-0.5 text-sm text-stone-500 dark:text-neutral-400">
+                      {r.entry_date} · ပြန်အပ် {r.returned_qty} ဗူး
+                      {r.notes ? ` · ${r.notes}` : ''}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mt-0.5 text-sm text-stone-500 dark:text-neutral-400">
+                        {r.entry_date} · ပို့ {r.delivered_qty} · ပြန် {r.returned_qty} ·{' '}
+                        {formatMMK(r.unit_price)}/ဗူး
+                        {r.notes ? ` · ${r.notes}` : ''}
+                      </div>
+                      <div className="text-sm text-stone-500 dark:text-neutral-400">
+                        {isAgent ? 'ပေးချေပြီး' : 'လက်ခံရရှိငွေ'} {formatMMK(r.amount_collected)} · ကျန်ပေးရန်{' '}
+                        <span
+                          className={
+                            r.amount - r.amount_collected > 0
+                              ? 'font-semibold text-red-600 dark:text-red-400'
+                              : 'font-medium'
+                          }
+                        >
+                          {formatMMK(r.amount - r.amount_collected)}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                  {/* Receiver name: staff-plus viewers always see who received/
+                      recorded the entry; agents see it for bottle-only returns
+                      and whenever cash was collected. */}
+                  {rec && (!isAgent || r.amount_collected > 0 || bottleOnlyRow) && (
+                    <div className="text-sm text-stone-500 dark:text-neutral-400">
+                      လက်ခံသူ: {rec}
+                    </div>
+                  )}
+                  <div className="mt-2.5 empty:hidden">{rowButtons(r)}</div>
+                  <div className="mt-2.5 empty:hidden">{rowPanel(r)}</div>
+                </li>
+              )
+            })}
           </ul>
 
           {/* Desktop: table. */}
@@ -1200,37 +1424,54 @@ export default function EntriesPage() {
               <tbody>
                 {displayRows.map((r) => {
                   const panel = rowPanel(r)
+                  const bottleOnlyRow = isBottleOnlyEntry(r)
+                  const rec = directory ? receiverName(directory, r) : null
                   return (
                     <Fragment key={r.id}>
                       <tr className="border-b border-stone-100 align-top last:border-0 dark:border-neutral-800/70">
                         <td className="px-3 py-3 pl-4">
-                          <div className="font-medium">{r.agent_name ?? agentName(r.agent_id)}</div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-medium">{r.agent_name ?? agentName(r.agent_id)}</span>
+                            {bottleOnlyRow && (
+                              <span className="rounded-full bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">
+                                ဗူးခွံသီးသန့် ပြန်ယူ
+                              </span>
+                            )}
+                          </div>
                           {r.notes && <div className="text-xs opacity-60">{r.notes}</div>}
                         </td>
                         <td className={`${tdCls} whitespace-nowrap`}>{r.entry_date}</td>
-                        <td className={`${tdCls} text-right`}>{r.delivered_qty}</td>
-                        <td className={`${tdCls} text-right`}>{r.returned_qty}</td>
-                        <td className={`${tdCls} text-right`}>{formatMMK(r.unit_price)}</td>
-                        <td className={`${tdCls} text-right font-semibold`}>{formatMMK(r.amount)}</td>
                         <td className={`${tdCls} text-right`}>
-                          {formatMMK(r.amount_collected)}
+                          {bottleOnlyRow ? '—' : r.delivered_qty}
+                        </td>
+                        <td className={`${tdCls} text-right`}>
+                          {bottleOnlyRow ? `ပြန်အပ် ${r.returned_qty} ဗူး` : r.returned_qty}
+                        </td>
+                        <td className={`${tdCls} text-right`}>
+                          {bottleOnlyRow ? '—' : formatMMK(r.unit_price)}
+                        </td>
+                        <td className={`${tdCls} text-right font-semibold`}>
+                          {bottleOnlyRow ? '—' : formatMMK(r.amount)}
+                        </td>
+                        <td className={`${tdCls} text-right`}>
+                          {bottleOnlyRow ? '—' : formatMMK(r.amount_collected)}
                           {/* Same receiver-name rule as the card list:
-                              always for staff-plus, agents only when cash
-                              was collected. */}
-                          {directory && receiverName(directory, r) && (!isAgent || r.amount_collected > 0) && (
+                              always for staff-plus, agents for bottle-only
+                              returns and whenever cash was collected. */}
+                          {rec && (!isAgent || r.amount_collected > 0 || bottleOnlyRow) && (
                             <div className="text-xs font-normal opacity-60">
-                              လက်ခံသူ: {receiverName(directory, r)}
+                              လက်ခံသူ: {rec}
                             </div>
                           )}
                         </td>
                         <td
                           className={`${tdCls} text-right ${
-                            r.amount - r.amount_collected > 0
+                            !bottleOnlyRow && r.amount - r.amount_collected > 0
                               ? 'font-semibold text-red-600 dark:text-red-400'
                               : ''
                           }`}
                         >
-                          {formatMMK(r.amount - r.amount_collected)}
+                          {bottleOnlyRow ? '—' : formatMMK(r.amount - r.amount_collected)}
                         </td>
                         <td className="px-3 py-2 pr-4">{rowButtons(r)}</td>
                       </tr>

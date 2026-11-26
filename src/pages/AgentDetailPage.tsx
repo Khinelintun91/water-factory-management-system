@@ -431,20 +431,35 @@ export default function AgentDetailPage() {
       <div className="space-y-2.5">
         <h2 className="px-0.5 font-semibold">ပို့ဆောင်မှု မှတ်တမ်းများ (နောက်ဆုံး ၅၀)</h2>
         <ul className={`${cardCls} divide-y divide-stone-100 overflow-hidden dark:divide-neutral-800`}>
-          {entries.slice(0, 50).map((r) => (
-            <li key={r.id} className={listItemCls}>
-              <div className="flex items-center justify-between gap-2">
-                <div className="font-medium">{r.entry_date}</div>
-                <div className="font-bold tabular-nums">{formatMMK(r.amount)}</div>
-              </div>
-              <div className={listMetaCls}>
-                ပို့ {r.delivered_qty} · ပြန် {r.returned_qty} · ငွေကောက်{' '}
-                {formatMMK(r.amount_collected ?? 0)} · ကျန်ကြွေး{' '}
-                {formatMMK(r.amount - (r.amount_collected ?? 0))}
-                {r.notes ? ` · ${r.notes}` : ''}
-              </div>
-            </li>
-          ))}
+          {entries.slice(0, 50).map((r) =>
+            r.delivered_qty === 0 ? (
+              <li key={r.id} className={listItemCls}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-medium">{r.entry_date}</div>
+                  <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">
+                    ဗူးခွံသီးသန့် ပြန်ယူ
+                  </span>
+                </div>
+                <div className={listMetaCls}>
+                  ပြန်အပ် {r.returned_qty} ဗူး
+                  {r.notes ? ` · ${r.notes}` : ''}
+                </div>
+              </li>
+            ) : (
+              <li key={r.id} className={listItemCls}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-medium">{r.entry_date}</div>
+                  <div className="font-bold tabular-nums">{formatMMK(r.amount)}</div>
+                </div>
+                <div className={listMetaCls}>
+                  ပို့ {r.delivered_qty} · ပြန် {r.returned_qty} · ငွေကောက်{' '}
+                  {formatMMK(r.amount_collected ?? 0)} · ကျန်ကြွေး{' '}
+                  {formatMMK(r.amount - (r.amount_collected ?? 0))}
+                  {r.notes ? ` · ${r.notes}` : ''}
+                </div>
+              </li>
+            ),
+          )}
           {entries.length === 0 && <li className={`${listItemCls} text-sm opacity-70`}>မှတ်တမ် မရှိသေးပါ</li>}
         </ul>
       </div>
