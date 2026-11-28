@@ -49,3 +49,47 @@ export async function loadProfileWithRetry(
   }
   return { status: 'error' }
 }
+
+export type RestoredProfileAction =
+  | { action: 'apply'; profile: Profile }
+  | { action: 'sign_out_inactive' }
+  | { action: 'missing' }
+  | { action: 'error' }
+  | { action: 'keep' }
+
+/**
+ * Decide how AuthContext.loadProfile() handles a restored session's profile
+ * outcome (migration 0052 / D4a). A deactivated profile must be signed out
+ * immediately instead of being applied to the UI shell.
+ */
+export function resolveRestoredProfile(
+  outcome: ProfileLoadOutcome,
+  hasLoadedProfile: boolean,
+): RestoredProfileAction {
+  if (outcome.status === 'found') {
+    return outcome.profile.active
+      ? { action: 'apply', profile: outcome.profile }
+      : { action: 'sign_out_inactive' }
+  }
+  if (outcome.status === 'missing') return { action: 'missing' }
+  return hasLoadedProfile ? { action: 'keep' } : { action: 'error' }
+}
+
+export type SignInProfileAction =
+  | { action: 'apply'; profile: Profile }
+  | { action: 'sign_out_disabled'; error: string }
+  | { action: 'error'; error: string }
+
+export const DISABLED_ACCOUNT_MSG = 'ဒီအကောင့် ပိတ်ထားပါတယ် — ပိုင်ရှင်ကို ဆက်သွယ်ပါ'
+export const CONNECTION_ERROR_MSG = 'ချိတ်ဆက်မှု ပြဿနာ ရှိပါတယ် — ခဏစောင့်ပြီး ပြန်ကြိုးစားပါ'
+
+/** Decide how AuthContext.signIn() handles the post-password profile load. */
+export function resolveSignInProfile(outcome: ProfileLoadOutcome): SignInProfileAction {
+  if (outcome.status === 'error') {
+    return { action: 'error', error: CONNECTION_ERROR_MSG }
+  }
+  if (outcome.status === 'missing' || !outcome.profile.active) {
+    return { action: 'sign_out_disabled', error: DISABLED_ACCOUNT_MSG }
+  }
+  return { action: 'apply', profile: outcome.profile }
+}

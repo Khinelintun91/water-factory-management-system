@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  collectOtherReceivers,
   evaluateHandoverRow,
   initialReceivedInput,
   parseReceivedInput,
@@ -111,10 +112,52 @@ describe('Package A UI strings translate cleanly to English', () => {
     'ထပ်တူမှတ်တမ်း သံသယ',
     'ကိုင်ထားဗူး အနုတ်ဖြစ်နေသည်',
     'ပို့သည့်ဗူး အလွန်များနေသည်',
+    'အခြား လက်ခံသူများ (ငွေအပ်စာရင်း မပါ)',
+    'ပိုင်ရှင် တိုက်ရိုက်လက်ခံငွေ သို့မဟုတ် ယနေ့ ပိတ်ထားသော ဝန်ထမ်းများ၏ လက်ခံငွေ (ကြည့်ရန်သာ)',
+    'မှတ်တမ်းတင်သူ',
+    'ပိုင်ရှင်',
+    'ပိတ်ထားသည်',
   ]
   for (const s of strings) {
     it(`translates "${s}" with no leftover Myanmar script`, () => {
       expect(MYANMAR.test(toEnglish(s))).toBe(false)
     })
   }
+})
+
+describe('collectOtherReceivers (Pack 2 M5 HandoverPage)', () => {
+  const profiles = [
+    { id: 'u-owner', name: 'Owner', role: 'owner', active: true },
+    { id: 'u-staff1', name: 'Staff 1', role: 'staff', active: true },
+    { id: 'u-staff-off', name: 'Staff Off', role: 'staff', active: false },
+  ]
+
+  it('collects Owner-received cash and deactivated-today staff outside active employee cards', () => {
+    const expected = new Map([
+      ['u-staff1', 500000],
+      ['u-owner', 200000],
+      ['u-staff-off', 350000],
+    ])
+    const employeeIds = new Set(['u-staff1'])
+    expect(collectOtherReceivers(expected, employeeIds, profiles)).toEqual([
+      { id: 'u-staff-off', name: 'Staff Off', amount: 350000, kind: 'inactive' },
+      { id: 'u-owner', name: 'Owner', amount: 200000, kind: 'owner' },
+    ])
+  })
+
+  it('ignores zero-expected holders and active employee card holders', () => {
+    const expected = new Map([
+      ['u-staff1', 500000],
+      ['u-owner', 0],
+    ])
+    const employeeIds = new Set(['u-staff1'])
+    expect(collectOtherReceivers(expected, employeeIds, profiles)).toEqual([])
+  })
+
+  it('falls back cleanly for an unknown holder id', () => {
+    const expected = new Map([['u-ghost', 10000]])
+    expect(collectOtherReceivers(expected, new Set(), profiles)).toEqual([
+      { id: 'u-ghost', name: '—', amount: 10000, kind: 'other' },
+    ])
+  })
 })

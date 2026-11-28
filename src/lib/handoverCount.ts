@@ -72,3 +72,43 @@ export function summarizeHandoverTotals(
   }
   return { exp, rec, diff: rec - exp, counted, total: rows.length }
 }
+
+export interface OtherReceiver {
+  id: string
+  name: string
+  amount: number
+  kind: 'owner' | 'inactive' | 'other'
+}
+
+/**
+ * Collect every receiver who has expected cash > 0 today and is NOT rendered
+ * in the active employee handover cards (e.g., Owner-received cash, or staff
+ * deactivated earlier today). Read-only surface — never fed into
+ * summarizeHandoverTotals().
+ */
+export function collectOtherReceivers(
+  expected: ReadonlyMap<string, number>,
+  employeeIds: ReadonlySet<string>,
+  profiles: readonly { id: string; name: string; role: string; active: boolean }[],
+): OtherReceiver[] {
+  const byId = new Map(profiles.map((p) => [p.id, p]))
+  const out: OtherReceiver[] = []
+  for (const [id, amount] of expected.entries()) {
+    if (amount <= 0 || employeeIds.has(id)) continue
+    const p = byId.get(id)
+    const kind: OtherReceiver['kind'] = !p
+      ? 'other'
+      : !p.active
+        ? 'inactive'
+        : p.role === 'owner'
+          ? 'owner'
+          : 'other'
+    out.push({
+      id,
+      name: p?.name ?? '—',
+      amount,
+      kind,
+    })
+  }
+  return out.sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name))
+}

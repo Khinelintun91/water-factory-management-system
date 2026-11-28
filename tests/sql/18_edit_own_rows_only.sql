@@ -12,15 +12,20 @@
 -- 0 rows (no error); row counts are captured with GET DIAGNOSTICS
 -- while the simulated role is active.
 
--- The six policies carry the own-row clause.
+-- The four staff-writable update/delete policies carry the own-row clause;
+-- expenses_update / expenses_delete were tightened back to is_owner_manager()
+-- only in 0052 (L2).
 select testkit.assert_true(
   (select count(*) from pg_policies
     where schemaname = 'public'
       and policyname in ('entries_update', 'entries_delete',
-                         'payments_update', 'payments_delete',
-                         'expenses_update', 'expenses_delete')
-      and qual like '%created_by%') = 6,
-  '0045: all six update/delete policies reference created_by');
+                         'payments_update', 'payments_delete')
+      and qual like '%created_by%') = 4
+  and (select count(*) from pg_policies
+    where schemaname = 'public'
+      and policyname in ('expenses_update', 'expenses_delete')
+      and qual = 'is_owner_manager()') = 2,
+  '0045+0052: entries/payments reference created_by; expenses update/delete are OM-only');
 
 -- --------------------------------------------------------------------
 -- Entries + payments: staff B cannot touch staff A's rows; staff B
