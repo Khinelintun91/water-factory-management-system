@@ -5,13 +5,16 @@ import { friendlyError } from '../lib/friendlyError'
 import { dailySummaryCsv } from '../lib/exports'
 import { formatMMK, personName, todayYangon, type Role } from '../lib/types'
 import {
+  collectOtherReceivers,
   evaluateHandoverRow,
   initialReceivedInput,
   parseReceivedInput,
   summarizeHandoverTotals,
+  type OtherReceiver,
 } from '../lib/handoverCount'
 import {
   Card,
+  CardTitle,
   EmptyState,
   Field,
   LoadingState,
@@ -71,6 +74,7 @@ export default function HandoverPage() {
   const { profile } = useAuth()
   const [date, setDate] = useState(todayYangon())
   const [employees, setEmployees] = useState<EmployeeLite[]>([])
+  const [otherReceivers, setOtherReceivers] = useState<OtherReceiver[]>([])
   const [expected, setExpected] = useState<Map<string, number>>(new Map())
   const [saved, setSaved] = useState<Map<string, HandoverRow>>(new Map())
   const [receivedIn, setReceivedIn] = useState<Record<string, string>>({})
@@ -87,7 +91,7 @@ export default function HandoverPage() {
     setMsg(null)
     try {
       const [{ data: profs, error: pErr }, { data: roleRows, error: rErr }] = await Promise.all([
-        supabase.from('profiles').select('id, username, display_name, role, active').eq('active', true).order('username'),
+        supabase.from('profiles').select('id, username, display_name, role, active').order('username'),
         supabase.from('user_roles').select('profile_id, role'),
       ])
       if (pErr) throw new Error(pErr.message)
@@ -96,10 +100,19 @@ export default function HandoverPage() {
       for (const r of (roleRows ?? []) as { profile_id: string; role: Role }[]) {
         extra.set(r.profile_id, [...(extra.get(r.profile_id) ?? []), r.role])
       }
-      const emps: EmployeeLite[] = (
-        (profs ?? []) as { id: string; username: string; display_name?: string | null; role: Role }[]
-      )
-        .filter((p) => [p.role, ...(extra.get(p.id) ?? [])].some((r) => STAFF_ROLES.includes(r)))
+      const allProfs = (profs ?? []) as {
+        id: string
+        username: string
+        display_name?: string | null
+        role: Role
+        active: boolean
+      }[]
+      const emps: EmployeeLite[] = allProfs
+        .filter(
+          (p) =>
+            p.active &&
+            [p.role, ...(extra.get(p.id) ?? [])].some((r) => STAFF_ROLES.includes(r)),
+        )
         .map((p) => ({ id: p.id, name: personName(p) }))
       setEmployees(emps)
 
@@ -136,6 +149,20 @@ export default function HandoverPage() {
         exp.set(holder, (exp.get(holder) ?? 0) + Number(p.amount))
       }
       setExpected(exp)
+
+      const empIds = new Set(emps.map((e) => e.id))
+      setOtherReceivers(
+        collectOtherReceivers(
+          exp,
+          empIds,
+          allProfs.map((p) => ({
+            id: p.id,
+            name: personName(p),
+            role: p.role,
+            active: p.active,
+          })),
+        ),
+      )
 
       const savedMap = new Map(handoverRows.map((h) => [h.employee_id, h]))
       setSaved(savedMap)
@@ -369,6 +396,43 @@ export default function HandoverPage() {
               </div>
             )}
           </div>
+
+          {otherReceivers.length > 0 && (
+            <Card className="border-dashed">
+              <CardTitle>အခြား လက်ခံသူများ (ငွေအပ်စာရင်း မပါ)</CardTitle>
+              <p className="mt-1 text-xs text-stone-500 dark:text-neutral-400">
+                ပိုင်ရှင် တိုက်ရိုက်လက်ခံငွေ သို့မဟုတ် ယနေ့ ပိတ်ထားသော ဝန်ထမ်းများ၏ လက်ခံငွေ (ကြည့်ရန်သာ)
+              </p>
+              <ul className="mt-3 divide-y divide-stone-100 text-sm dark:divide-neutral-800/70">
+                {otherReceivers.map((r) => (
+                  <li key={r.id} className="flex items-center justify-between gap-2 py-2">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="truncate font-medium">{r.name}</span>
+                      {r.kind === 'owner' && (
+                        <span className="shrink-0 rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">
+                          ပိုင်ရှင်
+                        </span>
+                      )}
+                      {r.kind === 'inactive' && (
+                        <span className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-600 dark:bg-red-950/40 dark:text-red-400">
+                          ပိတ်ထားသည်
+                        </span>
+                      )}
+                    </span>
+                    <span className="shrink-0 font-semibold tabular-nums">
+                      {formatMMK(r.amount)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-2 flex items-center justify-between border-t border-stone-200/80 pt-2 text-sm font-semibold dark:border-neutral-800">
+                <span>စုစုပေါင်း</span>
+                <span className="tabular-nums">
+                  {formatMMK(otherReceivers.reduce((s, r) => s + r.amount, 0))}
+                </span>
+              </div>
+            </Card>
+          )}
         </>
       )}
     </div>

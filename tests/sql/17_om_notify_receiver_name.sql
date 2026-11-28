@@ -61,8 +61,8 @@ rollback;
 reset role;
 
 -- --------------------------------------------------------------------
--- received_by <> created_by: the RECEIVER wins over the typist in the
--- OM notice (staff types, manager received).
+-- received_by <> created_by: since 0052 (M5 anti-framing), the OM
+-- notice names BOTH typist and receiver (staff types, manager received).
 -- --------------------------------------------------------------------
 begin;
 update profiles set display_name = 'မန်နေဂျာ ဒေါ်မေ'
@@ -79,8 +79,8 @@ select testkit.assert_true(
   exists (select 1 from notifications
            where user_id = '11111111-1111-4111-8111-111111111111'
              and kind = 'delivery'
-             and body = 'Test Agent B — 5 ဗူး · 1,500 ကျပ် · လက်ခံသူ: မန်နေဂျာ ဒေါ်မေ'),
-  'delivery OM notice names received_by, not the typist, when they differ');
+             and body = 'Test Agent B — 5 ဗူး · 1,500 ကျပ် · မှတ်တမ်းတင်သူ ဝန်ထမ်း ကိုထွန်း · လက်ခံသူ မန်နေဂျာ ဒေါ်မေ'),
+  '0052 M5: delivery OM notice names both typist and receiver when they differ');
 rollback;
 reset role;
 

@@ -65,8 +65,8 @@ select testkit.assert_true(
 rollback;
 
 -- --------------------------------------------------------------------
--- Payment insert -> the agent's receipt names the RECEIVER, resolved
--- via display_name, when received_by differs from the typist.
+-- Payment insert -> the agent's receipt names BOTH typist and receiver
+-- when received_by differs from created_by (0052 M5 anti-framing).
 -- (force_insert_attribution stamps created_by = the staff caller; the
 -- explicit received_by = manager must survive and be the named person.)
 -- --------------------------------------------------------------------
@@ -84,8 +84,8 @@ select testkit.assert_true(
   exists (select 1 from notifications
            where user_id = '44444444-4444-4444-8444-444444444444'
              and kind = 'receipt'
-             and body like 'ပေးချေငွေ 5,000 ကျပ်ကို မန်နေဂျာ ဒေါ်မေ လက်ခံပြီး မှတ်တမ်းတင်ပြီးပါပြီ'),
-  'payment receipt names the receiver (display_name) when received_by <> created_by');
+             and body = 'ပေးချေငွေ 5,000 ကျပ် · မှတ်တမ်းတင်သူ t_staff · လက်ခံသူ မန်နေဂျာ ဒေါ်မေ'),
+  'payment receipt names typist + receiver when received_by <> created_by (0052)');
 select testkit.assert_true(
   (select received_by from agent_payments
     where agent_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' and amount = 5000)
@@ -144,18 +144,41 @@ rollback;
 reset role;
 
 -- --------------------------------------------------------------------
--- staff_directory(): agents can resolve staff names (and nothing
--- else); agent accounts are not listed; execute is authenticated-only
--- with no PUBLIC grant.
+-- staff_directory() (updated for 0052 D3):
+--   * Active staff+ callers get all 5 non-agent fixture users.
+--   * Pure agents see ONLY receivers referenced by their own entries/
+--     payments via coalesce(received_by, created_by), never the full
+--     roster or agent accounts.
+--   * Execute stays authenticated-only with no PUBLIC/anon grant.
 -- --------------------------------------------------------------------
 begin;
 update profiles set display_name = 'မန်နေဂျာ ဒေါ်မေ'
  where id = '22222222-2222-4222-8222-222222222222';
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-8444-444444444444"}', true);
+-- Active staff sees all 5 non-agent fixture users.
+select set_config('request.jwt.claims', '{"sub":"33333333-3333-4333-8333-333333333333"}', true);
 select testkit.assert_true(
   (select count(*) from staff_directory()) = 5,
-  'directory lists exactly the five non-agent fixture users');
+  'directory lists all five non-agent fixture users for active staff');
+select testkit.assert_true(
+  not exists (select 1 from staff_directory()
+               where id in ('44444444-4444-4444-8444-444444444444',
+                            '55555555-5555-4555-8555-555555555555')),
+  'directory never lists agent accounts');
+
+-- Plant one entry (received_by NULL -> falls back to created_by = t_staff)
+-- and one payment (received_by = manager) for Agent A, then check pure agentA.
+insert into daily_entries (agent_id, delivered_qty, returned_qty, amount_collected)
+values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 2, 0, 600);
+insert into agent_payments (payment_date, agent_id, amount, method, received_by)
+values ((now() at time zone 'Asia/Yangon')::date,
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 1000, 'cash',
+        '22222222-2222-4222-8222-222222222222');
+
+select set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-8444-444444444444"}', true);
+select testkit.assert_true(
+  (select count(*) from staff_directory()) = 2,
+  '0052 D3: pure agentA sees only the 2 receivers referenced by own rows');
 select testkit.assert_true(
   (select name from staff_directory() where id = '22222222-2222-4222-8222-222222222222')
     = 'မန်နေဂျာ ဒေါ်မေ',
@@ -163,12 +186,13 @@ select testkit.assert_true(
 select testkit.assert_true(
   (select name from staff_directory() where id = '33333333-3333-4333-8333-333333333333')
     = 't_staff',
-  'directory falls back to username when no display_name');
+  'directory falls back to username (via created_by when received_by is NULL)');
 select testkit.assert_true(
   not exists (select 1 from staff_directory()
                where id in ('44444444-4444-4444-8444-444444444444',
-                            '55555555-5555-4555-8555-555555555555')),
-  'directory never lists agent accounts');
+                            '55555555-5555-4555-8555-555555555555',
+                            '11111111-1111-4111-8111-111111111111')),
+  'pure agentA never sees agent accounts or unreferenced staff');
 reset role;
 select testkit.assert_true(
   has_function_privilege('authenticated', 'public.staff_directory()', 'EXECUTE')

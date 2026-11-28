@@ -1268,4 +1268,9 @@ export const EN: Record<string, string> = {
   "ထပ်တူမှတ်တမ်း သံသယ": "Possible duplicate entry",
   "ကိုင်ထားဗူး အနုတ်ဖြစ်နေသည်": "Negative held bottles",
   "ပို့သည့်ဗူး အလွန်များနေသည်": "Unusually high delivery quantity",
+
+  // Pack 2 — HandoverPage other receivers & typist/receiver notices (migration 0052)
+  "အခြား လက်ခံသူများ (ငွေအပ်စာရင်း မပါ)": "Other receivers (outside handover)",
+  "ပိုင်ရှင် တိုက်ရိုက်လက်ခံငွေ သို့မဟုတ် ယနေ့ ပိတ်ထားသော ဝန်ထမ်းများ၏ လက်ခံငွေ (ကြည့်ရန်သာ)": "Owner-received cash or staff deactivated today (read-only)",
+  "မှတ်တမ်းတင်သူ": "Recorded by",
 };

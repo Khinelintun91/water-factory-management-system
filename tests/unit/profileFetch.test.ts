@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CONNECTION_ERROR_MSG,
+  DISABLED_ACCOUNT_MSG,
   loadProfileWithRetry,
+  resolveRestoredProfile,
+  resolveSignInProfile,
   type ProfileQueryResult,
 } from '../../src/lib/profileFetch'
 import type { Profile } from '../../src/lib/types'
@@ -18,6 +22,8 @@ const row = {
   agent_id: null,
   active: true,
 } as Profile
+
+const inactiveRow: Profile = { ...row, active: false }
 
 const found: ProfileQueryResult = { data: row, error: null }
 const empty: ProfileQueryResult = { data: null, error: null }
@@ -104,5 +110,59 @@ describe('loadProfileWithRetry', () => {
     expect(outcome).toEqual({ status: 'found', profile: row })
     expect(calls).toBe(2)
     expect(delays).toEqual([600])
+  })
+})
+
+describe('resolveRestoredProfile (D4a session restore)', () => {
+  it('applies an active restored profile', () => {
+    expect(resolveRestoredProfile({ status: 'found', profile: row }, false)).toEqual({
+      action: 'apply',
+      profile: row,
+    })
+  })
+
+  it('signs out an inactive restored profile immediately (even if previously loaded)', () => {
+    expect(resolveRestoredProfile({ status: 'found', profile: inactiveRow }, false)).toEqual({
+      action: 'sign_out_inactive',
+    })
+    expect(resolveRestoredProfile({ status: 'found', profile: inactiveRow }, true)).toEqual({
+      action: 'sign_out_inactive',
+    })
+  })
+
+  it('returns missing when profile row is genuinely absent', () => {
+    expect(resolveRestoredProfile({ status: 'missing' }, false)).toEqual({ action: 'missing' })
+  })
+
+  it('returns error when nothing loaded yet, or keep when already loaded', () => {
+    expect(resolveRestoredProfile({ status: 'error' }, false)).toEqual({ action: 'error' })
+    expect(resolveRestoredProfile({ status: 'error' }, true)).toEqual({ action: 'keep' })
+  })
+})
+
+describe('resolveSignInProfile (D4a sign-in)', () => {
+  it('applies an active profile on sign-in', () => {
+    expect(resolveSignInProfile({ status: 'found', profile: row })).toEqual({
+      action: 'apply',
+      profile: row,
+    })
+  })
+
+  it('signs out and returns the Burmese disabled message for inactive or missing profiles', () => {
+    expect(resolveSignInProfile({ status: 'found', profile: inactiveRow })).toEqual({
+      action: 'sign_out_disabled',
+      error: DISABLED_ACCOUNT_MSG,
+    })
+    expect(resolveSignInProfile({ status: 'missing' })).toEqual({
+      action: 'sign_out_disabled',
+      error: DISABLED_ACCOUNT_MSG,
+    })
+  })
+
+  it('returns connection error message on transient load failure', () => {
+    expect(resolveSignInProfile({ status: 'error' })).toEqual({
+      action: 'error',
+      error: CONNECTION_ERROR_MSG,
+    })
   })
 })

@@ -28,7 +28,13 @@ create table auth.users (
   confirmation_token text, recovery_token text, email_change text,
   email_change_token_new text, email_change_token_current text,
   phone_change text, phone_change_token text, reauthentication_token text,
+  banned_until timestamptz,
   created_at timestamptz, updated_at timestamptz
+);
+create table auth.sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
 );
 create table auth.identities (
   id uuid primary key, user_id uuid references auth.users(id) on delete cascade,

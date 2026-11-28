@@ -3,7 +3,12 @@ import type { Session } from '@supabase/supabase-js'
 import { isConfigured, supabase, usernameToEmail } from '../lib/supabase'
 import type { Profile } from '../lib/types'
 import { fmtTime12 } from '../lib/types'
-import { loadProfileWithRetry, type ProfileQueryResult } from '../lib/profileFetch'
+import {
+  loadProfileWithRetry,
+  resolveRestoredProfile,
+  resolveSignInProfile,
+  type ProfileQueryResult,
+} from '../lib/profileFetch'
 
 /**
  * Where the signed-in user's profile load stands:
@@ -76,6 +81,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Mirror of the loaded profile so an errored (re)load can never clear a
   // profile that is already on screen.
   const profileRef = useRef<Profile | null>(null)
+  // Guards against onAuthStateChange('SIGNED_IN') unmounting LoginPage while
+  // signIn() is still verifying profiles.active — otherwise a deactivated
+  // account's error banner would be lost on unmount/remount.
+  const signingInRef = useRef(false)
 
   const loadRoles = useCallback(async (p: Profile) => {
     const { data: extra } = await supabase
@@ -100,26 +109,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [loadRoles],
   )
 
+  const clearAuthState = useCallback(() => {
+    profileRef.current = null
+    setProfile(null)
+    setProfileStatus('loading')
+    setRoles([])
+    setSession(null)
+  }, [])
+
   const loadProfile = useCallback(
     async (userId: string) => {
       if (!profileRef.current) setProfileStatus('loading')
       const outcome = await loadProfileWithRetry(() => queryProfileOnce(userId))
-      if (outcome.status === 'found') {
-        await applyProfile(outcome.profile)
-      } else if (outcome.status === 'missing') {
+      const decision = resolveRestoredProfile(outcome, Boolean(profileRef.current))
+      if (decision.action === 'apply') {
+        await applyProfile(decision.profile)
+      } else if (decision.action === 'sign_out_inactive') {
+        // Deactivated while already signed in (Pack 2 / D4a): mirror signIn()
+        // by terminating the browser session immediately.
+        await supabase.auth.signOut()
+        clearAuthState()
+      } else if (decision.action === 'missing') {
         // A successful empty result is the only proof the row is absent.
         profileRef.current = null
         setProfile(null)
         setRoles([])
         setProfileStatus('missing')
-      } else if (!profileRef.current) {
+      } else if (decision.action === 'error') {
         // All attempts errored and nothing is loaded: a connection
         // problem, NOT a missing account.
         setProfileStatus('error')
       }
-      // Errored with a profile already loaded: keep showing it.
+      // decision.action === 'keep': errored with a profile already loaded.
     },
-    [applyProfile],
+    [applyProfile, clearAuthState],
   )
 
   useEffect(() => {
@@ -128,11 +151,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
     supabase.auth.getSession().then(async ({ data }) => {
-      setSession(data.session)
-      if (data.session) await loadProfile(data.session.user.id)
+      if (data.session) {
+        setSession(data.session)
+        await loadProfile(data.session.user.id)
+      } else {
+        setSession(null)
+      }
       setLoading(false)
     })
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, s) => {
+      // While signIn() is in flight, let signIn() verify profiles.active
+      // before setting session so LoginPage never unmounts prematurely on a
+      // deactivated account and drops its error message.
+      if (signingInRef.current) return
       setSession(s)
       if (s) await loadProfile(s.user.id)
       else {
@@ -157,44 +188,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await logAttempt(username, false)
         return { error: lockedMessage(lockedUntil) }
       }
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: usernameToEmail(username),
-        password: pin,
-      })
-      if (error || !data.user) {
-        const { data: newLock } = await supabase.rpc('log_failed_login', {
-          p_username: username,
-          p_user_agent: navigator.userAgent,
-        })
-        if (typeof newLock === 'string' && newLock) {
-          return { error: lockedMessage(newLock) }
-        }
-        return { error: 'အမည် သို့မဟုတ် PIN မှားနေပါတယ်' }
-      }
-      // The password was accepted. From here the profile load decides:
-      // an errored load is a connection problem (retry; never claim the
-      // account is disabled), and only a genuinely missing or inactive
-      // row earns the disabled message.
-      const outcome = await loadProfileWithRetry(() => queryProfileOnce(data.user.id))
-      if (outcome.status === 'error') {
-        await logAttempt(username, true)
-        return {
-          error: 'ချိတ်ဆက်မှု ပြဿနာ ရှိပါတယ် — ခဏစောင့်ပြီး ပြန်ကြိုးစားပါ',
-        }
-      }
-      if (outcome.status === 'missing' || !outcome.profile.active) {
-        await supabase.auth.signOut()
-        await logAttempt(username, false)
-        return { error: 'ဒီအကောင့် ပိတ်ထားပါတယ် — ပိုင်ရှင်ကို ဆက်သွယ်ပါ' }
-      }
-      await applyProfile(outcome.profile)
+      signingInRef.current = true
       try {
-        await supabase.rpc('clear_login_failures')
-      } catch {
-        /* best effort */
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: usernameToEmail(username),
+          password: pin,
+        })
+        if (error || !data.user) {
+          const { data: newLock } = await supabase.rpc('log_failed_login', {
+            p_username: username,
+            p_user_agent: navigator.userAgent,
+          })
+          if (typeof newLock === 'string' && newLock) {
+            return { error: lockedMessage(newLock) }
+          }
+          return { error: 'အမည် သို့မဟုတ် PIN မှားနေပါတယ်' }
+        }
+        // The password was accepted. From here the profile load decides:
+        // an errored load is a connection problem (retry; never claim the
+        // account is disabled), and only a genuinely missing or inactive
+        // row earns the disabled message.
+        const outcome = await loadProfileWithRetry(() => queryProfileOnce(data.user.id))
+        const decision = resolveSignInProfile(outcome)
+        if (decision.action === 'error') {
+          await logAttempt(username, true)
+          return { error: decision.error }
+        }
+        if (decision.action === 'sign_out_disabled') {
+          await supabase.auth.signOut()
+          await logAttempt(username, false)
+          return { error: decision.error }
+        }
+        setSession(data.session)
+        await applyProfile(decision.profile)
+        try {
+          await supabase.rpc('clear_login_failures')
+        } catch {
+          /* best effort */
+        }
+        await logAttempt(username, true)
+        return {}
+      } finally {
+        signingInRef.current = false
       }
-      await logAttempt(username, true)
-      return {}
     },
     [applyProfile],
   )
