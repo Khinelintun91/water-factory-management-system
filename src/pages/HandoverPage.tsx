@@ -5,6 +5,12 @@ import { friendlyError } from '../lib/friendlyError'
 import { dailySummaryCsv } from '../lib/exports'
 import { formatMMK, personName, todayYangon, type Role } from '../lib/types'
 import {
+  evaluateHandoverRow,
+  initialReceivedInput,
+  parseReceivedInput,
+  summarizeHandoverTotals,
+} from '../lib/handoverCount'
+import {
   Card,
   EmptyState,
   Field,
@@ -133,14 +139,13 @@ export default function HandoverPage() {
 
       const savedMap = new Map(handoverRows.map((h) => [h.employee_id, h]))
       setSaved(savedMap)
-      // Live behavior: the received input starts prefilled — the saved
-      // received amount when a handover already exists for the employee,
-      // otherwise the day's expected amount (OM edits it only when the
-      // cash actually handed over differs).
+      // Blind count (Package A, 2026-11-28): saved handovers keep their
+      // recorded received amount; unsaved rows start EMPTY so OM types the
+      // physically counted cash before seeing the expected figure.
       const recInit: Record<string, string> = {}
       for (const e of emps) {
         const h = savedMap.get(e.id)
-        recInit[e.id] = h ? String(h.received) : String(exp.get(e.id) ?? 0)
+        recInit[e.id] = initialReceivedInput(h ? Number(h.received) : null)
       }
       setReceivedIn(recInit)
       setNoteIn(Object.fromEntries(handoverRows.map((h) => [h.employee_id, h.note ?? ''])))
@@ -171,8 +176,8 @@ export default function HandoverPage() {
 
   async function onSave(emp: EmployeeLite) {
     if (!profile) return
-    const received = Number(receivedIn[emp.id] ?? '')
-    if (!Number.isFinite(received) || received < 0) {
+    const received = parseReceivedInput(receivedIn[emp.id] ?? '')
+    if (received === null) {
       setRowMsg((m) => ({ ...m, [emp.id]: 'လက်ခံရငွေ မှန်ကန်စွာ ထည့်ပါ' }))
       return
     }
@@ -198,16 +203,17 @@ export default function HandoverPage() {
     await load()
   }
 
-  const totals = useMemo(() => {
-    let exp = 0
-    let rec = 0
-    for (const e of employees) {
-      exp += expected.get(e.id) ?? 0
-      const v = Number(receivedIn[e.id] ?? '')
-      if (Number.isFinite(v)) rec += v
-    }
-    return { exp, rec, diff: rec - exp }
-  }, [employees, expected, receivedIn])
+  const totals = useMemo(
+    () =>
+      summarizeHandoverTotals(
+        employees.map((e) => ({
+          rawInput: receivedIn[e.id] ?? '',
+          expected: expected.get(e.id) ?? 0,
+          isSaved: saved.has(e.id),
+        })),
+      ),
+    [employees, expected, receivedIn, saved],
+  )
 
   function diffBadge(diff: number) {
     if (diff === 0)
@@ -263,29 +269,40 @@ export default function HandoverPage() {
       ) : (
         <>
           <div className="grid grid-cols-3 gap-2.5">
-            <StatCard label="မျှော်မှန်း စုစုပေါင်း" value={formatMMK(totals.exp)} />
+            <StatCard
+              label="မျှော်မှန်း စုစုပေါင်း"
+              value={totals.counted > 0 ? formatMMK(totals.exp) : '—'}
+            />
             <StatCard label="လက်ခံ စုစုပေါင်း" value={formatMMK(totals.rec)} />
-            <StatCard label="ကွာခြားချက်" value={diffBadge(totals.diff)} />
+            <StatCard
+              label="ကွာခြားချက်"
+              value={totals.counted > 0 ? diffBadge(totals.diff) : '—'}
+            />
           </div>
 
           <div className="space-y-3 lg:grid lg:grid-cols-2 lg:items-start lg:gap-4 lg:space-y-0">
             {employees.map((emp) => {
               const exp = expected.get(emp.id) ?? 0
-              const receivedVal = Number(receivedIn[emp.id] ?? '')
-              const diff = Number.isFinite(receivedVal) ? receivedVal - exp : 0
               const savedRow = saved.get(emp.id)
+              const rowState = evaluateHandoverRow(
+                receivedIn[emp.id] ?? '',
+                exp,
+                savedRow !== undefined,
+              )
               const expectedChanged = savedRow !== undefined && Number(savedRow.expected) !== exp
               return (
                 <Card key={emp.id}>
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-semibold">{emp.name}</div>
-                    {diffBadge(diff)}
+                    {rowState.diff !== null ? (
+                      diffBadge(rowState.diff)
+                    ) : (
+                      <span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-medium text-stone-600 dark:bg-neutral-800 dark:text-neutral-300">
+                        မစစ်ရသေး
+                      </span>
+                    )}
                   </div>
-                  <div className="mt-3 grid grid-cols-2 items-end gap-2.5">
-                    <div>
-                      <span className="text-sm text-stone-500 dark:text-neutral-400">မျှော်မှန်းငွေ</span>
-                      <div className="mt-1 font-semibold tabular-nums">{formatMMK(exp)}</div>
-                    </div>
+                  <div className="mt-3">
                     <Field label="လက်ခံရငွေ (ကျပ်)">
                       <input
                         type="number"
@@ -294,10 +311,34 @@ export default function HandoverPage() {
                         value={receivedIn[emp.id] ?? ''}
                         onChange={(e) => setReceivedIn((m) => ({ ...m, [emp.id]: e.target.value }))}
                         className={inputCls}
-                        placeholder="0"
+                        placeholder="ရေတွက်ရငွေ ထည့်ပါ"
                       />
                     </Field>
                   </div>
+                  {rowState.revealed && (
+                    <div
+                      className={`mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm ${
+                        rowState.status === 'short'
+                          ? 'border border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'
+                          : rowState.status === 'over'
+                            ? 'border border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200'
+                            : 'bg-stone-50 text-stone-700 dark:bg-neutral-800/60 dark:text-neutral-200'
+                      }`}
+                    >
+                      <span className="tabular-nums">
+                        မျှော်မှန်းငွေ: <span className="font-semibold">{formatMMK(exp)}</span>
+                      </span>
+                      {rowState.diff !== null && (
+                        <span className="font-semibold tabular-nums">
+                          {rowState.diff === 0
+                            ? 'ကိုက်ညီပါတယ်'
+                            : rowState.diff < 0
+                              ? `လိုနေပါတယ် ${formatMMK(-rowState.diff)}`
+                              : `ပိုနေပါတယ် ${formatMMK(rowState.diff)}`}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <input
                     type="text"
                     value={noteIn[emp.id] ?? ''}

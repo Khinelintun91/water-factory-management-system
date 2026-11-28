@@ -1256,4 +1256,16 @@ export const EN: Record<string, string> = {
   "ဗူး ပြန်ယူ": "bottles collected",
   "ဗူး ပြန်အပ်ပြီး": "bottles returned",
   "ပြန်အပ်": "Returned",
+
+  // Package A — blind handover count & same-day detection (migration 0050)
+  "မစစ်ရသေး": "Not counted",
+  "ရေတွက်ရငွေ ထည့်ပါ": "Enter counted cash",
+  "လိုနေပါတယ်": "Short",
+  "ပိုနေပါတယ်": "Over",
+  "လက်ခံသူအလိုက်": "By receiver",
+  "သီးသန့်ငွေကောက်": "Standalone payments",
+  "ငွေအပ်ကွာဟ": "Handover mismatch",
+  "ထပ်တူမှတ်တမ်း သံသယ": "Possible duplicate entry",
+  "ကိုင်ထားဗူး အနုတ်ဖြစ်နေသည်": "Negative held bottles",
+  "ပို့သည့်ဗူး အလွန်များနေသည်": "Unusually high delivery quantity",
 };
